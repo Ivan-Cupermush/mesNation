@@ -4,53 +4,6 @@
     "type": "split",
     "children": [
       {
-        "id": "cf440dc67233f813",
-        "type": "tabs",
-        "children": [
-          {
-            "id": "d1cf853569f7a10b",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "хотелки.md",
-                "mode": "source",
-                "source": true
-              },
-              "icon": "lucide-file",
-              "title": "хотелки"
-            }
-          },
-          {
-            "id": "bba83da6f821c05b",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "хотелки.md",
-                "mode": "source",
-                "source": true
-              },
-              "icon": "lucide-file",
-              "title": "хотелки"
-            }
-          },
-          {
-            "id": "95771550788c3e5e",
-            "type": "leaf",
-            "state": {
-              "type": "release-notes",
-              "state": {
-                "currentVersion": "1.12.7"
-              },
-              "icon": "lucide-book-up",
-              "title": "примечания к выпуску 1.12.7"
-            }
-          }
-        ],
-        "currentTab": 1
-      },
-      {
         "id": "0a7b6ab3be941c18",
         "type": "tabs",
         "children": [
@@ -230,7 +183,7 @@
       "bases:Создать новую базу": false
     }
   },
-  "active": "bba83da6f821c05b",
+  "active": "47b1f6bde3ba44c9",
   "lastOpenFiles": [
     "хотелки.md",
     "README.md",

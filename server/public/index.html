@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>mesNation Chat MVP</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        #messages { border:1px solid #ccc; height:300px; overflow-y:scroll; margin-bottom:10px; padding:5px; }
+        .msg { margin:5px 0; } .msg span { font-weight:bold; }
+    </style>
+</head>
+<body>
+    <h2>mesNation Chat (test)</h2>
+    <input id="chatId" value="general" placeholder="chat id"><br>
+    <input id="senderId" value="1" placeholder="sender id"><br>
+    <input id="text" placeholder="Сообщение..."><button onclick="send()">Отправить</button><br><br>
+    <input type="file" id="fileInput"><button onclick="uploadFile()">Отправить файл</button>
+    <hr>
+    <div id="messages"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const chatId = document.getElementById('chatId').value;
+        socket.emit('join_chat', chatId);
+
+        socket.on('new_message', (msg) => {
+            const div = document.getElementById('messages');
+            div.innerHTML += `<div class="msg"><span>User ${msg.sender_id}:</span> ${msg.text || ''} ${msg.file_url ? `<a href="${msg.file_url}">${msg.file_name}</a>` : ''}</div>`;
+        });
+
+        function send() {
+            const text = document.getElementById('text').value;
+            const senderId = document.getElementById('senderId').value;
+            socket.emit('send_message', { chatId, senderId: parseInt(senderId), text });
+            document.getElementById('text').value = '';
+        }
+
+        async function uploadFile() {
+            const formData = new FormData();
+            formData.append('file', document.getElementById('fileInput').files[0]);
+            formData.append('chatId', chatId);
+            formData.append('senderId', document.getElementById('senderId').value);
+            await fetch('/api/upload', { method: 'POST', body: formData });
+        }
+    </script>
+</body>
+</html>

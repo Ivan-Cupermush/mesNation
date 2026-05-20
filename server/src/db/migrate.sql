@@ -68,3 +68,30 @@ CREATE TABLE IF NOT EXISTS chat_members (
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (chat_id, user_id)
 );
+
+-- ========== Дополнения для расширенных чатов ==========
+
+-- 1. Супергруппы
+ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_supergroup BOOLEAN DEFAULT false;
+
+-- 2. Топики для супергрупп
+CREATE TABLE IF NOT EXISTS topics (
+    id SERIAL PRIMARY KEY,
+    chat_id INT REFERENCES chats(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Ответы на сообщения
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_message_id INT REFERENCES messages(id) ON DELETE SET NULL;
+
+-- 4. Редактирование сообщений
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+-- 5. Удаление сообщений
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_user_ids INT[] DEFAULT '{}';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT false;
+
+-- 6. Привязка сообщения к топику
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS topic_id INT REFERENCES topics(id) ON DELETE SET NULL;

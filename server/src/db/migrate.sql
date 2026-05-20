@@ -43,3 +43,13 @@ CREATE TABLE IF NOT EXISTS messages (
     file_name TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Добавляем столбцы для регистрации (если их ещё нет)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id INT REFERENCES roles(id);
+-- Заполним role_id по текстовому полю role (для существующих записей)
+UPDATE users SET role_id = (SELECT id FROM roles WHERE roles.name = users.role) WHERE role_id IS NULL;
+-- Снимем ограничение NOT NULL с role (оно несовместимо с добавлением новых пользователей без значения)
+ALTER TABLE users ALTER COLUMN role DROP NOT NULL;

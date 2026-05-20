@@ -80,7 +80,7 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     // Создаём пользователя (роль по умолчанию 'employee')
     const result = await pool.query(
       `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-       VALUES ($1, $2, $3, $4, (SELECT id FROM roles WHERE name = 'employee'), $1)
+       VALUES ($1, $2, $3, $4, 'employee', $1)
        RETURNING id, username, email, display_name, avatar_url`,
       [username, email, password_hash, display_name || username]
     );

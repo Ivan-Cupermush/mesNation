@@ -53,3 +53,18 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id INT REFERENCES roles(id);
 UPDATE users SET role_id = (SELECT id FROM roles WHERE roles.name = users.role) WHERE role_id IS NULL;
 -- Снимем ограничение NOT NULL с role (оно несовместимо с добавлением новых пользователей без значения)
 ALTER TABLE users ALTER COLUMN role DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS chats (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    type VARCHAR(20) NOT NULL DEFAULT 'group' CHECK (type IN ('private', 'group')),
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id INT REFERENCES chats(id) ON DELETE CASCADE,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (chat_id, user_id)
+);

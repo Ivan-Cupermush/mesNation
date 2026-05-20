@@ -1,3 +1,4 @@
+import chatsRouter from './routes/chats';
 import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -22,6 +23,7 @@ const upload = multer({ dest: 'uploads/' });
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/api/chats', authenticate, chatsRouter);
 
 // ---------- Вспомогательный middleware для проверки JWT ----------
 interface AuthRequest extends Request {

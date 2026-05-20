@@ -179,25 +179,104 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
   }
 });
 
+// ---------- Список пользователей ----------
+app.get("/api/users", authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, username, display_name, avatar_url FROM users ORDER BY username"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Ошибка получения пользователей:", err);
+    res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// ---------- Редактирование сообщения ----------
+app.patch("/api/messages/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id);
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: "Текст не может быть пустым" });
+    
+    const msg = await pool.query("SELECT * FROM messages WHERE id = $1", [messageId]);
+    if (msg.rows.length === 0) return res.status(404).json({ error: "Сообщение не найдено" });
+    if (msg.rows[0].sender_id !== req.userId) return res.status(403).json({ error: "Только автор может редактировать" });
+    
+    const result = await pool.query(
+      "UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2 RETURNING *",
+      [text, messageId]
+    );
+    const updated = result.rows[0];
+    io.to(updated.chat_id).emit("message_edited", updated);
+    res.json(updated);
+  } catch (err) {
+    console.error("Ошибка редактирования:", err);
+    res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// ---------- Удаление сообщения ----------
+app.delete("/api/messages/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id);
+    const { scope } = req.query; // "me" или "all"
+    
+    const msg = await pool.query("SELECT * FROM messages WHERE id = $1", [messageId]);
+    if (msg.rows.length === 0) return res.status(404).json({ error: "Сообщение не найдено" });
+    const message = msg.rows[0];
+    
+    if (scope === "all") {
+      const chat = await pool.query("SELECT created_by FROM chats WHERE id = $1", [message.chat_id]);
+      if (message.sender_id !== req.userId && chat.rows[0]?.created_by !== req.userId) {
+        return res.status(403).json({ error: "Нет прав на удаление для всех" });
+      }
+      await pool.query("UPDATE messages SET deleted_for_all = true WHERE id = $1", [messageId]);
+      io.to(message.chat_id).emit("message_deleted", { id: messageId, chat_id: message.chat_id });
+      return res.json({ success: true });
+    }
+    
+    // Удаление "для себя"
+    await pool.query(
+      "UPDATE messages SET deleted_for_user_ids = array_append(deleted_for_user_ids, $1) WHERE id = $2",
+      [req.userId, messageId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Ошибка удаления:", err);
+    res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
 // ---------- WebSocket чат ----------
 io.on('connection', (socket) => {
   console.log('+ user connected:', socket.id);
 
   socket.on('join_chat', (chatId: string) => socket.join(chatId));
 
-  socket.on('send_message', async (data: { chatId: string; senderId: number; text: string }) => {
-    try {
-      const { chatId, senderId, text } = data;
-      const result = await pool.query(
-        `INSERT INTO messages (chat_id, sender_id, text) VALUES ($1, $2, $3) RETURNING *`,
-        [chatId, senderId || 0, text]
-      );
-      const msg = result.rows[0];
-      io.to(chatId).emit('new_message', msg);
-    } catch (err) {
-      console.error(err);
+  socket.on('send_message', async (data: { chatId: string; senderId: number; text: string; reply_to_message_id?: number; topic_id?: number }) => {
+  try {
+    const { chatId, senderId, text, reply_to_message_id, topic_id } = data;
+    
+    // Валидация reply_to (если передан)
+    if (reply_to_message_id) {
+      const replyMsg = await pool.query('SELECT id, chat_id FROM messages WHERE id = $1', [reply_to_message_id]);
+      if (replyMsg.rows.length === 0 || replyMsg.rows[0].chat_id !== chatId) {
+        return; // игнорируем некорректную ссылку
+      }
     }
-  });
+    
+    const result = await pool.query(
+      `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [chatId, senderId || 0, text, reply_to_message_id || null, topic_id || null]
+    );
+    const msg = result.rows[0];
+    io.to(chatId).emit('new_message', msg);
+  } catch (err) {
+    console.error(err);
+  }
+});
 
   socket.on('disconnect', () => console.log('- user disconnected:', socket.id));
 });

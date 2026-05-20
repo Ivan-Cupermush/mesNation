@@ -60,12 +60,10 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { username, email, password, display_name } = req.body;
 
-    // Простейшая валидация
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'Имя пользователя, email и пароль обязательны' });
     }
 
-    // Проверка уникальности
     const existing = await pool.query(
       'SELECT id FROM users WHERE email = $1 OR username = $2',
       [email, username]
@@ -74,20 +72,16 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Пользователь с таким email или именем уже существует' });
     }
 
-    // Хешируем пароль
     const password_hash = await bcrypt.hash(password, 10);
 
-    // Создаём пользователя (роль по умолчанию 'employee')
     const result = await pool.query(
       `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-       VALUES ($1, $2, $3, $4, 'employee', $1)
+       VALUES ($1, $2, $3, $4, (SELECT id FROM roles WHERE name = 'employee'), $5)
        RETURNING id, username, email, display_name, avatar_url`,
-      [username, email, password_hash, display_name || username]
+      [username, email, password_hash, display_name || username, username]
     );
 
     const user = result.rows[0];
-
-    // Генерируем JWT
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({ token, user });
@@ -106,7 +100,6 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Укажите имя пользователя (или email) и пароль' });
     }
 
-    // Ищем пользователя
     const result = await pool.query(
       'SELECT id, username, email, password_hash, display_name, avatar_url FROM users WHERE username = $1 OR email = $2',
       [username || '', email || '']
@@ -116,8 +109,6 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     }
 
     const user = result.rows[0];
-
-    // Проверяем пароль
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });

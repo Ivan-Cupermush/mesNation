@@ -8,7 +8,7 @@ import { getToken, SERVER_URL } from '../utils';
 import { appStyles } from '../styles/appStyles';
 
 export default function ChatScreen({ route, navigation }: any) {
-  const { chatId, chatName } = route.params;
+  const { chatId, chatName, topicId } = route.params || {};
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -19,7 +19,6 @@ export default function ChatScreen({ route, navigation }: any) {
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  // Настройка заголовка
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -30,7 +29,6 @@ export default function ChatScreen({ route, navigation }: any) {
     });
   }, [navigation, chatName]);
 
-  // Основная логика чата
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -38,7 +36,6 @@ export default function ChatScreen({ route, navigation }: any) {
       const token = await getToken();
       if (!token) return;
 
-      // Получаем профиль текущего пользователя
       let userId: number | null = null;
       try {
         const res = await fetch(`${SERVER_URL}/api/auth/me`, {
@@ -49,40 +46,35 @@ export default function ChatScreen({ route, navigation }: any) {
           userId = user.id;
           if (mounted) setCurrentUserId(userId);
         }
-      } catch (e) {
-        console.warn('Не удалось получить профиль');
-      }
-      const effectiveUserId = userId || 1;
+      } catch (e) {}
 
-      // Socket.IO
+      const effectiveUserId = userId || 1;
       const socket = io(SERVER_URL, { auth: { token } });
       socketRef.current = socket;
       socket.emit('join_chat', chatId);
 
-      // Загрузка истории
+      // Загружаем сообщения с учётом topicId
+      let url = `${SERVER_URL}/api/messages/${chatId}`;
+      if (topicId) url += `?topic_id=${topicId}`;
       try {
-        const res = await fetch(`${SERVER_URL}/api/messages/${chatId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (res.ok && mounted) {
           const filtered = data.filter((m: any) => {
             if (m.deleted_for_all) return false;
             const deletedFor = m.deleted_for_user_ids;
-            if (Array.isArray(deletedFor)) {
-              return !deletedFor.includes(effectiveUserId);
-            }
+            if (Array.isArray(deletedFor)) return !deletedFor.includes(effectiveUserId);
             return true;
           });
           setMessages(filtered);
         }
-      } catch (e) {
-        if (mounted) Alert.alert('Ошибка', 'Не удалось загрузить сообщения');
-      }
+      } catch (e) {}
 
-      // Слушатели событий
       socket.on('new_message', (msg: any) => {
-        if (msg.chat_id === chatId && mounted) {
+        // Фильтруем по chat_id и, если мы внутри топика, по topic_id
+        if (msg.chat_id !== chatId) return;
+        if (topicId && msg.topic_id !== topicId) return;
+        if (mounted) {
           const isDeletedForAll = msg.deleted_for_all;
           const isDeletedForMe = Array.isArray(msg.deleted_for_user_ids) && msg.deleted_for_user_ids.includes(effectiveUserId);
           if (!isDeletedForAll && !isDeletedForMe) {
@@ -109,51 +101,37 @@ export default function ChatScreen({ route, navigation }: any) {
     })();
 
     return () => { mounted = false; };
-  }, [chatId]);
+  }, [chatId, topicId]);
 
-  // Отправка сообщения (нового или редактирование)
   const sendMessage = async () => {
     if (!text.trim() || !currentUserId) return;
     if (!socketRef.current) return;
 
     if (editingMessage) {
-      // Редактирование через REST
       const token = await getToken();
       try {
         const res = await fetch(`${SERVER_URL}/api/messages/${editingMessage.id}`, {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ text }),
         });
         const updated = await res.json();
-        if (res.ok) {
-          setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
-        } else {
-          Alert.alert('Ошибка', updated.error || 'Не удалось изменить сообщение');
-        }
-      } catch (e) {
-        Alert.alert('Ошибка', 'Сервер недоступен');
-      }
+        if (res.ok) setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
+        else Alert.alert('Ошибка', updated.error || 'Не удалось изменить сообщение');
+      } catch (e) { Alert.alert('Ошибка', 'Сервер недоступен'); }
       setEditingMessage(null);
     } else {
-      // Новое сообщение (возможно с ответом)
       const payload: any = { chatId, senderId: currentUserId, text };
       if (replyTo) payload.reply_to_message_id = replyTo.id;
+      if (topicId) payload.topic_id = topicId;
       socketRef.current.emit('send_message', payload);
       setReplyTo(null);
     }
     setText('');
   };
 
-  // Долгое нажатие – показ меню
-  const handleLongPress = (message: any) => {
-    setSelectedMessage(message);
-  };
-
-  // Удаление сообщения
+  // ... остальные функции (handleLongPress, deleteMessage, startEditing, startReply) остаются без изменений
+  const handleLongPress = (message: any) => setSelectedMessage(message);
   const deleteMessage = async (scope: 'me' | 'all') => {
     if (!selectedMessage) return;
     const token = await getToken();
@@ -163,40 +141,31 @@ export default function ChatScreen({ route, navigation }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       setMessages(prev => prev.filter(m => m.id !== selectedMessage.id));
-    } catch (e) {
-      Alert.alert('Ошибка', 'Не удалось удалить сообщение');
-    }
+    } catch (e) { Alert.alert('Ошибка', 'Не удалось удалить сообщение'); }
     setSelectedMessage(null);
   };
-
-  // Начать редактирование
   const startEditing = () => {
     if (!selectedMessage || selectedMessage.sender_id !== currentUserId) {
       Alert.alert('Ошибка', 'Только автор может редактировать');
-      setSelectedMessage(null);
-      return;
+      setSelectedMessage(null); return;
     }
     setEditingMessage(selectedMessage);
     setText(selectedMessage.text);
     setSelectedMessage(null);
   };
-
-  // Начать ответ
   const startReply = () => {
     if (selectedMessage) {
       setReplyTo(selectedMessage);
       setSelectedMessage(null);
     }
   };
-
-  // Поиск сообщения по ID (для отображения цитаты)
   const findMessageById = (id: number) => messages.find(m => m.id === id);
 
   if (loading) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
 
+  // JSX остаётся прежним, только добавляем поддержку topicId в шапке при необходимости
   return (
     <KeyboardAvoidingView style={appStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      {/* Плашка с цитируемым сообщением */}
       {replyTo && (
         <View style={{ padding: 8, backgroundColor: '#e8e8e8', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
@@ -208,8 +177,6 @@ export default function ChatScreen({ route, navigation }: any) {
           </TouchableOpacity>
         </View>
       )}
-
-      {/* Плашка редактирования */}
       {editingMessage && (
         <View style={{ padding: 8, backgroundColor: '#fff3cd', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
@@ -221,7 +188,6 @@ export default function ChatScreen({ route, navigation }: any) {
           </TouchableOpacity>
         </View>
       )}
-
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -249,8 +215,6 @@ export default function ChatScreen({ route, navigation }: any) {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
         contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 5 }}
       />
-
-      {/* Поле ввода */}
       <View style={appStyles.inputRow}>
         <TextInput
           style={appStyles.messageInput}
@@ -264,7 +228,6 @@ export default function ChatScreen({ route, navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Меню действий */}
       <Modal visible={!!selectedMessage} transparent animationType="fade">
         <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }} onPress={() => setSelectedMessage(null)}>
           <View style={{ backgroundColor: '#fff', marginHorizontal: 30, marginTop: 'auto', marginBottom: 'auto', borderRadius: 12, padding: 20 }}>

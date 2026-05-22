@@ -64,7 +64,7 @@ export default function ChatListScreen({ navigation, onLogout }: { navigation: a
           return (
             <TouchableOpacity
               style={appStyles.chatItem}
-              onPress={() => navigation.navigate('Chat', { chatId: item.id.toString(), chatName: displayName })}
+              onPress={() => item.is_supergroup ? navigation.navigate('TopicList', { chatId: item.id.toString(), chatName: displayName }) : navigation.navigate('Chat', { chatId: item.id.toString(), chatName: displayName })}
             >
               <View style={appStyles.chatItemContent}>
                 <View style={appStyles.avatarPlaceholder}><Text style={appStyles.avatarText}>{avatarLetter}</Text></View>

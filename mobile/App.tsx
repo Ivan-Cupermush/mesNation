@@ -7,13 +7,15 @@ import AuthScreen from './src/screens/AuthScreen';
 import ChatListScreen from './src/screens/ChatListScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import CreateChatScreen from './src/screens/CreateChatScreen';
+import TopicListScreen from './src/screens/TopicListScreen';
 import { appStyles } from './src/styles/appStyles';
 
 type RootStackParamList = {
   Auth: undefined;
   ChatList: undefined;
-  Chat: { chatId: string; chatName: string };
+  Chat: { chatId: string; chatName: string; topicId?: number | null };
   CreateChat: undefined;
+  TopicList: { chatId: string; chatName: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -36,7 +38,6 @@ export default function App() {
             return;
           }
         } catch (e) {}
-        // токен невалиден – удалим файл
         try {
           const RNFS = require('react-native-fs');
           await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
@@ -76,6 +77,7 @@ export default function App() {
             </Stack.Screen>
             <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Чат' }} />
             <Stack.Screen name="CreateChat" component={CreateChatScreen} options={{ title: 'Новый чат' }} />
+            <Stack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
           </>
         ) : (
           <Stack.Screen name="Auth" options={{ headerShown: false }}>

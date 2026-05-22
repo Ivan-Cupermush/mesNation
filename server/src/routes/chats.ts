@@ -10,7 +10,7 @@ interface AuthRequest extends Request {
 
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, type, user_ids } = req.body;
+    const { name, type, user_ids, is_supergroup } = req.body;
     const userId = req.userId;
 
     if (!type || !['private', 'group'].includes(type)) {
@@ -46,8 +46,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     }
 
     const result = await pool.query(
-      'INSERT INTO chats (name, type, created_by) VALUES ($1, $2, $3) RETURNING *',
-      [name || null, type, userId]
+      'INSERT INTO chats (name, type, created_by, is_supergroup) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name || null, type, userId, is_supergroup || false]
     );
     const chat = result.rows[0];
 
@@ -70,9 +70,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
     
-    // 1. Получаем список чатов
     const chatResult = await pool.query(
-      `SELECT c.id, c.name, c.type, c.created_by, c.created_at
+      `SELECT c.id, c.name, c.type, c.is_supergroup, c.created_by, c.created_at
        FROM chats c
        JOIN chat_members cm ON c.id = cm.chat_id
        WHERE cm.user_id = $1
@@ -82,7 +81,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     
     const chats = chatResult.rows;
     
-    // 2. Для каждого чата получаем участников и последнее сообщение
     for (const chat of chats) {
       const membersResult = await pool.query(
         `SELECT u.id, u.username, u.display_name
@@ -94,7 +92,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       chat.members = membersResult.rows;
       
       const msgResult = await pool.query(
-        'SELECT id, text, sender_id, created_at FROM messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
+        'SELECT id, text, sender_id, created_at FROM messages WHERE chat_id = $1 AND (topic_id IS NULL OR topic_id = 0) ORDER BY created_at DESC LIMIT 1',
         [chat.id]
       );
       chat.last_message = msgResult.rows[0] || null;

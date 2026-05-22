@@ -143,13 +143,20 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res: Response) =>
 });
 
 // ---------- История сообщений ----------
-app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
+app.get("/api/messages/:chatId", async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
-    const result = await pool.query(
-      'SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC',
-      [chatId]
-    );
+    const { topic_id } = req.query;
+    let query = 'SELECT * FROM messages WHERE chat_id = $1';
+    const params: any[] = [chatId];
+    if (topic_id) {
+      query += ' AND topic_id = $2';
+      params.push(topic_id);
+    } else {
+      query += ' AND topic_id IS NULL';
+    }
+    query += ' ORDER BY created_at ASC';
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -248,6 +255,71 @@ app.delete("/api/messages/:id", authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
+// ---------- Топики супергрупп ----------
+
+// Создание топика
+app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id);
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ error: 'Название топика обязательно' });
+
+    // Проверяем, что чат существует и это супергруппа
+    const chat = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chat.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    if (!chat.rows[0].is_supergroup) return res.status(400).json({ error: 'Топики доступны только в супергруппах' });
+
+    // Проверяем, что пользователь — создатель чата
+    if (chat.rows[0].created_by !== req.userId) {
+      return res.status(403).json({ error: 'Только создатель супергруппы может создавать топики' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO topics (chat_id, title, created_by) VALUES ($1, $2, $3) RETURNING *',
+      [chatId, title, req.userId]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Ошибка создания топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Получение списка топиков чата
+app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id);
+    const result = await pool.query(
+      'SELECT * FROM topics WHERE chat_id = $1 ORDER BY created_at',
+      [chatId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ошибка получения топиков:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Удаление топика (только создатель супергруппы)
+app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const topicId = parseInt(req.params.id);
+    const topic = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
+    if (topic.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
+
+    const chat = await pool.query('SELECT created_by FROM chats WHERE id = $1', [topic.rows[0].chat_id]);
+    if (chat.rows[0].created_by !== req.userId) {
+      return res.status(403).json({ error: 'Только создатель супергруппы может удалять топики' });
+    }
+
+    await pool.query('DELETE FROM topics WHERE id = $1', [topicId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Ошибка удаления топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 // ---------- WebSocket чат ----------
 io.on('connection', (socket) => {
   console.log('+ user connected:', socket.id);
@@ -258,14 +330,11 @@ io.on('connection', (socket) => {
   try {
     const { chatId, senderId, text, reply_to_message_id, topic_id } = data;
     
-    // Валидация reply_to (если передан)
     if (reply_to_message_id) {
       const replyMsg = await pool.query('SELECT id, chat_id FROM messages WHERE id = $1', [reply_to_message_id]);
-      if (replyMsg.rows.length === 0 || replyMsg.rows[0].chat_id !== chatId) {
-        return; // игнорируем некорректную ссылку
-      }
+      if (replyMsg.rows.length === 0 || replyMsg.rows[0].chat_id !== chatId) return;
     }
-    
+
     const result = await pool.query(
       `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,

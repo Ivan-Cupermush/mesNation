@@ -95,3 +95,4 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT fa
 
 -- 6. Привязка сообщения к топику
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS topic_id INT REFERENCES topics(id) ON DELETE SET NULL;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS thumb_url TEXT;

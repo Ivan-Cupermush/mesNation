@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, KeyboardAvoidingView,
   Platform, TouchableOpacity, ActivityIndicator, Alert, Modal,
+  Image, Linking,
 } from 'react-native';
 import io from 'socket.io-client';
+import { pick } from '@react-native-documents/picker';
 import { getToken, SERVER_URL } from '../utils';
 import { appStyles } from '../styles/appStyles';
 
@@ -16,6 +18,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
   const [replyTo, setReplyTo] = useState<any>(null);
   const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [uploading, setUploading] = useState(false);
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
 
@@ -53,7 +56,6 @@ export default function ChatScreen({ route, navigation }: any) {
       socketRef.current = socket;
       socket.emit('join_chat', chatId);
 
-      // Загружаем сообщения с учётом topicId
       let url = `${SERVER_URL}/api/messages/${chatId}`;
       if (topicId) url += `?topic_id=${topicId}`;
       try {
@@ -71,7 +73,6 @@ export default function ChatScreen({ route, navigation }: any) {
       } catch (e) {}
 
       socket.on('new_message', (msg: any) => {
-        // Фильтруем по chat_id и, если мы внутри топика, по topic_id
         if (msg.chat_id !== chatId) return;
         if (topicId && msg.topic_id !== topicId) return;
         if (mounted) {
@@ -130,7 +131,39 @@ export default function ChatScreen({ route, navigation }: any) {
     setText('');
   };
 
-  // ... остальные функции (handleLongPress, deleteMessage, startEditing, startReply) остаются без изменений
+  const pickAndUploadFile = async () => {
+    try {
+      const [res] = await pick({ allowMultiSelection: false });
+      if (!res) return;
+
+      setUploading(true);
+      const token = await getToken();
+      const formData = new FormData();
+      formData.append('file', {
+        uri: res.uri,
+        type: res.type || 'application/octet-stream',
+        name: res.name || 'file',
+      } as any);
+      formData.append('chatId', chatId);
+      formData.append('senderId', String(currentUserId));
+
+      const response = await fetch(`${SERVER_URL}/api/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        Alert.alert('Ошибка', data.error || 'Не удалось загрузить файл');
+      }
+    } catch (err: any) {
+      if (err?.code === 'DOCUMENT_PICKER_CANCELED') return;
+      Alert.alert('Ошибка', 'Не удалось выбрать файл');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleLongPress = (message: any) => setSelectedMessage(message);
   const deleteMessage = async (scope: 'me' | 'all') => {
     if (!selectedMessage) return;
@@ -163,7 +196,6 @@ export default function ChatScreen({ route, navigation }: any) {
 
   if (loading) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
 
-  // JSX остаётся прежним, только добавляем поддержку topicId в шапке при необходимости
   return (
     <KeyboardAvoidingView style={appStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {replyTo && (
@@ -204,10 +236,29 @@ export default function ChatScreen({ route, navigation }: any) {
                     <Text style={{ fontSize: 13 }}>{quotedMessage.text}</Text>
                   </View>
                 )}
-                <Text style={appStyles.sender}>{item.sender_id}:</Text>
-                <Text style={appStyles.messageText}>{item.text}</Text>
-                {item.edited_at && <Text style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>изменено</Text>}
-                {item.file_url && <Text style={appStyles.file}>📎 {item.file_name}</Text>}
+                {item.text ? (
+                  <>
+                    <Text style={appStyles.sender}>{item.sender_id}:</Text>
+                    <Text style={appStyles.messageText}>{item.text}</Text>
+                    {item.edited_at && <Text style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>изменено</Text>}
+                  </>
+                ) : null}
+                {item.file_url && (
+                  <TouchableOpacity onPress={() => Linking.openURL(SERVER_URL + item.file_url)}>
+                    {item.thumb_url ? (
+                      <Image
+                        source={{ uri: SERVER_URL + item.thumb_url }}
+                        style={{ width: 200, height: 150, borderRadius: 8 }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 4 }}>
+                        <Text style={{ fontSize: 20 }}>📄</Text>
+                        <Text style={[appStyles.messageText, { marginLeft: 4 }]}>{item.file_name}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -216,6 +267,17 @@ export default function ChatScreen({ route, navigation }: any) {
         contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 5 }}
       />
       <View style={appStyles.inputRow}>
+        <TouchableOpacity
+          style={[appStyles.sendButton, { backgroundColor: '#6c757d', marginRight: 5 }]}
+          onPress={pickAndUploadFile}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <Text style={appStyles.sendButtonText}>📎</Text>
+          )}
+        </TouchableOpacity>
         <TextInput
           style={appStyles.messageInput}
           value={text}

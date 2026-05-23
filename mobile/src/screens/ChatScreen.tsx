@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, FlatList, KeyboardAvoidingView,
-  Platform, TouchableOpacity, ActivityIndicator, Alert, Modal,
-  Image, Linking,
+  Platform, TouchableOpacity, ActivityIndicator, Alert, Modal, Image, Linking,
 } from 'react-native';
 import io from 'socket.io-client';
-import { pick } from '@react-native-documents/picker';
 import { getToken, SERVER_URL } from '../utils';
 import { appStyles } from '../styles/appStyles';
+import { pick } from '@react-native-documents/picker';
 
 export default function ChatScreen({ route, navigation }: any) {
   const { chatId, chatName, topicId } = route.params || {};
@@ -104,6 +103,43 @@ export default function ChatScreen({ route, navigation }: any) {
     return () => { mounted = false; };
   }, [chatId, topicId]);
 
+  const pickAndSendFile = async () => {
+    try {
+      const [result] = await pick({ mode: 'import' });
+      if (!result) return;
+
+      setUploading(true);
+      const token = await getToken();
+      const formData = new FormData();
+      formData.append('file', {
+        uri: result.uri,
+        type: result.type || 'application/octet-stream',
+        name: result.name || 'file',
+      });
+      formData.append('chatId', chatId);
+      formData.append('senderId', currentUserId?.toString() || '1');
+      if (topicId) formData.append('topicId', topicId.toString());
+
+      const res = await fetch(`${SERVER_URL}/api/upload`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        Alert.alert('Ошибка', data.error || 'Не удалось загрузить файл');
+      }
+    } catch (err: any) {
+      if (err?.code !== 'DOCUMENT_PICKER_CANCELED') {
+        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!text.trim() || !currentUserId) return;
     if (!socketRef.current) return;
@@ -129,39 +165,6 @@ export default function ChatScreen({ route, navigation }: any) {
       setReplyTo(null);
     }
     setText('');
-  };
-
-  const pickAndUploadFile = async () => {
-    try {
-      const [res] = await pick({ allowMultiSelection: false });
-      if (!res) return;
-
-      setUploading(true);
-      const token = await getToken();
-      const formData = new FormData();
-      formData.append('file', {
-        uri: res.uri,
-        type: res.type || 'application/octet-stream',
-        name: res.name || 'file',
-      } as any);
-      formData.append('chatId', chatId);
-      formData.append('senderId', String(currentUserId));
-
-      const response = await fetch(`${SERVER_URL}/api/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        Alert.alert('Ошибка', data.error || 'Не удалось загрузить файл');
-      }
-    } catch (err: any) {
-      if (err?.code === 'DOCUMENT_PICKER_CANCELED') return;
-      Alert.alert('Ошибка', 'Не удалось выбрать файл');
-    } finally {
-      setUploading(false);
-    }
   };
 
   const handleLongPress = (message: any) => setSelectedMessage(message);
@@ -236,29 +239,21 @@ export default function ChatScreen({ route, navigation }: any) {
                     <Text style={{ fontSize: 13 }}>{quotedMessage.text}</Text>
                   </View>
                 )}
-                {item.text ? (
-                  <>
-                    <Text style={appStyles.sender}>{item.sender_id}:</Text>
-                    <Text style={appStyles.messageText}>{item.text}</Text>
-                    {item.edited_at && <Text style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>изменено</Text>}
-                  </>
-                ) : null}
+                <Text style={appStyles.sender}>{item.sender_id}:</Text>
+                <Text style={appStyles.messageText}>{item.text}</Text>
                 {item.file_url && (
                   <TouchableOpacity onPress={() => Linking.openURL(SERVER_URL + item.file_url)}>
                     {item.thumb_url ? (
-                      <Image
-                        source={{ uri: SERVER_URL + item.thumb_url }}
-                        style={{ width: 200, height: 150, borderRadius: 8 }}
-                        resizeMode="cover"
-                      />
+                      <Image source={{ uri: SERVER_URL + item.thumb_url }} style={{ width: 200, height: 150, borderRadius: 8 }} />
                     ) : (
                       <View style={{ flexDirection: 'row', alignItems: 'center', padding: 4 }}>
                         <Text style={{ fontSize: 20 }}>📄</Text>
-                        <Text style={[appStyles.messageText, { marginLeft: 4 }]}>{item.file_name}</Text>
+                        <Text style={appStyles.messageText}>{item.file_name}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
                 )}
+                {item.edited_at && <Text style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>изменено</Text>}
               </View>
             </TouchableOpacity>
           );
@@ -267,16 +262,8 @@ export default function ChatScreen({ route, navigation }: any) {
         contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 5 }}
       />
       <View style={appStyles.inputRow}>
-        <TouchableOpacity
-          style={[appStyles.sendButton, { backgroundColor: '#6c757d', marginRight: 5 }]}
-          onPress={pickAndUploadFile}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color="white" />
-          ) : (
-            <Text style={appStyles.sendButtonText}>📎</Text>
-          )}
+        <TouchableOpacity style={{ padding: 8 }} onPress={pickAndSendFile} disabled={uploading}>
+          <Text style={{ fontSize: 24 }}>{uploading ? '⏳' : '📎'}</Text>
         </TouchableOpacity>
         <TextInput
           style={appStyles.messageInput}

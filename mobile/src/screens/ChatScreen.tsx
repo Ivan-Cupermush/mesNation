@@ -232,6 +232,9 @@ export default function ChatScreen({ route, navigation }: any) {
       formData.append('file', { uri: res.uri, type: res.type || 'application/octet-stream', name: res.name || 'file' } as any);
       formData.append('chatId', chatId);
       formData.append('senderId', String(currentUserId));
+      if (topicId) {
+        formData.append('topicId', String(topicId));
+      }
       const response = await fetch(`${SERVER_URL}/api/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tok}` },

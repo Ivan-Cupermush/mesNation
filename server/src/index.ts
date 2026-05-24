@@ -189,7 +189,7 @@ app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
 
 app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
   try {
-    const { chatId, senderId } = req.body;
+    const { chatId, senderId, topicId } = req.body;
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'Нет файла' });
     if (!chatId || !senderId) return res.status(400).json({ error: 'Не указан чат или отправитель' });
@@ -216,9 +216,9 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
     }
 
     const result = await pool.query(
-      `INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [chatId, senderId, `/uploads/${file.filename}`, file.originalname, thumbUrl]
+      `INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url, topic_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [chatId, senderId, `/uploads/${file.filename}`, file.originalname, thumbUrl, topicId || null]
     );
     const msg = result.rows[0];
     io.to(chatId).emit('new_message', msg);

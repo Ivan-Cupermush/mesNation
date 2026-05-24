@@ -107,7 +107,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/members', async (req: AuthRequest, res: Response) => {
   try {
-    const chatId = parseInt(req.params.id);
+    const chatId = parseInt(req.params.id as string);
     const { user_ids } = req.body;
     const userId = req.userId;
 

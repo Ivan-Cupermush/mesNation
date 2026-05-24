@@ -1,52 +1,79 @@
 <!DOCTYPE html>
 <html>
-<head><title>Messenger Test</title></head>
+<head>
+    <meta charset="utf-8">
+    <title>mesNation Chat MVP</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        #messages { border:1px solid #ccc; height:300px; overflow-y:scroll; margin-bottom:10px; padding:5px; }
+        .msg { margin:5px 0; } .msg span { font-weight:bold; }
+        #typing { color: #666; font-style: italic; margin-bottom: 5px; min-height: 20px; }
+    </style>
+</head>
 <body>
-  <h2>Чат</h2>
-  <input id="chatId" placeholder="ID чата" value="test">
-  <input id="senderId" placeholder="ID отправителя" value="1">
-  <br><br>
-  <input id="text" placeholder="Сообщение">
-  <button onclick="send()">Отправить текст</button>
-  <br><br>
-  <input type="file" id="file">
-  <button onclick="upload()">Отправить файл</button>
-  <br><br>
-  <button onclick="loadHistory()">Загрузить историю</button>
-  <div id="messages"></div>
+    <h2>mesNation Chat (test)</h2>
+    <input id="chatId" value="11" placeholder="chat id"><br>
+    <input id="senderId" value="1" placeholder="sender id"><br>
+    <input id="text" placeholder="Сообщение..."><button onclick="send()">Отправить</button><br><br>
+    <input type="file" id="fileInput"><button onclick="uploadFile()">Отправить файл</button>
+    <hr>
+    <div id="typing"></div>
+    <div id="messages"></div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    const chatId = () => document.getElementById('chatId').value;
-    
-    socket.emit('join_chat', chatId());
-    
-    socket.on('new_message', (msg) => {
-      const div = document.getElementById('messages');
-      const p = document.createElement('p');
-      p.textContent = `[${msg.sender_id}] ${msg.text || ''} ${msg.file_url || ''}`;
-      div.prepend(p);
-    });
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const chatId = document.getElementById('chatId').value;
+        const senderId = document.getElementById('senderId').value;
+        const socket = io({ auth: { userId: parseInt(senderId) } });
+        socket.emit('join_chat', chatId);
 
-    async function send() {
-      socket.emit('send_message', { chatId: chatId(), senderId: +document.getElementById('senderId').value, text: document.getElementById('text').value });
-    }
+        let typingTimer = null;
 
-    async function upload() {
-      const file = document.getElementById('file').files[0];
-      const form = new FormData();
-      form.append('file', file);
-      form.append('chatId', chatId());
-      form.append('senderId', document.getElementById('senderId').value);
-      await fetch('/api/upload', { method: 'POST', body: form });
-    }
+        document.getElementById('text').addEventListener('input', () => {
+            socket.emit('typing', { chatId, userId: parseInt(senderId) });
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                socket.emit('stop_typing', { chatId, userId: parseInt(senderId) });
+            }, 2000);
+        });
 
-    async function loadHistory() {
-      const res = await fetch('/api/messages/' + chatId());
-      const msgs = await res.json();
-      document.getElementById('messages').innerHTML = msgs.map(m => `<p>[${m.sender_id}] ${m.text || ''} ${m.file_url || ''}</p>`).join('');
-    }
-  </script>
+        socket.on('new_message', (msg) => {
+            const div = document.getElementById('messages');
+            div.innerHTML += `<div class="msg"><span>User ${msg.sender_id}:</span> ${msg.text || ''} ${msg.file_url ? `<a href="${msg.file_url}">${msg.file_name}</a>` : ''}</div>`;
+        });
+
+        socket.on('user_typing', (data) => {
+            if (data.chatId === chatId && data.userId !== parseInt(senderId)) {
+                document.getElementById('typing').textContent = data.userName + ' печатает...';
+            }
+        });
+
+        socket.on('user_stop_typing', (data) => {
+            if (data.chatId === chatId) {
+                document.getElementById('typing').textContent = '';
+            }
+        });
+
+        function send() {
+            const text = document.getElementById('text').value;
+            clearTimeout(typingTimer);
+            socket.emit('stop_typing', { chatId, userId: parseInt(senderId) });
+            socket.emit('send_message', { chatId, senderId: parseInt(senderId), text });
+            document.getElementById('text').value = '';
+        }
+
+        async function uploadFile() {
+            const formData = new FormData();
+            formData.append('file', document.getElementById('fileInput').files[0]);
+            formData.append('chatId', chatId);
+            formData.append('senderId', senderId);
+            const token = prompt('Введите токен:');
+            await fetch('/api/upload', { 
+                method: 'POST', 
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData 
+            });
+        }
+    </script>
 </body>
 </html>

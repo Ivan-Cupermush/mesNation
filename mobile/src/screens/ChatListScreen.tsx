@@ -1,14 +1,17 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, ActivityIndicator, TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getToken, SERVER_URL } from '../utils';
-import { appStyles } from '../styles/appStyles';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function ChatListScreen({ navigation, onLogout }: { navigation: any; onLogout: () => void }) {
   const [chats, setChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
 
   const loadChats = useCallback(async () => {
     const token = await getToken();
@@ -29,61 +32,61 @@ export default function ChatListScreen({ navigation, onLogout }: { navigation: a
     }, [loadChats])
   );
 
-  const handleLogout = async () => {
-    const RNFS = require('react-native-fs');
-    try { await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`); } catch (e) {}
-    onLogout();
-  };
+  useEffect(() => {
+    navigation.setOptions({
+      headerStyle: { backgroundColor: theme === 'dark' ? '#1a1a1a' : '#f8f9fa' },
+      headerTintColor: '#007bff',
+      headerTitleStyle: { fontWeight: '600', fontSize: 18, color: theme === 'dark' ? '#fff' : '#000' },
+      headerRight: () => (
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+          <Text style={{ fontSize: 24, marginRight: 10 }}>👤</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, theme]);
 
-  if (loading) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
+  const getInitial = (name: string) => (name || '?')[0].toUpperCase();
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
 
   return (
-    <View style={appStyles.container}>
-      <Text style={appStyles.screenTitle}>Чаты</Text>
-      <TouchableOpacity
-        style={appStyles.chatItem}
-        onPress={() => navigation.navigate('Chat', { chatId: 'general', chatName: 'Общий чат' })}
-      >
-        <View style={appStyles.chatItemContent}>
-          <View style={appStyles.avatarPlaceholder}><Text style={appStyles.avatarText}>G</Text></View>
-          <View style={appStyles.chatInfo}>
-            <Text style={appStyles.chatName}>Общий чат</Text>
-            <Text style={appStyles.lastMsg}>Доступен всем сотрудникам</Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-
+    <View style={styles.container}>
       <FlatList
         data={chats}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => {
-          const isPrivate = item.type === 'private';
-          const currentUserId = require('../screens/AuthScreen').getCurrentUserId();
-          const displayName = item.name || (isPrivate && item.members ? item.members.find((p: any) => p.id !== currentUserId)?.display_name || 'Собеседник' : 'Чат');
-          const avatarLetter = (displayName[0] || '?').toUpperCase();
-          return (
-            <TouchableOpacity
-              style={appStyles.chatItem}
-              onPress={() => item.is_supergroup ? navigation.navigate('TopicList', { chatId: item.id.toString(), chatName: displayName }) : navigation.navigate('Chat', { chatId: item.id.toString(), chatName: displayName })}
-            >
-              <View style={appStyles.chatItemContent}>
-                <View style={appStyles.avatarPlaceholder}><Text style={appStyles.avatarText}>{avatarLetter}</Text></View>
-                <View style={appStyles.chatInfo}>
-                  <Text style={appStyles.chatName}>{displayName}</Text>
-                  {item.last_message && <Text style={appStyles.lastMsg}>{item.last_message.text?.substring(0, 40)}</Text>}
-                </View>
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={styles.chatItem}
+            onPress={() => {
+              if (item.is_supergroup) {
+                navigation.navigate('TopicList', { chatId: item.id.toString(), chatName: item.name });
+              } else {
+                navigation.navigate('Chat', { chatId: item.id.toString(), chatName: item.name });
+              }
+            }}
+          >
+            <View style={styles.chatItemContent}>
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>{getInitial(item.name || 'G')}</Text>
               </View>
-            </TouchableOpacity>
-          );
-        }}
-        contentContainerStyle={{ paddingBottom: 20 }}
+              <View style={styles.chatInfo}>
+                <Text style={styles.chatName}>{item.name || 'Чат'}</Text>
+                {item.last_message && (
+                  <Text style={styles.lastMsg} numberOfLines={1}>
+                    {item.last_message.text || '📎 Файл'}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
       />
-      <View style={appStyles.buttons}>
-        <TouchableOpacity style={appStyles.createButton} onPress={() => navigation.navigate('CreateChat')}>
-          <Text style={appStyles.createButtonText}>+ Создать чат</Text>
+      <View style={styles.buttons}>
+        <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateChat')}>
+          <Text style={styles.createButtonText}>Создать чат</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={appStyles.logoutButton} onPress={handleLogout}>
-          <Text style={appStyles.logoutText}>Выйти</Text>
+        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+          <Text style={styles.logoutText}>Выйти</Text>
         </TouchableOpacity>
       </View>
     </View>

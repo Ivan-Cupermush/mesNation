@@ -9,6 +9,7 @@ import path from 'path';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import sharp from 'sharp';
+import fs from 'fs';
 import chatsRouter from './routes/chats';
 
 dotenv.config();
@@ -19,16 +20,18 @@ const io = new Server(httpServer, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
-const upload = multer({ dest: 'uploads/' });
 
-// Создаём папку для миниатюр
-import fs from 'fs';
+const upload = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
 fs.mkdirSync('uploads/thumbs', { recursive: true });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
-app.use('/uploads', authenticate, express.static('uploads'));
 
 interface AuthRequest extends Request {
   userId?: number;
@@ -49,6 +52,37 @@ function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
     return res.status(403).json({ error: 'Недействительный токен' });
   }
 }
+
+function authenticateQuery(req: AuthRequest, res: Response, next: NextFunction) {
+  const token = req.query.token as string;
+  if (!token) return res.status(401).json({ error: 'Токен не предоставлен' });
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: 'Недействительный или истекший токен' });
+  }
+}
+
+app.use('/uploads/thumbs', express.static('uploads/thumbs'));
+app.use('/uploads/avatars', express.static('uploads/avatars'));
+app.use('/uploads', (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.query.token) return authenticateQuery(req, res, next);
+  return authenticate(req, res, next);
+}, express.static('uploads'));
+
+app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join('uploads', filename as string);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден' });
+    const tempToken = jwt.sign({ filename }, JWT_SECRET, { expiresIn: '5m' });
+    res.json({ url: `/uploads/${filename}?token=${tempToken}` });
+  } catch (err) {
+    console.error('Ошибка генерации токена:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -169,11 +203,16 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
     }
 
     let thumbUrl: string | null = null;
-    if (file.mimetype.startsWith('image/')) {
+    const isImage = file.mimetype.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.originalname);
+    if (isImage) {
       const thumbFilename = 'thumb_' + file.filename;
       const thumbPath = path.join('uploads', 'thumbs', thumbFilename);
-      await sharp(file.path).resize(300).toFile(thumbPath);
-      thumbUrl = '/uploads/thumbs/' + thumbFilename;
+      try {
+        await sharp(file.path).resize(300, 300, { fit: 'inside' }).toFile(thumbPath);
+        thumbUrl = '/uploads/thumbs/' + thumbFilename;
+      } catch (sharpErr) {
+        console.error('Ошибка создания миниатюры:', sharpErr);
+      }
     }
 
     const result = await pool.query(
@@ -190,10 +229,9 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
   }
 });
 
-// Эндпоинты топиков
 app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const chatId = parseInt(req.params.id);
+    const chatId = parseInt(req.params.id as string);
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'Название топика обязательно' });
     const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
@@ -214,7 +252,7 @@ app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Re
 
 app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const chatId = parseInt(req.params.id);
+    const chatId = parseInt(req.params.id as string);
     const result = await pool.query('SELECT * FROM topics WHERE chat_id = $1 ORDER BY created_at ASC', [chatId]);
     res.json(result.rows);
   } catch (err) {
@@ -225,7 +263,7 @@ app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Res
 
 app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const topicId = parseInt(req.params.id);
+    const topicId = parseInt(req.params.id as string);
     const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
     if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
     const topic = topicResult.rows[0];
@@ -241,7 +279,7 @@ app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Respon
 
 app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const messageId = parseInt(req.params.id);
+    const messageId = parseInt(req.params.id as string);
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'Текст обязателен' });
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
@@ -263,7 +301,7 @@ app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Respo
 
 app.delete('/api/messages/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const messageId = parseInt(req.params.id);
+    const messageId = parseInt(req.params.id as string);
     const { scope } = req.query;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
     if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
@@ -289,10 +327,22 @@ app.delete('/api/messages/:id', authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
+// Отслеживание онлайн-пользователей
+const onlineUsers = new Map<string, Set<number>>(); // chatId -> Set<userId>
+
 io.on('connection', (socket) => {
   console.log('+ user connected:', socket.id);
 
-  socket.on('join_chat', (chatId: string) => socket.join(chatId));
+  socket.on('join_chat', (chatId: string) => {
+    socket.join(chatId);
+    // Получаем userId из auth (если есть)
+    const userId = (socket as any).handshake?.auth?.userId;
+    if (userId && chatId) {
+      if (!onlineUsers.has(chatId)) onlineUsers.set(chatId, new Set());
+      onlineUsers.get(chatId)!.add(userId);
+      io.to(chatId).emit('online_users', Array.from(onlineUsers.get(chatId)!));
+    }
+  });
 
   socket.on('send_message', async (data: { chatId: string; senderId: number; text: string; reply_to_message_id?: number; topic_id?: number }) => {
     try {
@@ -306,22 +356,59 @@ io.on('connection', (socket) => {
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [chatId, senderId || 0, text, reply_to_message_id || null, topic_id || null]
       );
-      const msg = result.rows[0];
-      io.to(chatId).emit('new_message', msg);
-    } catch (err) {
-      console.error(err);
-    }
+      io.to(chatId).emit('new_message', result.rows[0]);
+    } catch (err) { console.error(err); }
   });
 
-  socket.on('typing', ({ chatId, userId }: { chatId: string; userId: number }) => {
-    socket.to(chatId).emit('user_typing', { chatId, userId });
+  socket.on('typing', async ({ chatId, userId }: { chatId: string; userId: number }) => {
+    const user = await pool.query('SELECT username, display_name FROM users WHERE id = $1', [userId]);
+    const name = user.rows[0]?.display_name || user.rows[0]?.username || 'User ' + userId;
+    socket.to(chatId).emit('user_typing', { chatId, userId, userName: name });
   });
 
   socket.on('stop_typing', ({ chatId, userId }: { chatId: string; userId: number }) => {
     socket.to(chatId).emit('user_stop_typing', { chatId, userId });
   });
 
-  socket.on('disconnect', () => console.log('- user disconnected:', socket.id));
+  socket.on('disconnect', () => {
+    console.log('- user disconnected:', socket.id);
+    // Удаляем пользователя из всех чатов
+    for (const [chatId, users] of onlineUsers) {
+      const userId = (socket as any).handshake?.auth?.userId;
+      if (userId && users.has(userId)) {
+        users.delete(userId);
+        if (users.size === 0) onlineUsers.delete(chatId);
+        else io.to(chatId).emit('online_users', Array.from(users));
+      }
+    }
+  });
 });
 
 httpServer.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
+
+// Загрузка аватара
+app.post('/api/auth/avatar', authenticate, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+    const avatarUrl = '/uploads/avatars/' + file.filename;
+    await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [avatarUrl, req.userId]);
+    res.json({ avatar_url: avatarUrl });
+  } catch (err) {
+    console.error('Ошибка загрузки аватара:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Обновление профиля
+app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { display_name } = req.body;
+    if (!display_name) return res.status(400).json({ error: 'Имя обязательно' });
+    await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.userId]);
+    res.json({ display_name });
+  } catch (err) {
+    console.error('Ошибка обновления профиля:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});

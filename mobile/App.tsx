@@ -10,6 +10,10 @@ import ChatScreen from './src/screens/ChatScreen';
 import CreateChatScreen from './src/screens/CreateChatScreen';
 import TopicListScreen from './src/screens/TopicListScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import ChatInfoScreen from './src/screens/ChatInfoScreen';
+import AddMembersScreen from './src/screens/AddMembersScreen';
+import UserProfileScreen from './src/screens/UserProfileScreen';
+import TopicInfoScreen from './src/screens/TopicInfoScreen';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { appStyles } from './src/styles/appStyles';
 
@@ -20,6 +24,10 @@ type RootStackParamList = {
   CreateChat: undefined;
   TopicList: { chatId: string; chatName: string };
   Profile: undefined;
+  ChatInfo: { chatId: string };
+  AddMembers: { chatId: string };
+  UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
+  TopicInfo: { chatId: string; topicId: number };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -42,25 +50,15 @@ export default function App() {
             return;
           }
         } catch (e) {}
-        try {
-          const RNFS = require('react-native-fs');
-          await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
-        } catch (e) {}
+        try { const RNFS = require('react-native-fs'); await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`); } catch (e) {}
       }
       setIsLoggedIn(false);
       setInitialRoute('Auth');
     })();
   }, []);
 
-  const handleLoginSuccess = () => {
-    setIsLoggedIn(true);
-    setInitialRoute('ChatList');
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setInitialRoute('Auth');
-  };
+  const handleLoginSuccess = () => { setIsLoggedIn(true); setInitialRoute('ChatList'); };
+  const handleLogout = () => { setIsLoggedIn(false); setInitialRoute('Auth'); };
 
   if (isLoggedIn === null) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
 
@@ -84,6 +82,10 @@ export default function App() {
               <Stack.Screen name="CreateChat" component={CreateChatScreen} options={{ title: 'Новый чат' }} />
               <Stack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
               <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Профиль' }} />
+              <Stack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ title: 'Информация о чате' }} />
+              <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: 'Добавить участников' }} />
+              <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: 'Профиль пользователя' }} />
+              <Stack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ title: 'Информация о топике' }} />
             </>
           ) : (
             <Stack.Screen name="Auth" options={{ headerShown: false }}>

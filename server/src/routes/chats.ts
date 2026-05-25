@@ -1,3 +1,5 @@
+import { requireRole } from "../middleware/requireRole";
+import { requireRole } from "../middleware/requireRole";
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
 
@@ -8,7 +10,7 @@ interface AuthRequest extends Request {
   username?: string;
 }
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', requireRole('director', 'manager'), async (req: AuthRequest, res: Response) => {
   try {
     const { name, type, user_ids, is_supergroup } = req.body;
     const userId = req.userId;
@@ -144,6 +146,127 @@ router.post('/:id/members', async (req: AuthRequest, res: Response) => {
     res.json(membersResult.rows);
   } catch (err) {
     console.error('Ошибка добавления участников:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Удаление участника из чата (только создатель)
+router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const memberId = parseInt(req.params.userId as string);
+    const userId = req.userId;
+
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    const chat = chatResult.rows[0];
+
+    if (chat.created_by !== userId) {
+      return res.status(403).json({ error: 'Только создатель может удалять участников' });
+    }
+
+    if (memberId === userId) {
+      return res.status(400).json({ error: 'Нельзя удалить самого себя. Используйте выход из чата.' });
+    }
+
+    await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Ошибка удаления участника:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// PATCH /api/chats/:id — изменить чат
+router.patch('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const { name, is_supergroup, keep_topic_id } = req.body;
+    const userId = req.userId;
+
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    const chat = chatResult.rows[0];
+
+    if (chat.created_by !== userId) {
+      return res.status(403).json({ error: 'Только создатель может изменять чат' });
+    }
+
+    if (name !== undefined) {
+      await pool.query('UPDATE chats SET name = $1 WHERE id = $2', [name, chatId]);
+    }
+
+    // Обработка переключения супергруппы
+    if (is_supergroup !== undefined && chat.type === 'group') {
+  if (is_supergroup) {
+    // Включаем супергруппу
+    await pool.query('UPDATE chats SET is_supergroup = true WHERE id = $1', [chatId]);
+  } else {
+    // Выключаем супергруппу
+    const topicToKeep = keep_topic_id ? parseInt(keep_topic_id) : null;
+
+    if (topicToKeep) {
+      // Удаляем все топики, кроме выбранного
+      await pool.query('DELETE FROM topics WHERE chat_id = $1 AND id != $2', [chatId, topicToKeep]);
+      // Удаляем сообщения из других топиков
+      await pool.query(
+        'DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL AND topic_id != $2',
+        [chatId, topicToKeep]
+      );
+      // Переносим сообщения выбранного топика в общий чат
+      await pool.query(
+        'UPDATE messages SET topic_id = NULL WHERE chat_id = $1 AND topic_id = $2',
+        [chatId, topicToKeep]
+      );
+      // Удаляем сам выбранный топик (он больше не нужен)
+      await pool.query('DELETE FROM topics WHERE id = $1', [topicToKeep]);
+    } else {
+      // Удаляем все топики и все сообщения в них
+      await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
+      await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL', [chatId]);
+    }
+
+    await pool.query('UPDATE chats SET is_supergroup = false WHERE id = $1', [chatId]);
+  }
+}
+
+    const updated = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('Ошибка изменения чата:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// DELETE /api/chats/:id — удаление/выход из чата
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const userId = req.userId;
+
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    const chat = chatResult.rows[0];
+
+    const memberCheck = await pool.query(
+      'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
+      [chatId, userId]
+    );
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не участник этого чата' });
+
+    if (chat.type === 'group' && chat.created_by === userId) {
+      // Каскадное удаление
+      await pool.query('DELETE FROM messages WHERE chat_id = $1', [chatId]);
+      await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
+      await pool.query('DELETE FROM chat_members WHERE chat_id = $1', [chatId]);
+      await pool.query('DELETE FROM chats WHERE id = $1', [chatId]);
+      res.json({ success: true, action: 'deleted' });
+    } else {
+      await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, userId]);
+      res.json({ success: true, action: 'left' });
+    }
+  } catch (err) {
+    console.error('Ошибка удаления чата:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

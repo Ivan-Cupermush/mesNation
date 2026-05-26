@@ -87,6 +87,16 @@ export default function ChatScreen({ route, navigation }: any) {
             return true;
           });
           setMessages(filtered);
+          // Прокрутка к messageId, если передан
+          const msgId = route.params?.messageId;
+          if (msgId) {
+            const index = filtered.findIndex((m: any) => m.id == msgId);
+            if (index >= 0) {
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index, animated: true });
+              }, 300);
+            }
+          }
         }
       } catch (e) {}
 
@@ -221,8 +231,8 @@ export default function ChatScreen({ route, navigation }: any) {
                     <Text style={{ fontSize: 13 }}>{quotedMessage.text}</Text>
                   </View>
                 )}
-                <Text style={styles.sender}>{item.sender_id}:</Text>
-                <Text style={styles.messageText}>{item.text}</Text>
+                <Text style={isMyMessage ? styles.senderMy : styles.senderOther}>{item.sender_id}:</Text>
+                <Text style={isMyMessage ? styles.messageTextMy : styles.messageTextOther}>{item.text}</Text>
                 {item.file_url && (
                   <TouchableOpacity onPress={() => Linking.openURL(SERVER_URL + item.file_url)}>
                     {item.thumb_url ? (
@@ -230,7 +240,7 @@ export default function ChatScreen({ route, navigation }: any) {
                     ) : (
                       <View style={{ flexDirection: 'row', alignItems: 'center', padding: 4 }}>
                         <Text style={{ fontSize: 20 }}>📄</Text>
-                        <Text style={styles.messageText}>{item.file_name}</Text>
+                        <Text style={isMyMessage ? styles.messageTextMy : styles.messageTextOther}>{item.file_name}</Text>
                       </View>
                     )}
                   </TouchableOpacity>

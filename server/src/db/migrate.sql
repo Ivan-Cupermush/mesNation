@@ -96,3 +96,18 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT fa
 -- 6. Привязка сообщения к топику
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS topic_id INT REFERENCES topics(id) ON DELETE SET NULL;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS thumb_url TEXT;
+
+-- Права администраторов
+ALTER TABLE chat_admins ADD COLUMN IF NOT EXISTS permissions TEXT[] DEFAULT '{}';
+
+-- Администраторы чатов
+CREATE TABLE IF NOT EXISTS chat_admins (
+    chat_id INT REFERENCES chats(id) ON DELETE CASCADE,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    promoted_by INT REFERENCES users(id),
+    promoted_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (chat_id, user_id)
+);
+
+-- Права администраторов
+ALTER TABLE chat_admins ADD COLUMN IF NOT EXISTS permissions TEXT[] DEFAULT '{}';

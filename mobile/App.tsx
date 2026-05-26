@@ -14,6 +14,7 @@ import ChatInfoScreen from './src/screens/ChatInfoScreen';
 import AddMembersScreen from './src/screens/AddMembersScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 import TopicInfoScreen from './src/screens/TopicInfoScreen';
+import MediaListScreen from './src/screens/MediaListScreen';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { appStyles } from './src/styles/appStyles';
 
@@ -28,6 +29,7 @@ type RootStackParamList = {
   AddMembers: { chatId: string };
   UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
   TopicInfo: { chatId: string; topicId: number };
+  MediaList: { chatId: string; type: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -86,6 +88,7 @@ export default function App() {
               <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: 'Добавить участников' }} />
               <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: 'Профиль пользователя' }} />
               <Stack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ title: 'Информация о топике' }} />
+              <Stack.Screen name="MediaList" component={MediaListScreen} options={{ title: 'Файлы' }} />
             </>
           ) : (
             <Stack.Screen name="Auth" options={{ headerShown: false }}>

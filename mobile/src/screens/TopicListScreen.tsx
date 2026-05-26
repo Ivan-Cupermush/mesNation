@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, TextInput, Button,
 } from 'react-native';
@@ -11,6 +11,17 @@ export default function TopicListScreen({ route, navigation }: any) {
   const [topics, setTopics] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTopicTitle, setNewTopicTitle] = useState('');
+
+  // Кнопка ℹ️ в шапке
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { chatId })} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: '#007bff' }}>ℹ️</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, chatId]);
 
   const loadTopics = useCallback(async () => {
     const token = await getToken();

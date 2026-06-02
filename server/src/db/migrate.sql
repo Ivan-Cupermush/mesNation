@@ -111,3 +111,9 @@ CREATE TABLE IF NOT EXISTS chat_admins (
 
 -- Права администраторов
 ALTER TABLE chat_admins ADD COLUMN IF NOT EXISTS permissions TEXT[] DEFAULT '{}';
+
+-- Закрепление сообщений
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT false;
+
+-- Поле для ответа из другого чата
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS external_reply_chat_id INT;

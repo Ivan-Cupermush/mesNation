@@ -161,16 +161,14 @@ export default function ChatInfoScreen({ route, navigation }: any) {
     setShowAdminModal(true);
   };
 
-  const handleLeaveOrDelete = () => {
+  const handleDelete = () => {
     Alert.alert(
-      chat?.created_by === currentUserId ? 'Удалить чат?' : 'Выйти из чата?',
-      chat?.created_by === currentUserId
-        ? 'Вы уверены? Чат будет удалён для всех участников.'
-        : 'Вы уверены? Вы покинете чат.',
+      'Удалить чат?',
+      'Чат будет удалён для всех участников. Это действие необратимо.',
       [
         { text: 'Отмена', style: 'cancel' },
         {
-          text: chat?.created_by === currentUserId ? 'Удалить' : 'Выйти',
+          text: 'Удалить',
           style: 'destructive',
           onPress: async () => {
             const tok = await getToken();
@@ -180,10 +178,38 @@ export default function ChatInfoScreen({ route, navigation }: any) {
             });
             const data = await res.json();
             if (res.ok) {
-              Alert.alert('Успешно', data.action === 'deleted' ? 'Чат удалён' : 'Вы вышли из чата');
+              Alert.alert('Успешно', 'Чат удалён');
               navigation.goBack();
             } else {
-              Alert.alert('Ошибка', data.error || 'Не удалось выполнить действие');
+              Alert.alert('Ошибка', data.error || 'Не удалось удалить чат');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLeave = () => {
+    Alert.alert(
+      'Выйти из чата?',
+      'Вы покинете чат и больше не сможете читать сообщения.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Выйти',
+          style: 'destructive',
+          onPress: async () => {
+            const tok = await getToken();
+            const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+            const data = await res.json();
+            if (res.ok) {
+              Alert.alert('Успешно', 'Вы вышли из чата');
+              navigation.goBack();
+            } else {
+              Alert.alert('Ошибка', data.error || 'Не удалось выйти из чата');
             }
           },
         },
@@ -333,11 +359,20 @@ export default function ChatInfoScreen({ route, navigation }: any) {
               <Text style={styles.createButtonText}>Добавить участников</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#ff4444' }]} onPress={handleLeaveOrDelete}>
-            <Text style={[styles.logoutText, { color: '#fff' }]}>
-              {chat?.created_by === currentUserId ? 'Удалить чат' : 'Выйти из чата'}
-            </Text>
-          </TouchableOpacity>
+          {chat?.created_by === currentUserId ? (
+            <View style={{ gap: 10 }}>
+              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#dc3545' }]} onPress={handleDelete}>
+                <Text style={[styles.logoutText, { color: '#fff' }]}>Удалить чат</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#6c757d' }]} onPress={handleLeave}>
+                <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#ff4444' }]} onPress={handleLeave}>
+              <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 

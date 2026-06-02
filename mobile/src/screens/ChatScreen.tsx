@@ -19,12 +19,91 @@ export default function ChatScreen({ route, navigation }: any) {
   const [replyTo, setReplyTo] = useState<any>(null);
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
+  const [currentPinnedIndex, setCurrentPinnedIndex] = useState(0);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [availableChats, setAvailableChats] = useState<any[]>([]);
+  const [forwardTarget, setForwardTarget] = useState<{ chatId: string; topicId?: number } | null>(null);
+  const [topicsForForward, setTopicsForForward] = useState<any[]>([]);
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
   const { theme } = useTheme();
   const styles = getStyles(theme);
 
-  // Кнопка информации в заголовке
+  const loadPinned = async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const url = `${SERVER_URL}/api/messages/${chatId}/pinned${topicId ? `?topic_id=${topicId}` : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setPinnedMessages(data);
+        setCurrentPinnedIndex(0);
+      }
+    } catch (e) {}
+  };
+
+  const showPinned = (index: number) => {
+    if (index >= 0 && index < pinnedMessages.length) {
+      setCurrentPinnedIndex(index);
+      const msgId = pinnedMessages[index].id;
+      const msgIndex = messages.findIndex(m => m.id === msgId);
+      if (msgIndex >= 0) {
+        flatListRef.current?.scrollToIndex({ index: msgIndex, animated: true });
+      }
+      setTimeout(() => {
+        setCurrentPinnedIndex(prev => (prev + 1) % pinnedMessages.length);
+      }, 500);
+    }
+  };
+
+  const loadAvailableChats = async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableChats(data.filter((c: any) => c.id.toString() !== chatId));
+      }
+    } catch (e) {}
+  };
+
+  const loadTopicsForForward = async (chatId: string) => {
+    const token = await getToken();
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTopicsForForward(data);
+      }
+    } catch (e) {}
+  };
+
+  const handleExternalReplyPress = async (externalChatId: number, replyToMessageId: number) => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const chats = await res.json();
+      const isMember = chats.some((c: any) => c.id === externalChatId);
+      if (isMember) {
+        navigation.navigate('Chat', { chatId: externalChatId.toString(), chatName: 'Исходный чат', messageId: replyToMessageId });
+      } else {
+        Alert.alert('Нет доступа', 'Вы не являетесь участником этого чата.');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось проверить доступ');
+    }
+  };
+
   useEffect(() => {
     if (topicId) {
       navigation.setOptions({
@@ -87,7 +166,7 @@ export default function ChatScreen({ route, navigation }: any) {
             return true;
           });
           setMessages(filtered);
-          // Прокрутка к messageId, если передан
+          await loadPinned();
           const msgId = route.params?.messageId;
           if (msgId) {
             const index = filtered.findIndex((m: any) => m.id == msgId);
@@ -111,12 +190,15 @@ export default function ChatScreen({ route, navigation }: any) {
       });
       socket.on('message_edited', (updated: any) => { if (mounted) setMessages(prev => prev.map(m => m.id === updated.id ? updated : m)); });
       socket.on('message_deleted', ({ id }: { id: number }) => { if (mounted) setMessages(prev => prev.filter(m => m.id !== id)); });
+      socket.on('message_pinned', (data: any) => { if (mounted) { setMessages(prev => prev.map(m => m.id === data.id ? { ...m, pinned: data.pinned } : m)); loadPinned(); } });
+      socket.on('message_unpinned', (data: any) => { if (mounted) { setMessages(prev => prev.map(m => m.id === data.id ? { ...m, pinned: data.pinned } : m)); loadPinned(); } });
 
       if (mounted) setLoading(false);
 
       return () => {
         mounted = false;
         socket.off('new_message'); socket.off('message_edited'); socket.off('message_deleted');
+        socket.off('message_pinned'); socket.off('message_unpinned');
         socket.disconnect();
       };
     })();
@@ -146,7 +228,6 @@ export default function ChatScreen({ route, navigation }: any) {
       if (err?.code !== 'DOCUMENT_PICKER_CANCELED') Alert.alert('Ошибка', 'Не удалось выбрать файл');
     } finally { setUploading(false); }
   };
-
   const sendMessage = async () => {
     if (!text.trim() || !currentUserId) return;
     if (!socketRef.current) return;
@@ -172,7 +253,6 @@ export default function ChatScreen({ route, navigation }: any) {
     }
     setText('');
   };
-
   const handleLongPress = (message: any) => setSelectedMessage(message);
   const deleteMessage = async (scope: 'me' | 'all') => {
     if (!selectedMessage) return;
@@ -194,15 +274,53 @@ export default function ChatScreen({ route, navigation }: any) {
     setText(selectedMessage.text);
     setSelectedMessage(null);
   };
-  const startReply = () => {
-    if (selectedMessage) { setReplyTo(selectedMessage); setSelectedMessage(null); }
-  };
+  const startReply = () => { if (selectedMessage) { setReplyTo(selectedMessage); setSelectedMessage(null); } };
   const findMessageById = (id: number) => messages.find(m => m.id === id);
+
+  const replyInAnotherChat = async (targetChatId: string, targetTopicId?: number | null) => {
+    const token = await getToken();
+    if (!token || !selectedMessage) return;
+    try {
+      const body: any = {
+        message_id: selectedMessage.id,
+        target_chat_id: targetChatId,
+        text: '', // можно добавить текст, но пока пусто
+      };
+      if (targetTopicId) body.target_topic_id = targetTopicId;
+      const res = await fetch(`${SERVER_URL}/api/messages/reply-to-another-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        Alert.alert('Готово', 'Цитата отправлена');
+      } else {
+        const err = await res.json();
+        Alert.alert('Ошибка', err.error || 'Не удалось');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    }
+    setSelectedMessage(null);
+    setForwardTarget(null);
+  };
 
   if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {pinnedMessages.length > 0 && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 8, borderBottomWidth: 1, borderColor: '#ddd' }}>
+          <TouchableOpacity onPress={() => showPinned(currentPinnedIndex)} style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ fontWeight: '500', fontSize: 13 }}>
+              📌 {pinnedMessages[currentPinnedIndex]?.text || 'Закреплённое сообщение'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 12, color: '#666', marginHorizontal: 8 }}>
+            {currentPinnedIndex + 1}/{pinnedMessages.length}
+          </Text>
+        </View>
+      )}
       {replyTo && (
         <View style={{ padding: 8, backgroundColor: '#e8e8e8', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1 }}><Text style={{ fontSize: 12, color: '#666' }}>Ответ на:</Text><Text numberOfLines={1} style={{ fontWeight: '500' }}>{replyTo.text}</Text></View>
@@ -222,6 +340,7 @@ export default function ChatScreen({ route, navigation }: any) {
         renderItem={({ item }) => {
           const isMyMessage = item.sender_id === currentUserId;
           const quotedMessage = item.reply_to_message_id ? findMessageById(item.reply_to_message_id) : null;
+          const isExternalReply = item.external_reply_chat_id && !quotedMessage; // если цитата не найдена локально
           return (
             <TouchableOpacity onLongPress={() => handleLongPress(item)}>
               <View style={[styles.messageBubble, isMyMessage ? styles.myMessage : styles.otherMessage]}>
@@ -231,6 +350,14 @@ export default function ChatScreen({ route, navigation }: any) {
                     <Text style={{ fontSize: 13 }}>{quotedMessage.text}</Text>
                   </View>
                 )}
+                {isExternalReply && (
+                  <TouchableOpacity onPress={() => handleExternalReplyPress(item.external_reply_chat_id, item.reply_to_message_id)}>
+                    <View style={{ backgroundColor: 'rgba(0,0,0,0.05)', padding: 6, borderRadius: 6, marginBottom: 6 }}>
+                      <Text style={{ fontSize: 12, color: '#007bff' }}>Сообщение из другого чата</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                {item.pinned && <Text style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>📌 Закреплено</Text>}
                 <Text style={isMyMessage ? styles.senderMy : styles.senderOther}>{item.sender_id}:</Text>
                 <Text style={isMyMessage ? styles.messageTextMy : styles.messageTextOther}>{item.text}</Text>
                 {item.file_url && (
@@ -269,11 +396,92 @@ export default function ChatScreen({ route, navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* Модальное окно выбора чата (включая супергруппы) */}
+      <Modal visible={showForwardModal} transparent animationType="fade">
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowForwardModal(false)}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '70%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: '#1a1a1a' }}>Выберите чат</Text>
+            {!forwardTarget ? (
+              <FlatList
+                data={availableChats}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                    onPress={() => {
+                      if (item.is_supergroup) {
+                        loadTopicsForForward(item.id.toString());
+                        setForwardTarget({ chatId: item.id.toString() });
+                      } else {
+                        setShowForwardModal(false);
+                        replyInAnotherChat(item.id.toString());
+                      }
+                    }}
+                  >
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#007bff', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>{(item.name || 'G')[0].toUpperCase()}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16 }}>{item.name || 'Чат'}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            ) : (
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10 }}>Выберите топик</Text>
+                <FlatList
+                  data={topicsForForward}
+                  keyExtractor={(item) => item.id.toString()}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={{ paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                      onPress={() => {
+                        setShowForwardModal(false);
+                        replyInAnotherChat(forwardTarget.chatId, item.id);
+                      }}
+                    >
+                      <Text style={{ fontSize: 16 }}># {item.title}</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+                <TouchableOpacity
+                  style={{ paddingVertical: 12 }}
+                  onPress={() => {
+                    setShowForwardModal(false);
+                    replyInAnotherChat(forwardTarget.chatId, null);
+                  }}
+                >
+                  <Text style={{ fontSize: 16, color: '#007bff' }}>Общий чат</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity style={{ marginTop: 10, alignSelf: 'flex-end' }} onPress={() => { setShowForwardModal(false); setForwardTarget(null); }}>
+              <Text style={{ color: '#999' }}>Отмена</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Меню действий */}
       <Modal visible={!!selectedMessage} transparent animationType="fade">
         <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }} onPress={() => setSelectedMessage(null)}>
           <View style={{ backgroundColor: '#fff', marginHorizontal: 30, marginTop: 'auto', marginBottom: 'auto', borderRadius: 12, padding: 20 }}>
             <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 15 }}>Действия с сообщением</Text>
             <TouchableOpacity style={{ paddingVertical: 12 }} onPress={startReply}><Text>Ответить</Text></TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => {
+              loadAvailableChats();
+              setShowForwardModal(true);
+            }}><Text>Ответить в другом чате</Text></TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={async () => {
+              const tok = await getToken();
+              const isPinned = selectedMessage?.pinned;
+              const url = `${SERVER_URL}/api/messages/${selectedMessage?.id}/${isPinned ? 'unpin' : 'pin'}`;
+              const res = await fetch(url, { method: 'PATCH', headers: { Authorization: `Bearer ${tok}` } });
+              if (res.ok) {
+                setMessages(prev => prev.map(m => m.id === selectedMessage?.id ? { ...m, pinned: !isPinned } : m));
+                loadPinned();
+              } else Alert.alert('Ошибка', 'Не удалось закрепить');
+              setSelectedMessage(null);
+            }}><Text>{selectedMessage?.pinned ? 'Открепить' : 'Закрепить'}</Text></TouchableOpacity>
             {selectedMessage?.sender_id === currentUserId && (
               <TouchableOpacity style={{ paddingVertical: 12 }} onPress={startEditing}><Text>Редактировать</Text></TouchableOpacity>
             )}

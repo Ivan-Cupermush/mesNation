@@ -1,4 +1,4 @@
-import { requireRole } from "../middleware/requireRole";
+
 import { requireRole } from "../middleware/requireRole";
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';

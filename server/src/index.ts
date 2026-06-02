@@ -277,6 +277,86 @@ app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Respon
   }
 });
 
+// ====== Закрепление сообщений ======
+
+// Закрепить сообщение
+app.patch('/api/messages/:id/pin', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id as string);
+    const userId = req.userId!;
+
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const msg = msgResult.rows[0];
+
+    let canPin = true;
+    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
+    if (adminCheck.rows.length > 0) {
+      const perms = adminCheck.rows[0].permissions || [];
+      canPin = perms.includes('pin_messages');
+    }
+    if (!canPin) return res.status(403).json({ error: 'Нет прав на закрепление сообщений' });
+
+    await pool.query('UPDATE messages SET pinned = true WHERE id = $1', [messageId]);
+    io.to(msg.chat_id).emit('message_pinned', { id: messageId, pinned: true });
+    res.json({ success: true, pinned: true });
+  } catch (err) {
+    console.error('Ошибка закрепления:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Открепить сообщение
+app.patch('/api/messages/:id/unpin', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id as string);
+    const userId = req.userId!;
+
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const msg = msgResult.rows[0];
+
+    let canUnpin = true;
+    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
+    if (adminCheck.rows.length > 0) {
+      const perms = adminCheck.rows[0].permissions || [];
+      canUnpin = perms.includes('pin_messages');
+    }
+    if (!canUnpin) return res.status(403).json({ error: 'Нет прав на открепление сообщений' });
+
+    await pool.query('UPDATE messages SET pinned = false WHERE id = $1', [messageId]);
+    io.to(msg.chat_id).emit('message_unpinned', { id: messageId, pinned: false });
+    res.json({ success: true, pinned: false });
+  } catch (err) {
+    console.error('Ошибка открепления:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Получить закреплённые сообщения чата
+app.get('/api/messages/:chatId/pinned', async (req: Request, res: Response) => {
+  try {
+    const { chatId } = req.params;
+    const { topic_id } = req.query;
+    let query = 'SELECT * FROM messages WHERE chat_id = $1 AND pinned = true AND deleted_for_all = false';
+    const params: any[] = [chatId];
+    if (topic_id) {
+      query += ' AND topic_id = $2';
+      params.push(topic_id);
+    } else {
+      query += ' AND topic_id IS NULL';
+    }
+    query += ' ORDER BY created_at ASC';
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ошибка получения закреплённых:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ====== Редактирование и удаление ======
+
 app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const messageId = parseInt(req.params.id as string);
@@ -335,7 +415,6 @@ io.on('connection', (socket) => {
 
   socket.on('join_chat', (chatId: string) => {
     socket.join(chatId);
-    // Получаем userId из auth (если есть)
     const userId = (socket as any).handshake?.auth?.userId;
     if (userId && chatId) {
       if (!onlineUsers.has(chatId)) onlineUsers.set(chatId, new Set());
@@ -372,7 +451,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('- user disconnected:', socket.id);
-    // Удаляем пользователя из всех чатов
     for (const [chatId, users] of onlineUsers) {
       const userId = (socket as any).handshake?.auth?.userId;
       if (userId && users.has(userId)) {
@@ -383,6 +461,8 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+
 
 httpServer.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
 

@@ -8,7 +8,7 @@ import { getToken, SERVER_URL } from '../utils';
 import { getStyles } from '../styles/appStyles';
 import { useTheme } from '../theme/ThemeContext';
 
-export default function ProfileScreen({ navigation }: any) {
+export default function ProfileScreen({ navigation, onLogout }: any) {
   const [user, setUser] = useState<any>(null);
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -107,7 +107,8 @@ export default function ProfileScreen({ navigation }: any) {
     try {
       await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
     } catch (e) {}
-    navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+    // Вызываем переданный onLogout для сброса состояния авторизации
+    if (onLogout) onLogout();
   };
 
   if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;

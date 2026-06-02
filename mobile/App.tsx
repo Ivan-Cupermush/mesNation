@@ -83,7 +83,9 @@ export default function App() {
               <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Чат' }} />
               <Stack.Screen name="CreateChat" component={CreateChatScreen} options={{ title: 'Новый чат' }} />
               <Stack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
-              <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Профиль' }} />
+              <Stack.Screen name="Profile" options={{ title: 'Профиль' }}>
+  {(props) => <ProfileScreen {...props} onLogout={handleLogout} />}
+</Stack.Screen>
               <Stack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ title: 'Информация о чате' }} />
               <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: 'Добавить участников' }} />
               <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: 'Профиль пользователя' }} />

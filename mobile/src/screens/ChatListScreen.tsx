@@ -1,17 +1,18 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, FlatList, ActivityIndicator, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity, SafeAreaView, StatusBar,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getToken, SERVER_URL } from '../utils';
-import { getStyles } from '../styles/appStyles';
+import { ChatRow } from '../components/ChatRow';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
 import { useTheme } from '../theme/ThemeContext';
 
 export default function ChatListScreen({ navigation, onLogout }: { navigation: any; onLogout: () => void }) {
   const [chats, setChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
-  const styles = getStyles(theme);
+  const isDark = theme === 'dark';
 
   const loadChats = useCallback(async () => {
     const token = await getToken();
@@ -32,31 +33,64 @@ export default function ChatListScreen({ navigation, onLogout }: { navigation: a
     }, [loadChats])
   );
 
-  useEffect(() => {
-    navigation.setOptions({
-      headerStyle: { backgroundColor: theme === 'dark' ? '#1a1a1a' : '#f8f9fa' },
-      headerTintColor: '#007bff',
-      headerTitleStyle: { fontWeight: '600', fontSize: 18, color: theme === 'dark' ? '#fff' : '#000' },
-      headerRight: () => (
-        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-          <Text style={{ fontSize: 24, marginRight: 10 }}>👤</Text>
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, theme]);
+  const formatTime = (ts: string) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 1) return 'Вчера';
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  };
 
-  const getInitial = (name: string) => (name || '?')[0].toUpperCase();
-
-  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText }}>Загрузка...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background }}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      {/* Header */}
+      <View style={{
+        height: TelegramSizes.headerHeight,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground,
+        borderBottomWidth: 1,
+        borderBottomColor: isDark ? TelegramColors.dark.divider : TelegramColors.light.divider,
+      }}>
+        <Text style={{
+          flex: 1,
+          fontSize: TelegramFonts.sizes.title,
+          fontWeight: TelegramFonts.weights.bold,
+          color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText,
+        }}>mesNation</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('CreateChat')} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: TelegramColors.light.accent }}>✚</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: TelegramColors.light.accent }}>👤</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Список чатов */}
       <FlatList
         data={chats}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.chatItem}
+          <ChatRow
+            title={item.name || 'Чат'}
+            lastMessage={item.last_message?.text || ''}
+            time={formatTime(item.last_message?.created_at)}
+            unreadCount={0}
+            avatar={undefined}
+            isPinned={false}
+            isMuted={false}
             onPress={() => {
               if (item.is_supergroup) {
                 navigation.navigate('TopicList', { chatId: item.id.toString(), chatName: item.name });
@@ -64,31 +98,24 @@ export default function ChatListScreen({ navigation, onLogout }: { navigation: a
                 navigation.navigate('Chat', { chatId: item.id.toString(), chatName: item.name });
               }
             }}
-          >
-            <View style={styles.chatItemContent}>
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>{getInitial(item.name || 'G')}</Text>
-              </View>
-              <View style={styles.chatInfo}>
-                <Text style={styles.chatName}>{item.name || 'Чат'}</Text>
-                {item.last_message && (
-                  <Text style={styles.lastMsg} numberOfLines={1}>
-                    {item.last_message.text || '📎 Файл'}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
+          />
         )}
       />
-      <View style={styles.buttons}>
-        <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('CreateChat')}>
-          <Text style={styles.createButtonText}>Создать чат</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-          <Text style={styles.logoutText}>Выйти</Text>
+
+      {/* Кнопка выхода (как раньше) */}
+      <View style={{ padding: 16 }}>
+        <TouchableOpacity
+          style={{
+            paddingVertical: 14,
+            borderRadius: 12,
+            alignItems: 'center',
+            backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground,
+          }}
+          onPress={onLogout}
+        >
+          <Text style={{ color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText, fontSize: 16 }}>Выйти</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }

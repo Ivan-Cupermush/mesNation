@@ -19,7 +19,10 @@ export default function ChatScreen({ route, navigation }: any) {
   const [replyTo, setReplyTo] = useState<any>(null);
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [forwardMessage, setForwardMessage] = useState<any>(null);
   const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
+  const [forwardTargetChatId, setForwardTargetChatId] = useState<string | null>(null);
+  const [forwardTargetTopicId, setForwardTargetTopicId] = useState<number | null>(null);
   const [currentPinnedIndex, setCurrentPinnedIndex] = useState(0);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [availableChats, setAvailableChats] = useState<any[]>([]);
@@ -277,14 +280,15 @@ export default function ChatScreen({ route, navigation }: any) {
   const startReply = () => { if (selectedMessage) { setReplyTo(selectedMessage); setSelectedMessage(null); } };
   const findMessageById = (id: number) => messages.find(m => m.id === id);
 
-  const replyInAnotherChat = async (targetChatId: string, targetTopicId?: number | null) => {
+  // Пересылка в другой чат: сохраняем сообщение и целевой чат для дописывания текста
+  const startForward = async (targetChatId: string, targetTopicId?: number | null) => {
     const token = await getToken();
     if (!token || !selectedMessage) return;
     try {
       const body: any = {
         message_id: selectedMessage.id,
         target_chat_id: targetChatId,
-        text: '', // можно добавить текст, но пока пусто
+        text: '',
       };
       if (targetTopicId) body.target_topic_id = targetTopicId;
       const res = await fetch(`${SERVER_URL}/api/messages/reply-to-another-chat`, {
@@ -293,7 +297,7 @@ export default function ChatScreen({ route, navigation }: any) {
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        Alert.alert('Готово', 'Цитата отправлена');
+        Alert.alert('Готово', 'Сообщение переслано');
       } else {
         const err = await res.json();
         Alert.alert('Ошибка', err.error || 'Не удалось');
@@ -301,8 +305,9 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch (e) {
       Alert.alert('Ошибка', 'Сервер недоступен');
     }
-    setSelectedMessage(null);
+    setShowForwardModal(false);
     setForwardTarget(null);
+    setSelectedMessage(null);
   };
 
   if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
@@ -333,6 +338,7 @@ export default function ChatScreen({ route, navigation }: any) {
           <TouchableOpacity onPress={() => { setEditingMessage(null); setText(''); }} style={{ padding: 4 }}><Text style={{ fontSize: 18, color: '#666' }}>✕</Text></TouchableOpacity>
         </View>
       )}
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -414,7 +420,7 @@ export default function ChatScreen({ route, navigation }: any) {
                         setForwardTarget({ chatId: item.id.toString() });
                       } else {
                         setShowForwardModal(false);
-                        replyInAnotherChat(item.id.toString());
+                        startForward(item.id.toString());
                       }
                     }}
                   >
@@ -436,7 +442,7 @@ export default function ChatScreen({ route, navigation }: any) {
                       style={{ paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' }}
                       onPress={() => {
                         setShowForwardModal(false);
-                        replyInAnotherChat(forwardTarget.chatId, item.id);
+                        startForward(forwardTarget.chatId, item.id);
                       }}
                     >
                       <Text style={{ fontSize: 16 }}># {item.title}</Text>
@@ -447,7 +453,7 @@ export default function ChatScreen({ route, navigation }: any) {
                   style={{ paddingVertical: 12 }}
                   onPress={() => {
                     setShowForwardModal(false);
-                    replyInAnotherChat(forwardTarget.chatId, null);
+                    startForward(forwardTarget.chatId, null);
                   }}
                 >
                   <Text style={{ fontSize: 16, color: '#007bff' }}>Общий чат</Text>
@@ -470,7 +476,7 @@ export default function ChatScreen({ route, navigation }: any) {
             <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => {
               loadAvailableChats();
               setShowForwardModal(true);
-            }}><Text>Ответить в другом чате</Text></TouchableOpacity>
+            }}><Text>Переслать</Text></TouchableOpacity>
             <TouchableOpacity style={{ paddingVertical: 12 }} onPress={async () => {
               const tok = await getToken();
               const isPinned = selectedMessage?.pinned;

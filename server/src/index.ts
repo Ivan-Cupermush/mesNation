@@ -464,6 +464,42 @@ io.on('connection', (socket) => {
 
 
 
+
+// Переслать сообщение в другой чат
+app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { message_id, target_chat_id, target_topic_id, text } = req.body;
+    const userId = req.userId!;
+
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+    const originalMsg = msgResult.rows[0];
+
+    const memberCheck = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [target_chat_id, userId]);
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не являетесь участником целевого чата' });
+
+    const externalChatId = (originalMsg.chat_id != target_chat_id) ? originalMsg.chat_id : null;
+    const finalText = (text && text.trim() !== '') ? text : (originalMsg.text || '');
+
+    // Копируем файловые поля, если есть
+    const fileUrl = originalMsg.file_url || null;
+    const fileName = originalMsg.file_name || null;
+    const thumbUrl = originalMsg.thumb_url || null;
+
+    const insertResult = await pool.query(
+      `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, external_reply_chat_id, file_url, file_name, thumb_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [target_chat_id, userId, finalText, message_id, target_topic_id || null, externalChatId, fileUrl, fileName, thumbUrl]
+    );
+    const newMsg = insertResult.rows[0];
+    io.to(target_chat_id.toString()).emit('new_message', newMsg);
+    res.status(201).json(newMsg);
+  } catch (err) {
+    console.error('Ошибка пересылки:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 httpServer.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
 
 // Загрузка аватара

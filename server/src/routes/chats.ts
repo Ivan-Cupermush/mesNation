@@ -1,5 +1,3 @@
-
-import { requireRole } from "../middleware/requireRole";
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
 
@@ -10,7 +8,18 @@ interface AuthRequest extends Request {
   username?: string;
 }
 
-router.post('/', requireRole('director', 'manager'), async (req: AuthRequest, res: Response) => {
+// Если пользователь не админ – может всё. Если админ – проверяем permissions
+async function checkChatPermission(chatId: number, userId: number, permission: string): Promise<boolean> {
+  const result = await pool.query(
+    'SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2',
+    [chatId, userId]
+  );
+  if (result.rows.length === 0) return true; // не админ
+  const perms = result.rows[0].permissions || [];
+  return perms.includes(permission);
+}
+
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { name, type, user_ids, is_supergroup } = req.body;
     const userId = req.userId;
@@ -100,8 +109,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       chat.members = membersResult.rows;
       
       const msgResult = await pool.query(
-        'SELECT id, text, sender_id, created_at FROM messages WHERE chat_id = $1 AND (topic_id IS NULL OR topic_id = 0) ORDER BY created_at DESC LIMIT 1',
-        [chat.id]
+        `SELECT id, text, sender_id, created_at FROM messages 
+         WHERE chat_id = $1 
+           AND (topic_id IS NULL OR topic_id = 0)
+           AND (deleted_for_all IS NOT TRUE)
+           AND NOT ($2::int = ANY(deleted_for_user_ids))
+         ORDER BY created_at DESC LIMIT 1`,
+        [chat.id, userId]
       );
       chat.last_message = msgResult.rows[0] || null;
     }
@@ -133,8 +147,8 @@ router.post('/:id/members', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'В приватный чат нельзя добавлять участников' });
     }
 
-    if (chat.created_by !== userId) {
-      return res.status(403).json({ error: 'Только создатель чата может добавлять участников' });
+    if (!(await checkChatPermission(chatId, userId!, 'add_users'))) {
+      return res.status(403).json({ error: 'Нет прав на добавление участников' });
     }
 
     for (const uid of user_ids) {
@@ -156,7 +170,6 @@ router.post('/:id/members', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Удаление участника из чата (только создатель)
 router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -167,8 +180,8 @@ router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) =>
     if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
     const chat = chatResult.rows[0];
 
-    if (chat.created_by !== userId) {
-      return res.status(403).json({ error: 'Только создатель может удалять участников' });
+    if (chat.created_by !== userId && !(await checkChatPermission(chatId, userId!, 'add_users'))) {
+      return res.status(403).json({ error: 'Нет прав на удаление участников' });
     }
 
     if (memberId === userId) {
@@ -183,7 +196,6 @@ router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) =>
   }
 });
 
-// PATCH /api/chats/:id — изменить чат
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -194,47 +206,46 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
     const chat = chatResult.rows[0];
 
-    if (chat.created_by !== userId) {
-      return res.status(403).json({ error: 'Только создатель может изменять чат' });
+    if (!(await checkChatPermission(chatId, userId!, 'change_info'))) {
+      return res.status(403).json({ error: 'Нет прав на изменение чата' });
     }
 
     if (name !== undefined) {
       await pool.query('UPDATE chats SET name = $1 WHERE id = $2', [name, chatId]);
     }
 
-    // Обработка переключения супергруппы
     if (is_supergroup !== undefined && chat.type === 'group') {
-  if (is_supergroup) {
-    // Включаем супергруппу
-    await pool.query('UPDATE chats SET is_supergroup = true WHERE id = $1', [chatId]);
-  } else {
-    // Выключаем супергруппу
-    const topicToKeep = keep_topic_id ? parseInt(keep_topic_id) : null;
+      if (is_supergroup) {
+        await pool.query('UPDATE chats SET is_supergroup = true WHERE id = $1', [chatId]);
+      } else {
+        const topicToKeep = keep_topic_id ? parseInt(keep_topic_id) : null;
+        const merge = req.body.merge !== false;
 
-    if (topicToKeep) {
-      // Удаляем все топики, кроме выбранного
-      await pool.query('DELETE FROM topics WHERE chat_id = $1 AND id != $2', [chatId, topicToKeep]);
-      // Удаляем сообщения из других топиков
-      await pool.query(
-        'DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL AND topic_id != $2',
-        [chatId, topicToKeep]
-      );
-      // Переносим сообщения выбранного топика в общий чат
-      await pool.query(
-        'UPDATE messages SET topic_id = NULL WHERE chat_id = $1 AND topic_id = $2',
-        [chatId, topicToKeep]
-      );
-      // Удаляем сам выбранный топик (он больше не нужен)
-      await pool.query('DELETE FROM topics WHERE id = $1', [topicToKeep]);
-    } else {
-      // Удаляем все топики и все сообщения в них
-      await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
-      await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL', [chatId]);
+        if (topicToKeep) {
+          const topicResult = await pool.query('SELECT title FROM topics WHERE id = $1', [topicToKeep]);
+          const topicTitle = topicResult.rows[0]?.title || '';
+
+          if (topicTitle) {
+            const newGroupName = `${chat.name || 'Группа'} (${topicTitle})`;
+            await pool.query('UPDATE chats SET name = $1 WHERE id = $2', [newGroupName, chatId]);
+          }
+
+          if (merge) {
+            await pool.query('UPDATE messages SET topic_id = NULL WHERE chat_id = $1 AND topic_id = $2', [chatId, topicToKeep]);
+          } else {
+            await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id = $2', [chatId, topicToKeep]);
+          }
+          await pool.query('DELETE FROM topics WHERE chat_id = $1 AND id != $2', [chatId, topicToKeep]);
+          await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL AND topic_id != $2', [chatId, topicToKeep]);
+          await pool.query('DELETE FROM topics WHERE id = $1', [topicToKeep]);
+        } else {
+          await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
+          await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL', [chatId]);
+        }
+
+        await pool.query('UPDATE chats SET is_supergroup = false WHERE id = $1', [chatId]);
+      }
     }
-
-    await pool.query('UPDATE chats SET is_supergroup = false WHERE id = $1', [chatId]);
-  }
-}
 
     const updated = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
     res.json(updated.rows[0]);
@@ -244,7 +255,6 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/chats/:id — удаление/выход из чата
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -261,7 +271,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не участник этого чата' });
 
     if (chat.type === 'group' && chat.created_by === userId) {
-      // Каскадное удаление
       await pool.query('DELETE FROM messages WHERE chat_id = $1', [chatId]);
       await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
       await pool.query('DELETE FROM chat_members WHERE chat_id = $1', [chatId]);
@@ -277,8 +286,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-
-// GET /api/chats/:id/admins — список администраторов с правами
+// Администраторы
 router.get('/:id/admins', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -295,7 +303,6 @@ router.get('/:id/admins', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/chats/:id/admins — назначить администратора (создатель или админ с правом add_admins)
 router.post('/:id/admins', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -306,26 +313,16 @@ router.post('/:id/admins', async (req: AuthRequest, res: Response) => {
     if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
     const chat = chatResult.rows[0];
 
-    // Проверяем, имеет ли текущий пользователь право назначать админов
     const isCreator = chat.created_by === userId;
     let hasPermission = isCreator;
     if (!isCreator) {
-      const adminCheck = await pool.query(
-        'SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2',
-        [chatId, userId]
-      );
-      if (adminCheck.rows.length > 0) {
-        const perms = adminCheck.rows[0].permissions || [];
-        hasPermission = perms.includes('add_admins');
-      }
+      hasPermission = await checkChatPermission(chatId, userId!, 'add_admins');
     }
     if (!hasPermission) return res.status(403).json({ error: 'Нет прав на добавление администраторов' });
 
-    // Проверяем, что пользователь состоит в чате
     const member = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, user_id]);
     if (member.rows.length === 0) return res.status(400).json({ error: 'Пользователь не является участником' });
 
-    // По умолчанию все права, кроме add_admins (если не переданы)
     const defaultPerms = ['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages'];
     const finalPerms = permissions || defaultPerms;
 
@@ -342,7 +339,6 @@ router.post('/:id/admins', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PATCH /api/chats/:id/admins/:userId — изменить права администратора
 router.patch('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -354,22 +350,13 @@ router.patch('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
     if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
     const chat = chatResult.rows[0];
 
-    // Право на изменение прав: создатель или админ с правом add_admins
     const isCreator = chat.created_by === userId;
     let hasPermission = isCreator;
     if (!isCreator) {
-      const adminCheck = await pool.query(
-        'SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2',
-        [chatId, userId]
-      );
-      if (adminCheck.rows.length > 0) {
-        const perms = adminCheck.rows[0].permissions || [];
-        hasPermission = perms.includes('add_admins');
-      }
+      hasPermission = await checkChatPermission(chatId, userId!, 'add_admins');
     }
     if (!hasPermission) return res.status(403).json({ error: 'Нет прав на изменение прав администраторов' });
 
-    // Обновляем права
     await pool.query(
       'UPDATE chat_admins SET permissions = $1 WHERE chat_id = $2 AND user_id = $3',
       [permissions, chatId, adminId]
@@ -381,7 +368,6 @@ router.patch('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/chats/:id/admins/:userId — снять администратора
 router.delete('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -392,18 +378,10 @@ router.delete('/:id/admins/:userId', async (req: AuthRequest, res: Response) => 
     if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
     const chat = chatResult.rows[0];
 
-    // Создатель может снять любого, админ с правом add_admins может снять другого, либо админ может снять себя
     const isCreator = chat.created_by === userId;
     let canRemove = isCreator || adminId === userId;
     if (!isCreator && adminId !== userId) {
-      const adminCheck = await pool.query(
-        'SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2',
-        [chatId, userId]
-      );
-      if (adminCheck.rows.length > 0) {
-        const perms = adminCheck.rows[0].permissions || [];
-        canRemove = perms.includes('add_admins');
-      }
+      canRemove = await checkChatPermission(chatId, userId!, 'add_admins');
     }
     if (!canRemove) return res.status(403).json({ error: 'Нет прав на снятие этого администратора' });
 

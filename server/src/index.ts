@@ -500,6 +500,94 @@ app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRe
   }
 });
 
+app.post('/api/admin/create-user', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    // Проверяем, что пользователь – director
+    const roleCheck = await pool.query(
+      'SELECT r.name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
+      [req.userId]
+    );
+    if (roleCheck.rows.length === 0 || roleCheck.rows[0].name !== 'director') {
+      return res.status(403).json({ error: 'Только директор может создавать пользователей' });
+    }
+
+    const { username, email, password, display_name, position, role } = req.body;
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Имя, email и пароль обязательны' });
+    }
+
+    // Проверяем, что пользователь не существует
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1 OR username = $2', [email, username]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Пользователь с таким email или именем уже существует' });
+    }
+
+    // Определяем role_id по названию роли (по умолчанию employee)
+    let roleName = role || 'employee';
+    const roleResult = await pool.query('SELECT id FROM roles WHERE name = $1', [roleName]);
+    if (roleResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Неверная роль. Допустимые: director, manager, employee' });
+    }
+    const roleId = roleResult.rows[0].id;
+
+    const password_hash = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      `INSERT INTO users (username, email, password_hash, display_name, role_id, name, position)
+       VALUES ($1, $2, $3, $4, $5, $1, $6)
+       RETURNING id, username, email, display_name, position`,
+      [username, email, password_hash, display_name || username, roleId, position || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Ошибка создания пользователя:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Получить всех пользователей (только для director)
+app.get('/api/admin/users', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const roleCheck = await pool.query(
+      'SELECT r.name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
+      [req.userId]
+    );
+    if (roleCheck.rows.length === 0 || roleCheck.rows[0].name !== 'director') {
+      return res.status(403).json({ error: 'Только директор может просматривать список пользователей' });
+    }
+    const result = await pool.query('SELECT id, username, email, display_name, position FROM users ORDER BY id');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ошибка получения пользователей:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Удалить пользователя (только для director, нельзя удалить самого себя)
+app.delete('/api/admin/users/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id as string);
+    const roleCheck = await pool.query(
+      'SELECT r.name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
+      [req.userId]
+    );
+    if (roleCheck.rows.length === 0 || roleCheck.rows[0].name !== 'director') {
+      return res.status(403).json({ error: 'Только директор может удалять пользователей' });
+    }
+    if (userId === req.userId) {
+      return res.status(400).json({ error: 'Нельзя удалить самого себя' });
+    }
+    // Удаляем связанные данные
+    await pool.query('DELETE FROM messages WHERE sender_id = $1', [userId]);
+    await pool.query('DELETE FROM chat_members WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM chat_admins WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Ошибка удаления пользователя:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 httpServer.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
 
 // Загрузка аватара

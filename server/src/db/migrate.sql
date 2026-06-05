@@ -117,3 +117,4 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT false;
 
 -- Поле для ответа из другого чата
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS external_reply_chat_id INT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS position VARCHAR(255);

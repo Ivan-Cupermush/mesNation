@@ -15,6 +15,7 @@ import AddMembersScreen from './src/screens/AddMembersScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 import TopicInfoScreen from './src/screens/TopicInfoScreen';
 import MediaListScreen from './src/screens/MediaListScreen';
+import ManageEmployeesScreen from './src/screens/ManageEmployeesScreen';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { appStyles } from './src/styles/appStyles';
 
@@ -30,6 +31,7 @@ type RootStackParamList = {
   UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
   TopicInfo: { chatId: string; topicId: number };
   MediaList: { chatId: string; type: string };
+  ManageEmployees: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -83,14 +85,14 @@ export default function App() {
               <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Чат' }} />
               <Stack.Screen name="CreateChat" component={CreateChatScreen} options={{ title: 'Новый чат' }} />
               <Stack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
-              <Stack.Screen name="Profile" options={{ title: 'Профиль' }}>
-  {(props) => <ProfileScreen {...props} onLogout={handleLogout} />}
-</Stack.Screen>
+              <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Профиль' }} />
               <Stack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ title: 'Информация о чате' }} />
               <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: 'Добавить участников' }} />
               <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: 'Профиль пользователя' }} />
               <Stack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ title: 'Информация о топике' }} />
               <Stack.Screen name="MediaList" component={MediaListScreen} options={{ title: 'Файлы' }} />
+              <Stack.Screen name="ManageEmployees" component={ManageEmployeesScreen} options={{ title: 'Управление сотрудниками' }} />
+              <Stack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
             </>
           ) : (
             <Stack.Screen name="Auth" options={{ headerShown: false }}>

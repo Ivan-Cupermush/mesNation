@@ -141,6 +141,10 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         <Switch value={theme === 'dark'} onValueChange={toggleTheme} />
       </View>
 
+      <TouchableOpacity style={[styles.createButton, { marginTop: 20 }]} onPress={() => navigation.navigate('ManageEmployees')}>
+        <Text style={styles.createButtonText}>Управление сотрудниками</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={[styles.logoutButton, { marginTop: 20 }]} onPress={handleLogout}>
         <Text style={styles.logoutText}>Выйти</Text>
       </TouchableOpacity>

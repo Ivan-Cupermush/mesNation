@@ -11,6 +11,8 @@ import jwt from 'jsonwebtoken';
 import sharp from 'sharp';
 import fs from 'fs';
 import chatsRouter from './routes/chats';
+import roleTreeRouter from './routes/roleTree';
+import tasksRouter from './routes/tasks';
 
 dotenv.config();
 
@@ -27,7 +29,9 @@ const upload = multer({
 });
 
 fs.mkdirSync('uploads/thumbs', { recursive: true });
+fs.mkdirSync('uploads/avatars', { recursive: true });
 
+// ========== Middleware ==========
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
@@ -64,6 +68,7 @@ function authenticateQuery(req: AuthRequest, res: Response, next: NextFunction) 
   }
 }
 
+// Статика для аплоадов
 app.use('/uploads/thumbs', express.static('uploads/thumbs'));
 app.use('/uploads/avatars', express.static('uploads/avatars'));
 app.use('/uploads', (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -71,23 +76,12 @@ app.use('/uploads', (req: AuthRequest, res: Response, next: NextFunction) => {
   return authenticate(req, res, next);
 }, express.static('uploads'));
 
-app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join('uploads', filename as string);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден' });
-    const tempToken = jwt.sign({ filename }, JWT_SECRET, { expiresIn: '5m' });
-    res.json({ url: `/uploads/${filename}?token=${tempToken}` });
-  } catch (err) {
-    console.error('Ошибка генерации токена:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
+// ========== Публичные эндпоинты ==========
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ========== Auth ==========
 app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { username, email, password, display_name } = req.body;
@@ -100,11 +94,11 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     }
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-       VALUES ($1, $2, $3, $4, (SELECT id FROM roles WHERE name = 'employee'), $1)
-       RETURNING id, username, email, display_name, avatar_url`,
-      [username, email, password_hash, display_name || username]
-    );
+  `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
+ VALUES ($1, $2, $3, $4, (SELECT id FROM role_tree WHERE name = 'employee'), $1)
+ RETURNING id, username, email, display_name, avatar_url`,
+  [username, email, password_hash, display_name || username]
+);
     const user = result.rows[0];
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user });
@@ -164,8 +158,50 @@ app.get('/api/users', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
-app.use('/api/chats', authenticate, chatsRouter);
+app.post('/api/auth/avatar', authenticate, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+    const avatarUrl = '/uploads/avatars/' + file.filename;
+    await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [avatarUrl, req.userId]);
+    res.json({ avatar_url: avatarUrl });
+  } catch (err) {
+    console.error('Ошибка загрузки аватара:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
 
+app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { display_name } = req.body;
+    if (!display_name) return res.status(400).json({ error: 'Имя обязательно' });
+    await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.userId]);
+    res.json({ display_name });
+  } catch (err) {
+    console.error('Ошибка обновления профиля:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join('uploads', filename as string);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден' });
+    const tempToken = jwt.sign({ filename }, JWT_SECRET, { expiresIn: '5m' });
+    res.json({ url: `/uploads/${filename}?token=${tempToken}` });
+  } catch (err) {
+    console.error('Ошибка генерации токена:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== Основные роуты ==========
+app.use('/api/chats', authenticate, chatsRouter);
+app.use('/api/role-tree', authenticate, roleTreeRouter);
+app.use('/api/tasks', authenticate, tasksRouter);
+
+// ========== Сообщения ==========
 app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
@@ -187,153 +223,6 @@ app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
-  try {
-    const { chatId, senderId, topicId } = req.body;
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
-    if (!chatId || !senderId) return res.status(400).json({ error: 'Не указан чат или отправитель' });
-
-    const memberCheck = await pool.query(
-      'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
-      [chatId, senderId]
-    );
-    if (memberCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Пользователь не состоит в чате' });
-    }
-
-    let thumbUrl: string | null = null;
-    const isImage = file.mimetype.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.originalname);
-    if (isImage) {
-      const thumbFilename = 'thumb_' + file.filename;
-      const thumbPath = path.join('uploads', 'thumbs', thumbFilename);
-      try {
-        await sharp(file.path).resize(300, 300, { fit: 'inside' }).toFile(thumbPath);
-        thumbUrl = '/uploads/thumbs/' + thumbFilename;
-      } catch (sharpErr) {
-        console.error('Ошибка создания миниатюры:', sharpErr);
-      }
-    }
-
-    const result = await pool.query(
-      `INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url, topic_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [chatId, senderId, `/uploads/${file.filename}`, file.originalname, thumbUrl, topicId || null]
-    );
-    const msg = result.rows[0];
-    io.to(chatId).emit('new_message', msg);
-    res.status(201).json(msg);
-  } catch (err) {
-    console.error('Ошибка загрузки файла:', err);
-    res.status(500).json({ error: 'Ошибка загрузки файла' });
-  }
-});
-
-app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const { title } = req.body;
-    if (!title) return res.status(400).json({ error: 'Название топика обязательно' });
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
-    if (!chat.is_supergroup) return res.status(400).json({ error: 'Топики доступны только в супергруппах' });
-    if (chat.created_by !== req.userId) return res.status(403).json({ error: 'Только создатель может создавать топики' });
-    const result = await pool.query(
-      'INSERT INTO topics (chat_id, title, created_by) VALUES ($1, $2, $3) RETURNING *',
-      [chatId, title, req.userId]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error('Ошибка создания топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const result = await pool.query('SELECT * FROM topics WHERE chat_id = $1 ORDER BY created_at ASC', [chatId]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Ошибка получения топиков:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const topicId = parseInt(req.params.id as string);
-    const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
-    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
-    const topic = topicResult.rows[0];
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [topic.chat_id]);
-    if (chatResult.rows[0].created_by !== req.userId) return res.status(403).json({ error: 'Только создатель супергруппы может удалять топики' });
-    await pool.query('DELETE FROM topics WHERE id = $1', [topicId]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Ошибка удаления топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// ====== Закрепление сообщений ======
-
-// Закрепить сообщение
-app.patch('/api/messages/:id/pin', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const messageId = parseInt(req.params.id as string);
-    const userId = req.userId!;
-
-    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
-    const msg = msgResult.rows[0];
-
-    let canPin = true;
-    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
-    if (adminCheck.rows.length > 0) {
-      const perms = adminCheck.rows[0].permissions || [];
-      canPin = perms.includes('pin_messages');
-    }
-    if (!canPin) return res.status(403).json({ error: 'Нет прав на закрепление сообщений' });
-
-    await pool.query('UPDATE messages SET pinned = true WHERE id = $1', [messageId]);
-    io.to(msg.chat_id).emit('message_pinned', { id: messageId, pinned: true });
-    res.json({ success: true, pinned: true });
-  } catch (err) {
-    console.error('Ошибка закрепления:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// Открепить сообщение
-app.patch('/api/messages/:id/unpin', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const messageId = parseInt(req.params.id as string);
-    const userId = req.userId!;
-
-    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
-    const msg = msgResult.rows[0];
-
-    let canUnpin = true;
-    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
-    if (adminCheck.rows.length > 0) {
-      const perms = adminCheck.rows[0].permissions || [];
-      canUnpin = perms.includes('pin_messages');
-    }
-    if (!canUnpin) return res.status(403).json({ error: 'Нет прав на открепление сообщений' });
-
-    await pool.query('UPDATE messages SET pinned = false WHERE id = $1', [messageId]);
-    io.to(msg.chat_id).emit('message_unpinned', { id: messageId, pinned: false });
-    res.json({ success: true, pinned: false });
-  } catch (err) {
-    console.error('Ошибка открепления:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// Получить закреплённые сообщения чата
 app.get('/api/messages/:chatId/pinned', async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
@@ -354,8 +243,6 @@ app.get('/api/messages/:chatId/pinned', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
-
-// ====== Редактирование и удаление ======
 
 app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
@@ -407,8 +294,176 @@ app.delete('/api/messages/:id', authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
-// Отслеживание онлайн-пользователей
-const onlineUsers = new Map<string, Set<number>>(); // chatId -> Set<userId>
+// ========== Закрепление сообщений ==========
+app.patch('/api/messages/:id/pin', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id as string);
+    const userId = req.userId!;
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const msg = msgResult.rows[0];
+    let canPin = true;
+    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
+    if (adminCheck.rows.length > 0) {
+      const perms = adminCheck.rows[0].permissions || [];
+      canPin = perms.includes('pin_messages');
+    }
+    if (!canPin) return res.status(403).json({ error: 'Нет прав на закрепление сообщений' });
+    await pool.query('UPDATE messages SET pinned = true WHERE id = $1', [messageId]);
+    io.to(msg.chat_id).emit('message_pinned', { id: messageId, pinned: true });
+    res.json({ success: true, pinned: true });
+  } catch (err) {
+    console.error('Ошибка закрепления:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.patch('/api/messages/:id/unpin', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const messageId = parseInt(req.params.id as string);
+    const userId = req.userId!;
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const msg = msgResult.rows[0];
+    let canUnpin = true;
+    const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
+    if (adminCheck.rows.length > 0) {
+      const perms = adminCheck.rows[0].permissions || [];
+      canUnpin = perms.includes('pin_messages');
+    }
+    if (!canUnpin) return res.status(403).json({ error: 'Нет прав на открепление сообщений' });
+    await pool.query('UPDATE messages SET pinned = false WHERE id = $1', [messageId]);
+    io.to(msg.chat_id).emit('message_unpinned', { id: messageId, pinned: false });
+    res.json({ success: true, pinned: false });
+  } catch (err) {
+    console.error('Ошибка открепления:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== Загрузка файлов ==========
+app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { chatId, senderId, topicId } = req.body;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+    if (!chatId || !senderId) return res.status(400).json({ error: 'Не указан чат или отправитель' });
+
+    const memberCheck = await pool.query(
+      'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
+      [chatId, senderId]
+    );
+    if (memberCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Пользователь не состоит в чате' });
+    }
+
+    let thumbUrl: string | null = null;
+    const isImage = file.mimetype.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.originalname);
+    if (isImage) {
+      const thumbFilename = 'thumb_' + file.filename;
+      const thumbPath = path.join('uploads', 'thumbs', thumbFilename);
+      try {
+        await sharp(file.path).resize(300, 300, { fit: 'inside' }).toFile(thumbPath);
+        thumbUrl = '/uploads/thumbs/' + thumbFilename;
+      } catch (sharpErr) {
+        console.error('Ошибка создания миниатюры:', sharpErr);
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url, topic_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [chatId, senderId, `/uploads/${file.filename}`, file.originalname, thumbUrl, topicId || null]
+    );
+    const msg = result.rows[0];
+    io.to(chatId).emit('new_message', msg);
+    res.status(201).json(msg);
+  } catch (err) {
+    console.error('Ошибка загрузки файла:', err);
+    res.status(500).json({ error: 'Ошибка загрузки файла' });
+  }
+});
+
+// ========== Топики ==========
+app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ error: 'Название топика обязательно' });
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    const chat = chatResult.rows[0];
+    if (!chat.is_supergroup) return res.status(400).json({ error: 'Топики доступны только в супергруппах' });
+    if (chat.created_by !== req.userId) return res.status(403).json({ error: 'Только создатель может создавать топики' });
+    const result = await pool.query(
+      'INSERT INTO topics (chat_id, title, created_by) VALUES ($1, $2, $3) RETURNING *',
+      [chatId, title, req.userId]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Ошибка создания топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const result = await pool.query('SELECT * FROM topics WHERE chat_id = $1 ORDER BY created_at ASC', [chatId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ошибка получения топиков:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const topicId = parseInt(req.params.id as string);
+    const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
+    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
+    const topic = topicResult.rows[0];
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [topic.chat_id]);
+    if (chatResult.rows[0].created_by !== req.userId) return res.status(403).json({ error: 'Только создатель супергруппы может удалять топики' });
+    await pool.query('DELETE FROM topics WHERE id = $1', [topicId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Ошибка удаления топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== Пересылка между чатами ==========
+app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { message_id, target_chat_id, target_topic_id, text } = req.body;
+    const userId = req.userId!;
+    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+    const originalMsg = msgResult.rows[0];
+    const memberCheck = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [target_chat_id, userId]);
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не являетесь участником целевого чата' });
+    const externalChatId = (originalMsg.chat_id != target_chat_id) ? originalMsg.chat_id : null;
+    const finalText = (text && text.trim() !== '') ? text : (originalMsg.text || '');
+    const fileUrl = originalMsg.file_url || null;
+    const fileName = originalMsg.file_name || null;
+    const thumbUrl = originalMsg.thumb_url || null;
+    const insertResult = await pool.query(
+      `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, external_reply_chat_id, file_url, file_name, thumb_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [target_chat_id, userId, finalText, message_id, target_topic_id || null, externalChatId, fileUrl, fileName, thumbUrl]
+    );
+    const newMsg = insertResult.rows[0];
+    io.to(target_chat_id.toString()).emit('new_message', newMsg);
+    res.status(201).json(newMsg);
+  } catch (err) {
+    console.error('Ошибка пересылки:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== WebSocket ==========
+const onlineUsers = new Map<string, Set<number>>();
 
 io.on('connection', (socket) => {
   console.log('+ user connected:', socket.id);
@@ -462,69 +517,5 @@ io.on('connection', (socket) => {
   });
 });
 
-
-
-
-// Переслать сообщение в другой чат
-app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const { message_id, target_chat_id, target_topic_id, text } = req.body;
-    const userId = req.userId!;
-
-    const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
-    const originalMsg = msgResult.rows[0];
-
-    const memberCheck = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [target_chat_id, userId]);
-    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не являетесь участником целевого чата' });
-
-    const externalChatId = (originalMsg.chat_id != target_chat_id) ? originalMsg.chat_id : null;
-    const finalText = (text && text.trim() !== '') ? text : (originalMsg.text || '');
-
-    // Копируем файловые поля, если есть
-    const fileUrl = originalMsg.file_url || null;
-    const fileName = originalMsg.file_name || null;
-    const thumbUrl = originalMsg.thumb_url || null;
-
-    const insertResult = await pool.query(
-      `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, external_reply_chat_id, file_url, file_name, thumb_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [target_chat_id, userId, finalText, message_id, target_topic_id || null, externalChatId, fileUrl, fileName, thumbUrl]
-    );
-    const newMsg = insertResult.rows[0];
-    io.to(target_chat_id.toString()).emit('new_message', newMsg);
-    res.status(201).json(newMsg);
-  } catch (err) {
-    console.error('Ошибка пересылки:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-httpServer.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
-
-// Загрузка аватара
-app.post('/api/auth/avatar', authenticate, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
-  try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
-    const avatarUrl = '/uploads/avatars/' + file.filename;
-    await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [avatarUrl, req.userId]);
-    res.json({ avatar_url: avatarUrl });
-  } catch (err) {
-    console.error('Ошибка загрузки аватара:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// Обновление профиля
-app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const { display_name } = req.body;
-    if (!display_name) return res.status(400).json({ error: 'Имя обязательно' });
-    await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.userId]);
-    res.json({ display_name });
-  } catch (err) {
-    console.error('Ошибка обновления профиля:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
+// ========== СТАРТ СЕРВЕРА (ВСЕГДА В САМОМ КОНЦЕ!) ==========
+httpServer.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));

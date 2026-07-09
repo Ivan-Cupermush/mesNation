@@ -1,0 +1,2371 @@
+========== 📱 SCREENS (Экраны приложения) ==========
+
+==================== src/screens/AddMembersScreen.tsx ====================
+import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { getToken, SERVER_URL } from '../utils';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function AddMembersScreen({ route, navigation }: any) {
+  const { chatId } = route.params;
+  const [users, setUsers] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    const tok = await getToken();
+    if (!tok) return;
+    const [usersRes, chatsRes] = await Promise.all([
+      fetch(`${SERVER_URL}/api/users`, { headers: { Authorization: `Bearer ${tok}` } }),
+      fetch(`${SERVER_URL}/api/chats`, { headers: { Authorization: `Bearer ${tok}` } })
+    ]);
+    const usersData = await usersRes.json();
+    const chatsData = await chatsRes.json();
+    const chat = chatsData.find((c: any) => c.id == chatId);
+    const memberIds = chat?.members?.map((m: any) => m.id) || [];
+    setUsers(usersData.filter((u: any) => !memberIds.includes(u.id)));
+    setMembers(chat?.members || []);
+    setLoading(false);
+  };
+
+  const addMember = async (userId: number) => {
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ user_ids: [userId] }),
+    });
+    if (res.ok) {
+      Alert.alert('Успешно', 'Участник добавлен');
+      loadData();
+    } else {
+      const err = await res.json();
+      Alert.alert('Ошибка', err.error);
+    }
+  };
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={users}
+        keyExtractor={item => item.id.toString()}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.userItem} onPress={() => addMember(item.id)}>
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarText}>{(item.username||'?')[0].toUpperCase()}</Text>
+            </View>
+            <View>
+              <Text style={styles.userName}>{item.display_name || item.username}</Text>
+              <Text style={{ color: '#999', fontSize: 12 }}>@{item.username}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+}
+
+==================== src/screens/AuthScreen.tsx ====================
+import React, { useState } from 'react';
+import {
+  View, Text, TextInput, Button, Alert,
+  KeyboardAvoidingView, Platform,
+} from 'react-native';
+import RNFS from 'react-native-fs';
+import { appStyles } from '../styles/appStyles';
+
+const SERVER_URL = 'http://10.0.2.2:5000';
+const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;
+
+let currentUserId: number | null = null;
+let currentUserName: string = '';
+
+export function getCurrentUserId() { return currentUserId; }
+export function getCurrentUserName() { return currentUserName; }
+
+async function saveToken(token: string) { await RNFS.writeFile(TOKEN_PATH, token, 'utf8'); }
+
+export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token: string, user: any) => void }) {
+  const [isRegister, setIsRegister] = useState(false);
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const url = isRegister ? `${SERVER_URL}/api/auth/register` : `${SERVER_URL}/api/auth/login`;
+      const body = isRegister
+        ? { username, email, password, display_name: displayName || username }
+        : { username, password };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await saveToken(data.token);
+        currentUserId = data.user.id;
+        currentUserName = data.user.display_name || data.user.username;
+        onLoginSuccess(data.token, data.user);
+      } else {
+        Alert.alert('Ошибка', data.error || 'Неизвестная ошибка');
+        setLoading(false);
+      }
+    } catch (err) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView style={appStyles.authContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <Text style={appStyles.title}>{isRegister ? 'Регистрация' : 'Вход'}</Text>
+      <TextInput style={appStyles.input} placeholder="Имя пользователя" value={username} onChangeText={setUsername} autoCapitalize="none" />
+      {isRegister && (
+        <>
+          <TextInput style={appStyles.input} placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+          <TextInput style={appStyles.input} placeholder="Отображаемое имя" value={displayName} onChangeText={setDisplayName} />
+        </>
+      )}
+      <TextInput style={appStyles.input} placeholder="Пароль" value={password} onChangeText={setPassword} secureTextEntry />
+      <Button title={loading ? 'Подождите...' : (isRegister ? 'Зарегистрироваться' : 'Войти')} onPress={handleSubmit} disabled={loading} />
+      <Text style={appStyles.switchText} onPress={() => setIsRegister(!isRegister)}>
+        {isRegister ? 'Уже есть аккаунт? Войти' : 'Нет аккаунта? Зарегистрироваться'}
+      </Text>
+    </KeyboardAvoidingView>
+  );
+}
+
+==================== src/screens/ChatInfoScreen.tsx ====================
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, FlatList,
+  Alert, ActivityIndicator, Switch, Modal, ScrollView,
+} from 'react-native';
+import { getToken, SERVER_URL } from '../utils';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function ChatInfoScreen({ route, navigation }: any) {
+  const { chatId } = route.params;
+  const [chat, setChat] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [showSupergroupDialog, setShowSupergroupDialog] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [adminPermissions, setAdminPermissions] = useState<string[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+  const [topics, setTopics] = useState<any[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
+  const [mergeMessages, setMergeMessages] = useState(true);
+  const [stats, setStats] = useState<{ total_files: number; total_images: number } | null>(null);
+  const [admins, setAdmins] = useState<any[]>([]);
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  useEffect(() => { loadChatInfo(); }, []);
+
+  const loadChatInfo = async () => {
+    const tok = await getToken();
+    if (!tok) return;
+    try {
+      const meRes = await fetch(`${SERVER_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${tok}` } });
+      const me = await meRes.json();
+      if (me.id) setCurrentUserId(me.id);
+
+      const res = await fetch(`${SERVER_URL}/api/chats`, { headers: { Authorization: `Bearer ${tok}` } });
+      const chats = await res.json();
+      const found = chats.find((c: any) => c.id == chatId);
+      if (found) {
+        setChat(found);
+        setNewName(found.name || '');
+        setMembers(found.members || []);
+      }
+
+      // Статистика
+      const statsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/stats`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData);
+      }
+
+      // Администраторы
+      const adminsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      if (adminsRes.ok) {
+        const adminsData = await adminsRes.json();
+        setAdmins(adminsData);
+      }
+    } catch (e) {}
+    setLoading(false);
+  };
+
+  const handleRename = async () => {
+    if (!newName.trim()) return;
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ name: newName }),
+    });
+    if (res.ok) {
+      Alert.alert('Успешно', 'Название изменено');
+      setEditingName(false);
+      loadChatInfo();
+    } else {
+      const data = await res.json();
+      Alert.alert('Ошибка', data.error || 'Не удалось изменить название');
+    }
+  };
+
+  const handleToggleSupergroup = async () => {
+    const newValue = !chat.is_supergroup;
+    if (newValue) {
+      const tok = await getToken();
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ is_supergroup: true }),
+      });
+      if (res.ok) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'TopicList', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } }],
+        });
+      } else {
+        const data = await res.json();
+        Alert.alert('Ошибка', data.error || 'Не удалось включить супергруппу');
+      }
+    } else {
+      const tok = await getToken();
+      const topicsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const topicsData = await topicsRes.json();
+      setTopics(topicsData);
+      setSelectedTopicId(null);
+      setShowSupergroupDialog(true);
+    }
+  };
+
+  const confirmDisableSupergroup = async () => {
+    setShowSupergroupDialog(false);
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ is_supergroup: false, keep_topic_id: selectedTopicId, merge: mergeMessages }),
+    });
+    if (res.ok) {
+      setSelectedTopicId(null);
+      navigation.reset({
+        index: 1,
+        routes: [
+          { name: 'ChatList' },
+          { name: 'Chat', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } },
+        ],
+      });
+    } else {
+      const data = await res.json();
+      Alert.alert('Ошибка', data.error || 'Не удалось отключить супергруппу');
+    }
+  };
+
+  const handleRemoveMember = async (userId: number) => {
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members/${userId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tok}` },
+    });
+    if (res.ok) {
+      loadChatInfo();
+    } else {
+      Alert.alert('Ошибка', 'Не удалось удалить участника');
+    }
+  };
+
+  const openAdminModal = () => {
+    const adminIds = admins.map(a => a.id);
+    const candidates = members.filter(m => m.id !== chat?.created_by && !adminIds.includes(m.id));
+    setAvailableUsers(candidates);
+    setSelectedUserId(null);
+    setAdminPermissions(['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages']);
+    setShowAdminModal(true);
+  };
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Удалить чат?',
+      'Чат будет удалён для всех участников. Это действие необратимо.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить',
+          style: 'destructive',
+          onPress: async () => {
+            const tok = await getToken();
+            const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+            const data = await res.json();
+            if (res.ok) {
+              Alert.alert('Успешно', 'Чат удалён');
+              navigation.goBack();
+            } else {
+              Alert.alert('Ошибка', data.error || 'Не удалось удалить чат');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLeave = () => {
+    Alert.alert(
+      'Выйти из чата?',
+      'Вы покинете чат и больше не сможете читать сообщения.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Выйти',
+          style: 'destructive',
+          onPress: async () => {
+            const tok = await getToken();
+            const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${tok}` },
+            });
+            const data = await res.json();
+            if (res.ok) {
+              Alert.alert('Успешно', 'Вы вышли из чата');
+              navigation.goBack();
+            } else {
+              Alert.alert('Ошибка', data.error || 'Не удалось выйти из чата');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={[styles.container, { padding: 16 }]}>
+      <ScrollView>
+        <View style={{ marginBottom: 20 }}>
+          <Text style={styles.label}>Название чата</Text>
+          {editingName ? (
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TextInput style={[styles.input, { flex: 1 }]} value={newName} onChangeText={setNewName} placeholder="Новое название" placeholderTextColor="#999" />
+              <TouchableOpacity style={styles.createButton} onPress={handleRename}>
+                <Text style={styles.createButtonText}>Сохранить</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setEditingName(false)}>
+                <Text style={{ color: '#999' }}>Отмена</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: theme === 'dark' ? '#fff' : '#1a1a1a' }}>{chat?.name || 'Без названия'}</Text>
+              {chat?.created_by === currentUserId && (
+                <TouchableOpacity onPress={() => setEditingName(true)}>
+                  <Text style={{ color: '#007bff' }}>Изменить</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+
+        {chat?.type === 'group' && chat?.created_by === currentUserId && (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={styles.label}>Супергруппа</Text>
+            <Switch value={chat?.is_supergroup} onValueChange={handleToggleSupergroup} />
+          </View>
+        )}
+
+        <Text style={styles.label}>Тип: {chat?.type === 'group' ? 'Группа' : 'Приватный'}</Text>
+        {stats && (
+          <View style={{ marginVertical: 10, padding: 10, backgroundColor: theme === 'dark' ? '#2c2c2e' : '#f8f8f8', borderRadius: 8 }}>
+            <TouchableOpacity onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'files' })}>
+              <Text style={[styles.label, { marginBottom: 5 }]}>Файлы: {stats.total_files}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'images' })}>
+              <Text style={[styles.label, { marginBottom: 5 }]}>Медиа: {stats.total_images}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <Text style={[styles.label, { marginTop: 20 }]}>Участники ({members.length})</Text>
+        <FlatList
+          data={members}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <View style={[styles.userItem, { justifyContent: 'space-between' }]}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                onPress={() => navigation.navigate('UserProfile', {
+                  userId: item.id,
+                  username: item.username,
+                  displayName: item.display_name || item.username,
+                  avatarUrl: item.avatar_url || '',
+                  role: item.role || 'member',
+                })}
+              >
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarText}>{(item.username || 'U')[0].toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.userName}>{item.display_name || item.username}</Text>
+                  <Text style={{ color: '#999', fontSize: 12 }}>@{item.username}</Text>
+                  <Text style={{ fontSize: 11, color: item.role === 'creator' ? '#007bff' : item.role === 'admin' ? '#28a745' : '#999' }}>
+                    {item.role === 'creator' ? 'Владелец' : item.role === 'admin' ? 'Админ' : 'Участник'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              {chat?.created_by === currentUserId && item.id !== currentUserId && (
+                <TouchableOpacity onPress={() => handleRemoveMember(item.id)}>
+                  <Text style={{ color: 'red' }}>Удалить</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+          contentContainerStyle={{ paddingBottom: 20 }}
+          scrollEnabled={false}
+        />
+
+        {/* Администраторы */}
+        <Text style={[styles.label, { marginTop: 20 }]}>Администраторы ({admins.length})</Text>
+        {admins.map((admin: any) => (
+          <View key={admin.id} style={{ marginBottom: 10 }}>
+            <View style={styles.userItem}>
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>{(admin.username || 'A')[0].toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userName}>{admin.display_name || admin.username}</Text>
+                <Text style={{ color: '#999', fontSize: 12 }}>@{admin.username}</Text>
+                <Text style={{ fontSize: 10, color: '#666' }}>
+                  Права: {admin.permissions ? admin.permissions.join(', ') : 'все'}
+                </Text>
+              </View>
+              {(chat?.created_by === currentUserId || admins.find((a: any) => a.id === currentUserId)?.permissions?.includes('add_admins')) && (
+                <View style={{ flexDirection: 'row', gap: 5 }}>
+                  <TouchableOpacity onPress={() => {
+                    setSelectedUserId(admin.id);
+                    setAdminPermissions(admin.permissions || []);
+                    setShowAdminModal(true);
+                  }}>
+                    <Text style={{ color: '#007bff', fontSize: 14 }}>Права</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => {
+                    Alert.alert('Снять администратора?', '', [
+                      { text: 'Отмена', style: 'cancel' },
+                      { text: 'Снять', style: 'destructive', onPress: async () => {
+                        const tok = await getToken();
+                        await fetch(`${SERVER_URL}/api/chats/${chatId}/admins/${admin.id}`, {
+                          method: 'DELETE',
+                          headers: { Authorization: `Bearer ${tok}` },
+                        });
+                        loadChatInfo();
+                      }},
+                    ]);
+                  }}>
+                    <Text style={{ color: 'red', fontSize: 14 }}>Снять</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        ))}
+        {(chat?.created_by === currentUserId || admins.find((a: any) => a.id === currentUserId)?.permissions?.includes('add_admins')) && (
+          <TouchableOpacity style={styles.createButton} onPress={openAdminModal}>
+            <Text style={styles.createButtonText}>Назначить администратора</Text>
+          </TouchableOpacity>
+        )}
+
+        <View style={{ marginTop: 20, gap: 10 }}>
+          {chat?.type === 'group' && chat?.created_by === currentUserId && (
+            <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('AddMembers', { chatId })}>
+              <Text style={styles.createButtonText}>Добавить участников</Text>
+            </TouchableOpacity>
+          )}
+          {chat?.created_by === currentUserId ? (
+            <View style={{ gap: 10 }}>
+              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#dc3545' }]} onPress={handleDelete}>
+                <Text style={[styles.logoutText, { color: '#fff' }]}>Удалить чат</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#6c757d' }]} onPress={handleLeave}>
+                <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#ff4444' }]} onPress={handleLeave}>
+              <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Модальное окно назначения/редактирования администратора */}
+      <Modal visible={showAdminModal} transparent animationType="fade">
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowAdminModal(false)}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '70%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: '#1a1a1a' }}>
+              {selectedUserId && admins.find(a => a.id === selectedUserId) ? 'Изменить права' : 'Назначить администратора'}
+            </Text>
+            {!selectedUserId && (
+              <>
+                <Text style={{ fontSize: 14, color: '#666', marginBottom: 10 }}>Выберите участника:</Text>
+                <ScrollView style={{ maxHeight: 150, marginBottom: 10 }}>
+                  {availableUsers.map((u: any) => (
+                    <TouchableOpacity
+                      key={u.id}
+                      style={{ paddingVertical: 10, paddingHorizontal: 15, backgroundColor: selectedUserId === u.id ? '#e3f2fd' : 'transparent', borderRadius: 8 }}
+                      onPress={() => setSelectedUserId(u.id)}
+                    >
+                      <Text style={{ fontSize: 16, fontWeight: selectedUserId === u.id ? '600' : '400' }}>
+                        {u.display_name || u.username} (@{u.username})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+            <Text style={{ fontSize: 14, fontWeight: '600', marginBottom: 10 }}>Права:</Text>
+            {[
+              { key: 'change_info', label: 'Изменение профиля группы' },
+              { key: 'delete_messages', label: 'Удаление сообщений' },
+              { key: 'ban_users', label: 'Блокировка пользователей' },
+              { key: 'add_users', label: 'Добавление участников' },
+              { key: 'pin_messages', label: 'Закрепление сообщений' },
+              { key: 'add_admins', label: 'Добавление администраторов' },
+            ].map(perm => (
+              <TouchableOpacity
+                key={perm.key}
+                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}
+                onPress={() => {
+                  if (adminPermissions.includes(perm.key)) {
+                    setAdminPermissions(adminPermissions.filter(p => p !== perm.key));
+                  } else {
+                    setAdminPermissions([...adminPermissions, perm.key]);
+                  }
+                }}
+              >
+                <View style={{
+                  width: 20, height: 20,
+                  borderWidth: 1, borderColor: '#ccc',
+                  borderRadius: 4,
+                  justifyContent: 'center', alignItems: 'center',
+                  marginRight: 8,
+                  backgroundColor: adminPermissions.includes(perm.key) ? '#007bff' : 'transparent',
+                }}>
+                  {adminPermissions.includes(perm.key) && <Text style={{ color: '#fff', fontSize: 14 }}>✓</Text>}
+                </View>
+                <Text style={{ fontSize: 14 }}>{perm.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 }}>
+              <TouchableOpacity onPress={() => setShowAdminModal(false)} style={{ padding: 10 }}>
+                <Text style={{ color: '#999' }}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ backgroundColor: '#007bff', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}
+                onPress={async () => {
+                  if (!selectedUserId) {
+                    Alert.alert('Ошибка', 'Выберите участника');
+                    return;
+                  }
+                  const tok = await getToken();
+                  let res;
+                  const existingAdmin = admins.find((a: any) => a.id === selectedUserId);
+                  if (existingAdmin) {
+                    res = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins/${selectedUserId}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+                      body: JSON.stringify({ permissions: adminPermissions }),
+                    });
+                  } else {
+                    res = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+                      body: JSON.stringify({ user_id: selectedUserId, permissions: adminPermissions }),
+                    });
+                  }
+                  if (res.ok) {
+                    setShowAdminModal(false);
+                    loadChatInfo();
+                  } else {
+                    Alert.alert('Ошибка', 'Не удалось сохранить');
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Модальное окно отключения супергруппы */}
+      <Modal visible={showSupergroupDialog} transparent animationType="fade">
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }}
+          onPress={() => setShowSupergroupDialog(false)}
+        >
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: '#1a1a1a' }}>Выключить супергруппу?</Text>
+            <Text style={{ fontSize: 14, color: '#666', marginBottom: 15 }}>
+              При отключении супергруппы все топики, кроме выбранного, будут безвозвратно удалены. Это действие нельзя отменить.
+            </Text>
+            <Text style={{ fontSize: 15, fontWeight: '600', marginBottom: 8 }}>Оставить топик:</Text>
+            <ScrollView style={{ maxHeight: 200 }}>
+              <TouchableOpacity
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 8,
+                  marginBottom: 6,
+                  backgroundColor: selectedTopicId === null ? '#e3f2fd' : '#f5f5f5',
+                }}
+                onPress={() => setSelectedTopicId(null)}
+              >
+                <Text style={{ fontSize: 16, fontWeight: selectedTopicId === null ? '700' : '400' }}>Общий чат (без топиков)</Text>
+              </TouchableOpacity>
+              {topics.map((topic) => (
+                <TouchableOpacity
+                  key={topic.id}
+                  style={{
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    borderRadius: 8,
+                    marginBottom: 6,
+                    backgroundColor: selectedTopicId === topic.id ? '#e3f2fd' : '#f5f5f5',
+                  }}
+                  onPress={() => setSelectedTopicId(topic.id)}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: selectedTopicId === topic.id ? '700' : '400' }}>{topic.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+              <Text style={{ fontSize: 14 }}>Объединить сообщения</Text>
+              <Switch value={mergeMessages} onValueChange={setMergeMessages} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 }}>
+              <TouchableOpacity onPress={() => setShowSupergroupDialog(false)} style={{ padding: 10 }}>
+                <Text style={{ color: '#999', fontSize: 16 }}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ backgroundColor: '#ff4444', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}
+                onPress={confirmDisableSupergroup}
+              >
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Отключить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}
+
+==================== src/screens/ChatListScreen.tsx ====================
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, SafeAreaView, StatusBar,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { getToken, SERVER_URL } from '../utils';
+import { ChatRow } from '../components/ChatRow';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function ChatListScreen({ navigation, onLogout }: { navigation: any; onLogout: () => void }) {
+  const [chats, setChats] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  const loadChats = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setChats(data);
+    } catch (e) {} finally { setLoading(false); }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      loadChats();
+    }, [loadChats])
+  );
+
+  const formatTime = (ts: string) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 1) return 'Вчера';
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText }}>Загрузка...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background }}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      {/* Header */}
+      <View style={{
+        height: TelegramSizes.headerHeight,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground,
+        borderBottomWidth: 1,
+        borderBottomColor: isDark ? TelegramColors.dark.divider : TelegramColors.light.divider,
+      }}>
+        <Text style={{
+          flex: 1,
+          fontSize: TelegramFonts.sizes.title,
+          fontWeight: TelegramFonts.weights.bold,
+          color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText,
+        }}>mesNation</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('CreateChat')} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: TelegramColors.light.accent }}>✚</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: TelegramColors.light.accent }}>👤</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Список чатов */}
+      <FlatList
+        data={chats}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <ChatRow
+            title={item.name || 'Чат'}
+            lastMessage={item.last_message?.text || ''}
+            time={formatTime(item.last_message?.created_at)}
+            unreadCount={0}
+            avatar={undefined}
+            isPinned={false}
+            isMuted={false}
+            onPress={() => {
+              if (item.is_supergroup) {
+                navigation.navigate('TopicList', { chatId: item.id.toString(), chatName: item.name });
+              } else {
+                navigation.navigate('Chat', { chatId: item.id.toString(), chatName: item.name });
+              }
+            }}
+          />
+        )}
+      />
+
+      {/* Кнопка выхода (как раньше) */}
+      <View style={{ padding: 16 }}>
+        <TouchableOpacity
+          style={{
+            paddingVertical: 14,
+            borderRadius: 12,
+            alignItems: 'center',
+            backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground,
+          }}
+          onPress={onLogout}
+        >
+          <Text style={{ color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText, fontSize: 16 }}>Выйти</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+==================== src/screens/ChatScreen.tsx ====================
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, TextInput, FlatList, KeyboardAvoidingView,
+  Platform, TouchableOpacity, Alert, Modal, Image, Linking,
+  SafeAreaView, StatusBar,
+} from 'react-native';
+import io from 'socket.io-client';
+import { getToken, SERVER_URL } from '../utils';
+import { useTheme } from '../theme/ThemeContext';
+import { pick } from '@react-native-documents/picker';
+import { ChatHeader } from '../components/ChatHeader';
+import { MessageBubble } from '../components/MessageBubble';
+import { TelegramColors, TelegramSizes } from '../theme/telegramTheme';
+
+export default function ChatScreen({ route, navigation }: any) {
+  const { chatId, chatName, topicId } = route.params || {};
+  const [messages, setMessages] = useState<any[]>([]);
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<any>(null);
+  const [replyTo, setReplyTo] = useState<any>(null);
+  const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [uploading, setUploading] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
+  const [currentPinnedIndex, setCurrentPinnedIndex] = useState(0);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [availableChats, setAvailableChats] = useState<any[]>([]);
+  const [forwardTarget, setForwardTarget] = useState<{ chatId: string; topicId?: number } | null>(null);
+  const [topicsForForward, setTopicsForForward] = useState<any[]>([]);
+  const socketRef = useRef<any>(null);
+  const flatListRef = useRef<FlatList>(null);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  // Закрепления
+  const loadPinned = async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const url = `${SERVER_URL}/api/messages/${chatId}/pinned${topicId ? `?topic_id=${topicId}` : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setPinnedMessages(data);
+        setCurrentPinnedIndex(0);
+      }
+    } catch (e) {}
+  };
+
+  const showPinned = (index: number) => {
+    if (index >= 0 && index < pinnedMessages.length) {
+      setCurrentPinnedIndex(index);
+      const msgId = pinnedMessages[index].id;
+      const msgIndex = messages.findIndex(m => m.id === msgId);
+      if (msgIndex >= 0) {
+        flatListRef.current?.scrollToIndex({ index: msgIndex, animated: true });
+      }
+      setTimeout(() => {
+        setCurrentPinnedIndex(prev => (prev + 1) % pinnedMessages.length);
+      }, 500);
+    }
+  };
+
+  // Пересылка
+  const loadAvailableChats = async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableChats(data.filter((c: any) => c.id.toString() !== chatId));
+      }
+    } catch (e) {}
+  };
+
+  const loadTopicsForForward = async (chatId: string) => {
+    const token = await getToken();
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTopicsForForward(data);
+      }
+    } catch (e) {}
+  };
+
+  const startForward = async (targetChatId: string, targetTopicId?: number | null) => {
+    const token = await getToken();
+    if (!token || !selectedMessage) return;
+    try {
+      const body: any = {
+        message_id: selectedMessage.id,
+        target_chat_id: targetChatId,
+        text: '',
+      };
+      if (targetTopicId) body.target_topic_id = targetTopicId;
+      const res = await fetch(`${SERVER_URL}/api/messages/reply-to-another-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        Alert.alert('Готово', 'Сообщение переслано');
+      } else {
+        const err = await res.json();
+        Alert.alert('Ошибка', err.error || 'Не удалось');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    }
+    setShowForwardModal(false);
+    setForwardTarget(null);
+    setSelectedMessage(null);
+  };
+
+  const handleExternalReplyPress = async (externalChatId: number, replyToMessageId: number) => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const chats = await res.json();
+      const isMember = chats.some((c: any) => c.id === externalChatId);
+      if (isMember) {
+        navigation.navigate('Chat', { chatId: externalChatId.toString(), chatName: 'Исходный чат', messageId: replyToMessageId });
+      } else {
+        Alert.alert('Нет доступа', 'Вы не являетесь участником этого чата.');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось проверить доступ');
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      const token = await getToken();
+      if (!token) return;
+
+      let userId: number | null = null;
+      try {
+        const res = await fetch(`${SERVER_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+        const user = await res.json();
+        if (user.id) { userId = user.id; if (mounted) setCurrentUserId(userId); }
+      } catch (e) {}
+
+      const effectiveUserId = userId || 1;
+      const socket = io(SERVER_URL, { auth: { token } });
+      socketRef.current = socket;
+      socket.emit('join_chat', chatId);
+
+      let url = `${SERVER_URL}/api/messages/${chatId}`;
+      if (topicId) url += `?topic_id=${topicId}`;
+      try {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (res.ok && mounted) {
+          const filtered = data.filter((m: any) => {
+            if (m.deleted_for_all) return false;
+            const deletedFor = m.deleted_for_user_ids;
+            if (Array.isArray(deletedFor)) return !deletedFor.includes(effectiveUserId);
+            return true;
+          });
+          setMessages(filtered);
+          await loadPinned();
+          const msgId = route.params?.messageId;
+          if (msgId) {
+            const index = filtered.findIndex((m: any) => m.id == msgId);
+            if (index >= 0) {
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index, animated: true });
+              }, 300);
+            }
+          }
+        }
+      } catch (e) {}
+
+      socket.on('new_message', (msg: any) => {
+        if (msg.chat_id !== chatId) return;
+        if (topicId && msg.topic_id !== topicId) return;
+        if (mounted) {
+          const isDeletedForAll = msg.deleted_for_all;
+          const isDeletedForMe = Array.isArray(msg.deleted_for_user_ids) && msg.deleted_for_user_ids.includes(effectiveUserId);
+          if (!isDeletedForAll && !isDeletedForMe) setMessages(prev => [...prev, msg]);
+        }
+      });
+      socket.on('message_edited', (updated: any) => { if (mounted) setMessages(prev => prev.map(m => m.id === updated.id ? updated : m)); });
+      socket.on('message_deleted', ({ id }: { id: number }) => { if (mounted) setMessages(prev => prev.filter(m => m.id !== id)); });
+      socket.on('message_pinned', (data: any) => { if (mounted) { setMessages(prev => prev.map(m => m.id === data.id ? { ...m, pinned: data.pinned } : m)); loadPinned(); } });
+      socket.on('message_unpinned', (data: any) => { if (mounted) { setMessages(prev => prev.map(m => m.id === data.id ? { ...m, pinned: data.pinned } : m)); loadPinned(); } });
+
+      if (mounted) setLoading(false);
+
+      return () => {
+        mounted = false;
+        socket.off('new_message'); socket.off('message_edited'); socket.off('message_deleted');
+        socket.off('message_pinned'); socket.off('message_unpinned');
+        socket.disconnect();
+      };
+    })();
+    return () => { mounted = false; };
+  }, [chatId, topicId]);
+
+  // Отправка файла (без изменений)
+  const pickAndSendFile = async () => {
+    try {
+      const [result] = await pick({ mode: 'import' });
+      if (!result) return;
+      setUploading(true);
+      const token = await getToken();
+      const formData = new FormData();
+      formData.append('file', { uri: result.uri, type: result.type || 'application/octet-stream', name: result.name || 'file' } as any);
+      formData.append('chatId', chatId);
+      formData.append('senderId', currentUserId?.toString() || '1');
+      if (topicId) formData.append('topicId', topicId.toString());
+
+      const res = await fetch(`${SERVER_URL}/api/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) Alert.alert('Ошибка', data.error || 'Не удалось загрузить файл');
+    } catch (err: any) {
+      if (err?.code !== 'DOCUMENT_PICKER_CANCELED') Alert.alert('Ошибка', 'Не удалось выбрать файл');
+    } finally { setUploading(false); }
+  };
+
+  // Отправка сообщения (без изменений)
+  const sendMessage = async () => {
+    if (!text.trim() || !currentUserId) return;
+    if (!socketRef.current) return;
+    if (editingMessage) {
+      const token = await getToken();
+      try {
+        const res = await fetch(`${SERVER_URL}/api/messages/${editingMessage.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ text }),
+        });
+        const updated = await res.json();
+        if (res.ok) setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
+        else Alert.alert('Ошибка', updated.error || 'Не удалось изменить сообщение');
+      } catch (e) { Alert.alert('Ошибка', 'Сервер недоступен'); }
+      setEditingMessage(null);
+    } else {
+      const payload: any = { chatId, senderId: currentUserId, text };
+      if (replyTo) payload.reply_to_message_id = replyTo.id;
+      if (topicId) payload.topic_id = topicId;
+      socketRef.current.emit('send_message', payload);
+      setReplyTo(null);
+    }
+    setText('');
+  };
+
+  // Остальные функции (без изменений)
+  const handleLongPress = (message: any) => setSelectedMessage(message);
+  const deleteMessage = async (scope: 'me' | 'all') => {
+    if (!selectedMessage) return;
+    const token = await getToken();
+    try {
+      await fetch(`${SERVER_URL}/api/messages/${selectedMessage.id}?scope=${scope}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessages(prev => prev.filter(m => m.id !== selectedMessage.id));
+    } catch (e) { Alert.alert('Ошибка', 'Не удалось удалить сообщение'); }
+    setSelectedMessage(null);
+  };
+  const startEditing = () => {
+    if (!selectedMessage || selectedMessage.sender_id !== currentUserId) {
+      Alert.alert('Ошибка', 'Только автор может редактировать');
+      setSelectedMessage(null); return;
+    }
+    setEditingMessage(selectedMessage);
+    setText(selectedMessage.text);
+    setSelectedMessage(null);
+  };
+  const startReply = () => {
+    if (selectedMessage) { setReplyTo(selectedMessage); setSelectedMessage(null); }
+  };
+  const findMessageById = (id: number) => messages.find(m => m.id === id);
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background, justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: TelegramColors.light.primaryText }}>Загрузка...</Text></View>;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background }}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <ChatHeader
+        title={chatName}
+        onBack={() => navigation.goBack()}
+        onSearch={() => {}}  // пока заглушка
+        onMenu={() => {
+          // вместо меню можно открыть инфо чата
+          if (topicId) {
+            navigation.navigate('TopicInfo', { chatId, topicId });
+          } else {
+            navigation.navigate('ChatInfo', { chatId });
+          }
+        }}
+        status="online"
+      />
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {/* Закреплённая панель */}
+        {pinnedMessages.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground, padding: 8, borderBottomWidth: 1, borderColor: isDark ? TelegramColors.dark.divider : TelegramColors.light.divider }}>
+            <TouchableOpacity onPress={() => showPinned(currentPinnedIndex)} style={{ flex: 1 }}>
+              <Text numberOfLines={1} style={{ fontWeight: '500', fontSize: 13, color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText }}>
+                📌 {pinnedMessages[currentPinnedIndex]?.text || 'Закреплённое сообщение'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: 12, color: TelegramColors.light.secondaryText, marginHorizontal: 8 }}>
+              {currentPinnedIndex + 1}/{pinnedMessages.length}
+            </Text>
+          </View>
+        )}
+
+        {/* Плашка ответа */}
+        {replyTo && (
+          <View style={{ padding: 8, backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}><Text style={{ fontSize: 12, color: TelegramColors.light.secondaryText }}>Ответ на:</Text><Text numberOfLines={1} style={{ fontWeight: '500', color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText }}>{replyTo.text}</Text></View>
+            <TouchableOpacity onPress={() => setReplyTo(null)} style={{ padding: 4 }}><Text style={{ fontSize: 18, color: TelegramColors.light.secondaryText }}>✕</Text></TouchableOpacity>
+          </View>
+        )}
+
+        {/* Плашка редактирования */}
+        {editingMessage && (
+          <View style={{ padding: 8, backgroundColor: '#fff3cd', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}><Text style={{ fontSize: 12, color: '#666' }}>Редактирование:</Text><Text numberOfLines={1} style={{ fontWeight: '500' }}>{editingMessage.text}</Text></View>
+            <TouchableOpacity onPress={() => { setEditingMessage(null); setText(''); }} style={{ padding: 4 }}><Text style={{ fontSize: 18, color: '#666' }}>✕</Text></TouchableOpacity>
+          </View>
+        )}
+
+        {/* Список сообщений */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+          contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 5 }}
+          renderItem={({ item }) => {
+            const isMine = item.sender_id === currentUserId;
+            // Внешняя цитата (из другого чата)
+            const isExternal = item.external_reply_chat_id && !findMessageById(item.reply_to_message_id);
+            return (
+              <TouchableOpacity onLongPress={() => handleLongPress(item)} activeOpacity={0.7}>
+                <View style={{ marginVertical: 2 }}>
+                  {isExternal && (
+                    <TouchableOpacity onPress={() => handleExternalReplyPress(item.external_reply_chat_id, item.reply_to_message_id)} style={{ backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground, padding: 6, borderRadius: 8, marginBottom: 4, alignSelf: isMine ? 'flex-end' : 'flex-start', maxWidth: '78%' }}>
+                      <Text style={{ color: TelegramColors.light.accent, fontSize: 13 }}>Сообщение из другого чата</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!isExternal && item.reply_to_message_id && findMessageById(item.reply_to_message_id) && (
+                    <View style={{ backgroundColor: 'rgba(0,0,0,0.05)', padding: 6, borderRadius: 6, marginBottom: 4, alignSelf: isMine ? 'flex-end' : 'flex-start', maxWidth: '78%' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600' }}>{findMessageById(item.reply_to_message_id).sender_id}:</Text>
+                      <Text style={{ fontSize: 13 }}>{findMessageById(item.reply_to_message_id).text}</Text>
+                    </View>
+                  )}
+                  <MessageBubble
+                    text={item.text}
+                    isMine={isMine}
+                    time={new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    isEdited={!!item.edited_at}
+                    readStatus={isMine ? 'delivered' : undefined}
+                  />
+                  {item.file_url && (
+                    <TouchableOpacity onPress={() => Linking.openURL(SERVER_URL + item.file_url)} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', marginTop: 4 }}>
+                      {item.thumb_url ? (
+                        <Image source={{ uri: SERVER_URL + item.thumb_url }} style={{ width: 200, height: 150, borderRadius: 8 }} />
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 4 }}>
+                          <Text style={{ fontSize: 20 }}>📄</Text>
+                          <Text style={{ fontSize: 14, color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText }}>{item.file_name}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+
+        {/* Поле ввода */}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', padding: 8, borderTopWidth: 1, borderColor: isDark ? TelegramColors.dark.divider : TelegramColors.light.divider, backgroundColor: isDark ? TelegramColors.dark.background : TelegramColors.light.background }}>
+          <TouchableOpacity style={{ padding: 8 }} onPress={pickAndSendFile} disabled={uploading}>
+            <Text style={{ fontSize: 24 }}>{uploading ? '⏳' : '📎'}</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginHorizontal: 8, borderRadius: 24, backgroundColor: isDark ? TelegramColors.dark.secondaryBackground : TelegramColors.light.secondaryBackground, paddingHorizontal: 14, paddingVertical: 8 }}>
+            <TextInput
+              style={{ fontSize: 16, color: isDark ? TelegramColors.dark.primaryText : TelegramColors.light.primaryText, maxHeight: 100 }}
+              value={text}
+              onChangeText={setText}
+              placeholder="Сообщение..."
+              placeholderTextColor={TelegramColors.light.secondaryText}
+              multiline
+            />
+          </View>
+          <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: TelegramColors.light.accent, justifyContent: 'center', alignItems: 'center' }} onPress={sendMessage}>
+            <Text style={{ color: '#fff', fontSize: 18 }}>➤</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Модалка пересылки */}
+      <Modal visible={showForwardModal} transparent animationType="fade">
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowForwardModal(false)}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '70%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10 }}>Выберите чат</Text>
+            {!forwardTarget ? (
+              <FlatList
+                data={availableChats}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                    onPress={() => {
+                      if (item.is_supergroup) {
+                        loadTopicsForForward(item.id.toString());
+                        setForwardTarget({ chatId: item.id.toString() });
+                      } else {
+                        startForward(item.id.toString());
+                      }
+                    }}
+                  >
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: TelegramColors.light.accent, justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>{(item.name || 'G')[0].toUpperCase()}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16 }}>{item.name || 'Чат'}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            ) : (
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10 }}>Выберите топик</Text>
+                <FlatList
+                  data={topicsForForward}
+                  keyExtractor={(item) => item.id.toString()}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={{ paddingVertical: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                      onPress={() => startForward(forwardTarget.chatId, item.id)}
+                    >
+                      <Text style={{ fontSize: 16 }}># {item.title}</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+                <TouchableOpacity
+                  style={{ paddingVertical: 12 }}
+                  onPress={() => startForward(forwardTarget.chatId, null)}
+                >
+                  <Text style={{ fontSize: 16, color: TelegramColors.light.accent }}>Общий чат</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity style={{ marginTop: 10, alignSelf: 'flex-end' }} onPress={() => { setShowForwardModal(false); setForwardTarget(null); }}>
+              <Text style={{ color: '#999' }}>Отмена</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Контекстное меню сообщения */}
+      <Modal visible={!!selectedMessage} transparent animationType="fade">
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }} onPress={() => setSelectedMessage(null)}>
+          <View style={{ backgroundColor: '#fff', marginHorizontal: 30, marginTop: 'auto', marginBottom: 'auto', borderRadius: 12, padding: 20 }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 15 }}>Действия с сообщением</Text>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={startReply}><Text>Ответить</Text></TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => {
+              loadAvailableChats();
+              setShowForwardModal(true);
+            }}><Text>Переслать</Text></TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={async () => {
+              const tok = await getToken();
+              const isPinned = selectedMessage?.pinned;
+              const url = `${SERVER_URL}/api/messages/${selectedMessage?.id}/${isPinned ? 'unpin' : 'pin'}`;
+              const res = await fetch(url, { method: 'PATCH', headers: { Authorization: `Bearer ${tok}` } });
+              if (res.ok) {
+                setMessages(prev => prev.map(m => m.id === selectedMessage?.id ? { ...m, pinned: !isPinned } : m));
+                loadPinned();
+              } else Alert.alert('Ошибка', 'Не удалось закрепить');
+              setSelectedMessage(null);
+            }}><Text>{selectedMessage?.pinned ? 'Открепить' : 'Закрепить'}</Text></TouchableOpacity>
+            {selectedMessage?.sender_id === currentUserId && (
+              <TouchableOpacity style={{ paddingVertical: 12 }} onPress={startEditing}><Text>Редактировать</Text></TouchableOpacity>
+            )}
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => deleteMessage('me')}><Text>Удалить у меня</Text></TouchableOpacity>
+            {selectedMessage?.sender_id === currentUserId && (
+              <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => deleteMessage('all')}><Text style={{ color: 'red' }}>Удалить у всех</Text></TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+==================== src/screens/CreateChatScreen.tsx ====================
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, FlatList, Alert, ActivityIndicator, Switch,
+} from 'react-native';
+import { getToken, SERVER_URL } from '../utils';
+import { appStyles } from '../styles/appStyles';
+
+export default function CreateChatScreen({ navigation }: any) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'private' | 'group'>('group');
+  const [isSupergroup, setIsSupergroup] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setUsers(data);
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось загрузить пользователей');
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
+
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  const currentUserId = require('../screens/AuthScreen').getCurrentUserId();
+  const otherUsers = users.filter(u => u.id !== currentUserId);
+
+  const filteredUsers = search.trim()
+    ? otherUsers.filter(u =>
+        u.username.toLowerCase().includes(search.toLowerCase()) ||
+        (u.display_name && u.display_name.toLowerCase().includes(search.toLowerCase()))
+      )
+    : otherUsers;
+
+  const toggleUser = (id: number) => {
+    if (type === 'private') {
+      setSelectedUserIds([id]);
+    } else {
+      setSelectedUserIds(prev =>
+        prev.includes(id) ? prev.filter(uid => uid !== id) : [...prev, id]
+      );
+    }
+  };
+
+  const handleCreate = async () => {
+    if (type === 'group' && !name.trim()) {
+      Alert.alert('Ошибка', 'Введите название группы');
+      return;
+    }
+    if (selectedUserIds.length === 0) {
+      Alert.alert('Ошибка', 'Выберите хотя бы одного участника');
+      return;
+    }
+    setCreating(true);
+    const token = await getToken();
+    if (!token) {
+      Alert.alert('Ошибка', 'Нет токена');
+      setCreating(false);
+      return;
+    }
+    try {
+      const body: any = { type, user_ids: selectedUserIds };
+      if (type === 'group') {
+        body.name = name;
+        body.is_supergroup = isSupergroup;
+      }
+      const res = await fetch(`${SERVER_URL}/api/chats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        Alert.alert('Успех', 'Чат создан');
+        navigation.goBack();
+      } else {
+        Alert.alert('Ошибка', data.error || 'Неизвестная ошибка');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (loadingUsers) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={appStyles.container}>
+      <Text style={appStyles.title}>Новый чат</Text>
+
+      <Text style={appStyles.label}>Тип</Text>
+      <View style={appStyles.typeRow}>
+        <TouchableOpacity
+          style={[appStyles.typeButton, type === 'group' && appStyles.typeButtonActive]}
+          onPress={() => { setType('group'); setSelectedUserIds([]); }}
+        >
+          <Text style={[appStyles.typeButtonText, type === 'group' && appStyles.typeButtonTextActive]}>Группа</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[appStyles.typeButton, type === 'private' && appStyles.typeButtonActive]}
+          onPress={() => { setType('private'); setSelectedUserIds([]); }}
+        >
+          <Text style={[appStyles.typeButtonText, type === 'private' && appStyles.typeButtonTextActive]}>Личный</Text>
+        </TouchableOpacity>
+      </View>
+
+      {type === 'group' && (
+        <>
+          <TextInput style={appStyles.input} placeholder="Название группы" value={name} onChangeText={setName} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 10 }}>
+            <Text style={{ fontSize: 16 }}>Супергруппа</Text>
+            <Switch value={isSupergroup} onValueChange={setIsSupergroup} />
+          </View>
+        </>
+      )}
+
+      <TextInput style={appStyles.input} placeholder="Поиск пользователей..." value={search} onChangeText={setSearch} />
+
+      <FlatList
+        data={filteredUsers}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => {
+          const isSelected = selectedUserIds.includes(item.id);
+          return (
+            <TouchableOpacity
+              style={[appStyles.userItem, isSelected && appStyles.userItemSelected]}
+              onPress={() => toggleUser(item.id)}
+            >
+              <View style={[appStyles.checkbox, isSelected && appStyles.checkboxChecked]}>
+                {isSelected && <Text style={{ color: '#fff', fontWeight: 'bold' }}>✓</Text>}
+              </View>
+              <View style={appStyles.userAvatar}>
+                <Text style={appStyles.userAvatarText}>{(item.display_name || item.username)[0].toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={appStyles.userName}>{item.display_name || item.username}</Text>
+                <Text style={{ fontSize: 13, color: '#888', marginTop: 2 }}>@{item.username}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        }}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
+
+      <TouchableOpacity
+        style={[appStyles.createButton, creating && appStyles.disabledButton]}
+        onPress={handleCreate}
+        disabled={creating}
+      >
+        <Text style={appStyles.createButtonText}>{creating ? 'Создаём...' : 'Создать чат'}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+==================== src/screens/MediaListScreen.tsx ====================
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Alert,
+} from 'react-native';
+import { getToken, SERVER_URL } from '../utils';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function MediaListScreen({ route, navigation }: any) {
+  const { chatId, type } = route.params; // type: 'files' | 'images'
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cursor, setCursor] = useState<number | null>(null);
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  useEffect(() => {
+    loadItems();
+  }, []);
+
+  const loadItems = async (before?: number) => {
+    const tok = await getToken();
+    if (!tok) return;
+    try {
+      const url = `${SERVER_URL}/api/chats/${chatId}/messages?type=${type}&limit=20${before ? `&before=${before}` : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } });
+      const data = await res.json();
+      if (res.ok) {
+        if (before) {
+          setItems(prev => [...prev, ...data]);
+        } else {
+          setItems(data);
+        }
+        if (data.length > 0) {
+          setCursor(data[data.length - 1].id);
+        }
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось загрузить');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMore = () => {
+    if (cursor) loadItems(cursor);
+  };
+
+  const handlePress = (item: any) => {
+    // Переходим в чат с указанием messageId (пока без скролла)
+    navigation.navigate('Chat', {
+      chatId: item.chat_id.toString(),
+      chatName: 'Чат',
+      messageId: item.id,
+      topicId: item.topic_id || null,
+    });
+  };
+
+  const renderItem = ({ item }: any) => (
+    <TouchableOpacity style={{ marginBottom: 10 }} onPress={() => handlePress(item)}>
+      {item.thumb_url ? (
+        <Image source={{ uri: SERVER_URL + item.thumb_url }} style={{ width: '100%', height: 200, borderRadius: 8 }} />
+      ) : (
+        <View style={{ backgroundColor: theme === 'dark' ? '#2c2c2e' : '#f0f0f0', padding: 15, borderRadius: 8 }}>
+          <Text style={{ fontSize: 16, color: theme === 'dark' ? '#fff' : '#000' }}>📄 {item.file_name || 'Файл'}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={[styles.container, { padding: 10 }]}>
+      <FlatList
+        data={items}
+        keyExtractor={item => item.id.toString()}
+        renderItem={renderItem}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
+    </View>
+  );
+}
+
+==================== src/screens/ProfileScreen.tsx ====================
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, Alert,
+  ActivityIndicator, Image, Switch,
+} from 'react-native';
+import { pick } from '@react-native-documents/picker';
+import { getToken, SERVER_URL } from '../utils';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function ProfileScreen({ navigation, onLogout }: any) {
+  const [user, setUser] = useState<any>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const { theme, toggleTheme } = useTheme();
+  const styles = getStyles(theme);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    const tok = await getToken();
+    if (!tok) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser(data);
+        setDisplayName(data.display_name || '');
+        if (data.avatar_url) {
+          const filename = data.avatar_url.split('/').pop();
+          const tokenRes = await fetch(`${SERVER_URL}/api/file-token/${filename}`, {
+            headers: { Authorization: `Bearer ${tok}` },
+          });
+          const tokenData = await tokenRes.json();
+          if (tokenRes.ok && tokenData.url) {
+            setAvatarUrl(SERVER_URL + tokenData.url);
+          }
+        }
+      }
+    } catch (e) {}
+    setLoading(false);
+  };
+
+  const handleSaveName = async () => {
+    const tok = await getToken();
+    if (!tok) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/auth/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ display_name: displayName }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        Alert.alert('Успешно', 'Имя обновлено');
+        loadProfile();
+      } else {
+        Alert.alert('Ошибка', data.error || 'Не удалось обновить имя');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    }
+  };
+
+  const handleChangeAvatar = async () => {
+    try {
+      const [res] = await pick({ allowMultiSelection: false });
+      if (!res) return;
+
+      setUploading(true);
+      const tok = await getToken();
+      const formData = new FormData();
+      formData.append('avatar', {
+        uri: res.uri,
+        type: res.type || 'image/jpeg',
+        name: res.name || 'avatar.jpg',
+      } as any);
+
+      const response = await fetch(`${SERVER_URL}/api/auth/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tok}` },
+        body: formData,
+      });
+      const data = await response.json();
+      if (response.ok) {
+        Alert.alert('Успешно', 'Аватар обновлён');
+        loadProfile();
+      } else {
+        Alert.alert('Ошибка', data.error || 'Не удалось загрузить аватар');
+      }
+    } catch (err: any) {
+      if (err?.code === 'DOCUMENT_PICKER_CANCELED') return;
+      Alert.alert('Ошибка', 'Не удалось выбрать файл');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    const RNFS = require('react-native-fs');
+    try {
+      await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
+    } catch (e) {}
+    // Вызываем переданный onLogout для сброса состояния авторизации
+    if (onLogout) onLogout();
+  };
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={[styles.container, { padding: 20 }]}>
+      <View style={{ alignItems: 'center', marginBottom: 20 }}>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={{ width: 100, height: 100, borderRadius: 50 }} />
+        ) : (
+          <View style={[styles.avatarPlaceholder, { width: 100, height: 100, borderRadius: 50 }]}>
+            <Text style={{ color: '#fff', fontSize: 36, fontWeight: '700' }}>
+              {(user?.display_name || user?.username || 'U')[0].toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <TouchableOpacity onPress={handleChangeAvatar} disabled={uploading} style={{ marginTop: 10 }}>
+          <Text style={{ color: '#007bff' }}>{uploading ? 'Загрузка...' : 'Сменить аватар'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>Отображаемое имя</Text>
+      <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder="Введите имя" placeholderTextColor="#999" />
+      <TouchableOpacity style={[styles.createButton, { marginTop: 10 }]} onPress={handleSaveName}>
+        <Text style={styles.createButtonText}>Сохранить</Text>
+      </TouchableOpacity>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 }}>
+        <Text style={styles.label}>Тёмная тема</Text>
+        <Switch value={theme === 'dark'} onValueChange={toggleTheme} />
+      </View>
+
+      <TouchableOpacity style={[styles.logoutButton, { marginTop: 20 }]} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Выйти</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+==================== src/screens/TopicInfoScreen.tsx ====================
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { getToken, SERVER_URL } from '../utils';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+
+export default function TopicInfoScreen({ route, navigation }: any) {
+  const { chatId, topicId } = route.params;
+  const [topic, setTopic] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  useEffect(() => { loadTopic(); }, []);
+
+  const loadTopic = async () => {
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, { headers: { Authorization: `Bearer ${tok}` } });
+    const topics = await res.json();
+    const found = topics.find((t: any) => t.id == topicId);
+    if (found) {
+      setTopic(found);
+      setNewTitle(found.title);
+    }
+    setLoading(false);
+  };
+
+  const handleRename = async () => {
+    if (!newTitle.trim()) return;
+    const tok = await getToken();
+    const res = await fetch(`${SERVER_URL}/api/topics/${topicId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ title: newTitle }),
+    });
+    if (res.ok) {
+      Alert.alert('Успешно', 'Название изменено');
+      setEditingTitle(false);
+      loadTopic();
+    } else {
+      const data = await res.json();
+      Alert.alert('Ошибка', data.error || 'Не удалось переименовать');
+    }
+  };
+
+  const handleDelete = () => {
+    Alert.alert('Удалить топик?', 'Сообщения в топике будут перенесены в общий чат.', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить', style: 'destructive',
+        onPress: async () => {
+          const tok = await getToken();
+          const res = await fetch(`${SERVER_URL}/api/topics/${topicId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${tok}` },
+          });
+          if (res.ok) {
+            Alert.alert('Успешно', 'Топик удалён');
+            navigation.goBack();
+          } else {
+            const data = await res.json();
+            Alert.alert('Ошибка', data.error || 'Не удалось удалить');
+          }
+        },
+      },
+    ]);
+  };
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+
+  return (
+    <View style={[styles.container, { padding: 16 }]}>
+      <Text style={styles.label}>Название топика</Text>
+      {editingTitle ? (
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TextInput style={[styles.input, { flex: 1 }]} value={newTitle} onChangeText={setNewTitle} />
+          <TouchableOpacity style={styles.createButton} onPress={handleRename}>
+            <Text style={styles.createButtonText}>Сохранить</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setEditingTitle(false)}>
+            <Text style={{ color: '#999' }}>Отмена</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: theme === 'dark' ? '#fff' : '#1a1a1a' }}>{topic?.title}</Text>
+          <TouchableOpacity onPress={() => setEditingTitle(true)}>
+            <Text style={{ color: '#007bff' }}>Изменить</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <TouchableOpacity style={[styles.logoutButton, { marginTop: 20 }]} onPress={handleDelete}>
+        <Text style={styles.logoutText}>Удалить топик</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+==================== src/screens/TopicListScreen.tsx ====================
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, TextInput, Button,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { getToken, SERVER_URL } from '../utils';
+import { appStyles } from '../styles/appStyles';
+
+export default function TopicListScreen({ route, navigation }: any) {
+  const { chatId, chatName } = route.params;
+  const [topics, setTopics] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTopicTitle, setNewTopicTitle] = useState('');
+
+  // Кнопка ℹ️ в шапке
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { chatId })} style={{ padding: 8 }}>
+          <Text style={{ fontSize: 22, color: '#007bff' }}>ℹ️</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, chatId]);
+
+  const loadTopics = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setTopics(data);
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось загрузить топики');
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId]);
+
+  useFocusEffect(useCallback(() => { loadTopics(); }, [loadTopics]));
+
+  const createTopic = async () => {
+    if (!newTopicTitle.trim()) return;
+    const token = await getToken();
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: newTopicTitle }),
+      });
+      if (res.ok) {
+        setNewTopicTitle('');
+        loadTopics();
+      } else {
+        const err = await res.json();
+        Alert.alert('Ошибка', err.error);
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    }
+  };
+
+  if (loading) return <View style={appStyles.centered}><ActivityIndicator size="large" /></View>;
+
+  const displayTopics = [{ id: null, title: 'Общий чат' }, ...topics];
+
+  return (
+    <View style={appStyles.container}>
+      <Text style={appStyles.screenTitle}>{chatName} — Топики</Text>
+      <FlatList
+        data={displayTopics}
+        keyExtractor={(item, index) => item.id?.toString() || `general-${index}`}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={appStyles.chatItem}
+            onPress={() => {
+              const topicId = item.id ? item.id : null;
+              navigation.navigate('Chat', {
+                chatId: chatId.toString(),
+                chatName: item.title,
+                topicId: topicId,
+              });
+            }}
+          >
+            <View style={appStyles.chatItemContent}>
+              <View style={appStyles.avatarPlaceholder}>
+                <Text style={appStyles.avatarText}>{item.id ? '#' : 'G'}</Text>
+              </View>
+              <View style={appStyles.chatInfo}>
+                <Text style={appStyles.chatName}>{item.title}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 8 }}>
+        <TextInput
+          style={[appStyles.input, { flex: 1, marginRight: 8 }]}
+          placeholder="Новый топик"
+          value={newTopicTitle}
+          onChangeText={setNewTopicTitle}
+        />
+        <Button title="Создать" onPress={createTopic} />
+      </View>
+    </View>
+  );
+}
+
+==================== src/screens/UserProfileScreen.tsx ====================
+import React from 'react';
+import { View, Text, Image } from 'react-native';
+import { getStyles } from '../styles/appStyles';
+import { useTheme } from '../theme/ThemeContext';
+import { SERVER_URL } from '../utils';
+
+export default function UserProfileScreen({ route }: any) {
+  const { userId, username, displayName, avatarUrl, role } = route.params;
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  return (
+    <View style={[styles.container, { padding: 20 }]}>
+      {avatarUrl ? (
+        <Image source={{ uri: SERVER_URL + avatarUrl }} style={{ width: 100, height: 100, borderRadius: 50 }} />
+      ) : (
+        <View style={[styles.avatarPlaceholder, { width: 100, height: 100, borderRadius: 50 }]}>
+          <Text style={{ color: '#fff', fontSize: 36, fontWeight: '700' }}>
+            {(displayName || username || '?')[0].toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <Text style={[styles.userName, { fontSize: 22, marginTop: 15 }]}>{displayName || username}</Text>
+      <Text style={{ color: '#999', marginTop: 5 }}>@{username}</Text>
+      <Text style={{ color: '#666', marginTop: 5 }}>Роль: {role || 'employee'}</Text>
+    </View>
+  );
+}
+
+========== 🧩 COMPONENTS (UI-компоненты) ==========
+
+==================== src/components/Avatar.tsx ====================
+import React from 'react';
+import { Image, View, Text, StyleSheet } from 'react-native';
+import { TelegramSizes } from '../theme/telegramTheme';
+
+interface AvatarProps {
+  size?: number;
+  image?: string;
+  title?: string;
+}
+
+export const Avatar = ({ size = TelegramSizes.avatar.default, image, title }: AvatarProps) => {
+  if (image) {
+    return <Image source={{ uri: image }} style={{ width: size, height: size, borderRadius: size / 2 }} />;
+  }
+  return (
+    <View style={[styles.fallback, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={[styles.letter, { fontSize: size * 0.45 }]}>{(title?.[0] || '').toUpperCase()}</Text>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  fallback: { backgroundColor: '#3390EC', alignItems: 'center', justifyContent: 'center' },
+  letter: { color: '#fff', fontWeight: '700' },
+});
+
+==================== src/components/ChatHeader.tsx ====================
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Avatar } from './Avatar';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+
+interface ChatHeaderProps {
+  title: string;
+  avatar?: string;
+  status?: string;
+  onBack: () => void;
+  onSearch?: () => void;
+  onMenu?: () => void;
+}
+
+export const ChatHeader = ({ title, avatar, status = 'online', onBack, onSearch, onMenu }: ChatHeaderProps) => (
+  <View style={styles.root}>
+    <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={styles.backIcon}>←</Text></TouchableOpacity>
+    <Avatar size={TelegramSizes.avatar.chat} image={avatar} title={title} />
+    <View style={styles.center}>
+      <Text numberOfLines={1} style={styles.title}>{title}</Text>
+      <Text numberOfLines={1} style={styles.status}>{status}</Text>
+    </View>
+    {onSearch && <TouchableOpacity onPress={onSearch} style={styles.iconButton}><Text style={styles.icon}>🔍</Text></TouchableOpacity>}
+    {onMenu && <TouchableOpacity onPress={onMenu} style={styles.iconButton}><Text style={styles.icon}>⋮</Text></TouchableOpacity>}
+  </View>
+);
+
+const styles = StyleSheet.create({
+  root: { height: TelegramSizes.headerHeight, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, backgroundColor: TelegramColors.light.background, borderBottomWidth: 1, borderBottomColor: TelegramColors.light.divider },
+  backButton: { padding: 8 },
+  backIcon: { fontSize: 24, color: TelegramColors.light.accent },
+  center: { flex: 1, marginLeft: 10 },
+  title: { fontSize: TelegramFonts.sizes.name, fontWeight: TelegramFonts.weights.semiBold, color: TelegramColors.light.primaryText },
+  status: { fontSize: TelegramFonts.sizes.status, color: TelegramColors.light.secondaryText },
+  iconButton: { padding: 8 },
+  icon: { fontSize: 24, color: TelegramColors.light.accent },
+});
+
+==================== src/components/ChatRow.tsx ====================
+import React from 'react';
+import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { Avatar } from './Avatar';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+
+interface ChatRowProps {
+  title: string;
+  lastMessage?: string;
+  unreadCount?: number;
+  time?: string;
+  avatar?: string;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  onPress?: () => void;
+  onLongPress?: () => void;
+}
+
+export const ChatRow = ({ title, lastMessage, unreadCount = 0, time, avatar, isPinned, isMuted, onPress, onLongPress }: ChatRowProps) => (
+  <TouchableOpacity style={[styles.root, { backgroundColor: isPinned ? TelegramColors.light.secondaryBackground : TelegramColors.light.background }]} onPress={onPress} onLongPress={onLongPress} activeOpacity={0.6}>
+    <Avatar size={TelegramSizes.avatar.chatList} image={avatar} title={title} />
+    <View style={styles.center}>
+      <Text numberOfLines={1} style={styles.title}>{isPinned ? '📌 ' : ''}{title}</Text>
+      {lastMessage ? <Text numberOfLines={1} style={styles.message}>{lastMessage}</Text> : null}
+    </View>
+    <View style={styles.right}>
+      {time ? <Text style={styles.time}>{time}</Text> : null}
+      {unreadCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text></View> : null}
+    </View>
+  </TouchableOpacity>
+);
+
+const styles = StyleSheet.create({
+  root: { height: TelegramSizes.chatRowHeight, flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 16 },
+  center: { flex: 1, marginLeft: 12 },
+  right: { alignItems: 'flex-end' },
+  title: { fontSize: TelegramFonts.sizes.name, fontWeight: TelegramFonts.weights.semiBold, color: TelegramColors.light.primaryText },
+  message: { fontSize: TelegramFonts.sizes.message, color: TelegramColors.light.secondaryText, marginTop: 2 },
+  time: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText },
+  badge: { minWidth: TelegramSizes.unreadBadgeSize, height: TelegramSizes.unreadBadgeSize, borderRadius: TelegramSizes.unreadBadgeSize / 2, backgroundColor: TelegramColors.light.unreadBadge, justifyContent: 'center', alignItems: 'center', marginTop: 6, paddingHorizontal: 6 },
+  badgeText: { color: '#fff', fontWeight: TelegramFonts.weights.semiBold, fontSize: 12 },
+});
+
+==================== src/components/DocumentBubble.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramFonts } from '../theme/telegramTheme';
+
+interface DocumentBubbleProps {
+  fileName: string;
+  fileSize: string;
+}
+
+export const DocumentBubble = ({ fileName, fileSize }: DocumentBubbleProps) => (
+  <View style={styles.container}>
+    <Text style={styles.icon}>📄</Text>
+    <View style={styles.info}>
+      <Text numberOfLines={1} style={styles.name}>{fileName}</Text>
+      <Text style={styles.size}>{fileSize}</Text>
+    </View>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 12, backgroundColor: TelegramColors.light.secondaryBackground, borderRadius: 12 },
+  icon: { fontSize: 24, marginRight: 12 },
+  info: { flex: 1 },
+  name: { fontSize: TelegramFonts.sizes.message, fontWeight: TelegramFonts.weights.semiBold, color: TelegramColors.light.primaryText },
+  size: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText },
+});
+
+==================== src/components/ForwardPreview.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramFonts } from '../theme/telegramTheme';
+
+interface ForwardPreviewProps {
+  fromChat: string;
+  messageText: string;
+}
+
+export const ForwardPreview = ({ fromChat, messageText }: ForwardPreviewProps) => (
+  <View style={styles.container}>
+    <Text style={styles.from}>↪ Переслано из {fromChat}</Text>
+    <Text style={styles.text} numberOfLines={2}>{messageText}</Text>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { padding: 8, backgroundColor: TelegramColors.light.secondaryBackground, borderBottomWidth: 1, borderColor: TelegramColors.light.divider },
+  from: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.accent, marginBottom: 4 },
+  text: { fontSize: TelegramFonts.sizes.message, color: TelegramColors.light.primaryText },
+});
+
+==================== src/components/MessageBubble.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+
+interface MessageBubbleProps {
+  text: string;
+  isMine: boolean;
+  time?: string;
+  isEdited?: boolean;
+  readStatus?: 'sent' | 'delivered' | 'read';
+}
+
+export const MessageBubble = ({ text, isMine, time, isEdited, readStatus }: MessageBubbleProps) => {
+  const bubbleStyle = isMine ? styles.mine : styles.other;
+  return (
+    <View style={[styles.wrapper, isMine ? styles.mineWrapper : styles.otherWrapper]}>
+      <View style={[styles.bubble, bubbleStyle]}>
+        <Text style={styles.text}>{text}</Text>
+        <View style={styles.meta}>
+          {isEdited && <Text style={styles.edited}>edited </Text>}
+          {time && <Text style={styles.time}>{time}</Text>}
+          {readStatus && isMine && (
+            <Text style={styles.status}>{readStatus === 'sent' ? '✓' : readStatus === 'delivered' ? '✓✓' : '✓✓'}</Text>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  wrapper: { marginVertical: 2 },
+  mineWrapper: { alignItems: 'flex-end' },
+  otherWrapper: { alignItems: 'flex-start' },
+  bubble: { maxWidth: TelegramSizes.messageBubbleMaxWidth, paddingHorizontal: 10, paddingVertical: 6, borderRadius: TelegramSizes.messageBubbleRadius },
+  mine: { backgroundColor: TelegramColors.light.myMessageBubble, borderBottomRightRadius: 6 },
+  other: { backgroundColor: TelegramColors.light.otherMessageBubble, borderBottomLeftRadius: 6 },
+  text: { fontSize: TelegramFonts.sizes.message, color: TelegramColors.light.primaryText },
+  meta: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 4 },
+  time: { fontSize: TelegramFonts.sizes.time, opacity: 0.6, color: TelegramColors.light.primaryText },
+  edited: { fontSize: TelegramFonts.sizes.time, opacity: 0.6, marginRight: 4, color: TelegramColors.light.primaryText },
+  status: { fontSize: TelegramFonts.sizes.time, marginLeft: 4, color: TelegramColors.light.success },
+});
+
+==================== src/components/PinnedMessagesBar.tsx ====================
+import React from 'react';
+import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+
+interface PinnedMessagesBarProps {
+  text: string;
+  current: number;
+  total: number;
+  onPress: () => void;
+}
+
+export const PinnedMessagesBar = ({ text, current, total, onPress }: PinnedMessagesBarProps) => (
+  <TouchableOpacity style={styles.bar} onPress={onPress}>
+    <Text numberOfLines={1} style={styles.text}>📌 {text}</Text>
+    <Text style={styles.counter}>{current}/{total}</Text>
+  </TouchableOpacity>
+);
+
+const styles = StyleSheet.create({
+  bar: { flexDirection: 'row', alignItems: 'center', height: TelegramSizes.pinnedBarHeight, paddingHorizontal: 12, backgroundColor: TelegramColors.light.secondaryBackground, borderBottomWidth: 1, borderColor: TelegramColors.light.divider },
+  text: { flex: 1, fontSize: TelegramFonts.sizes.message, color: TelegramColors.light.primaryText },
+  counter: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText },
+});
+
+==================== src/components/ReactionBar.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramFonts } from '../theme/telegramTheme';
+
+interface ReactionBarProps {
+  reactions: { emoji: string; count: number }[];
+}
+
+export const ReactionBar = ({ reactions }: ReactionBarProps) => (
+  <View style={styles.container}>
+    {reactions.map((r, i) => (
+      <View key={i} style={styles.reaction}>
+        <Text style={styles.emoji}>{r.emoji}</Text>
+        <Text style={styles.count}>{r.count}</Text>
+      </View>
+    ))}
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { flexDirection: 'row', gap: 4, marginTop: 2 },
+  reaction: { flexDirection: 'row', alignItems: 'center', backgroundColor: TelegramColors.light.secondaryBackground, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2 },
+  emoji: { fontSize: 14 },
+  count: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText, marginLeft: 2 },
+});
+
+==================== src/components/ReplyPreview.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramFonts } from '../theme/telegramTheme';
+
+interface ReplyPreviewProps {
+  senderName: string;
+  messageText: string;
+  onCancel: () => void;
+}
+
+export const ReplyPreview = ({ senderName, messageText, onCancel }: ReplyPreviewProps) => (
+  <View style={styles.container}>
+    <View style={styles.line} />
+    <View style={styles.content}>
+      <Text style={styles.sender}>{senderName}</Text>
+      <Text style={styles.text} numberOfLines={1}>{messageText}</Text>
+    </View>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: TelegramColors.light.secondaryBackground, borderBottomWidth: 1, borderColor: TelegramColors.light.divider },
+  line: { width: 2, height: 32, backgroundColor: TelegramColors.light.accent, borderRadius: 1, marginRight: 8 },
+  content: { flex: 1 },
+  sender: { fontSize: TelegramFonts.sizes.time, fontWeight: TelegramFonts.weights.semiBold, color: TelegramColors.light.accent },
+  text: { fontSize: TelegramFonts.sizes.message, color: TelegramColors.light.primaryText },
+});
+
+==================== src/components/TypingIndicator.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramFonts } from '../theme/telegramTheme';
+
+interface TypingIndicatorProps {
+  userName: string;
+}
+
+export const TypingIndicator = ({ userName }: TypingIndicatorProps) => (
+  <View style={styles.container}>
+    <Text style={styles.text}>{userName} печатает...</Text>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { paddingHorizontal: 12, paddingVertical: 4 },
+  text: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText, fontStyle: 'italic' },
+});
+
+==================== src/components/VoiceMessageBubble.tsx ====================
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { TelegramColors, TelegramSizes, TelegramFonts } from '../theme/telegramTheme';
+
+interface VoiceMessageBubbleProps {
+  duration: string;
+  isPlayed?: boolean;
+}
+
+export const VoiceMessageBubble = ({ duration, isPlayed }: VoiceMessageBubbleProps) => (
+  <View style={styles.container}>
+    <Text style={styles.icon}>🎤</Text>
+    <View style={styles.waveform} />
+    <Text style={styles.duration}>{duration}</Text>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: 12 },
+  icon: { fontSize: 20 },
+  waveform: { flex: 1, height: 24, backgroundColor: TelegramColors.light.accent, borderRadius: 12, marginHorizontal: 8 },
+  duration: { fontSize: TelegramFonts.sizes.time, color: TelegramColors.light.secondaryText },
+});
+
+========== 🎨 THEME (Тема) ==========
+
+==================== src/theme/ThemeContext.tsx ====================
+import React, { createContext, useState, useContext } from 'react';
+
+type Theme = 'light' | 'dark';
+
+const ThemeContext = createContext<{ theme: Theme; toggleTheme: () => void }>({
+  theme: 'light',
+  toggleTheme: () => {},
+});
+
+export const useTheme = () => useContext(ThemeContext);
+
+export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [theme, setTheme] = useState<Theme>('light');
+  const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+};
+
+==================== src/theme/telegramTheme.ts ====================
+export const TelegramColors = {
+  light: {
+    background: '#FFFFFF',
+    secondaryBackground: '#F4F4F5',
+    divider: '#E6E6E8',
+    primaryText: '#000000',
+    secondaryText: '#707579',
+    accent: '#3390EC',
+    unreadBadge: '#3390EC',
+    success: '#4CAF50',
+    myMessageBubble: '#D9FDD3',
+    otherMessageBubble: '#FFFFFF',
+  },
+  dark: {
+    background: '#18222D',
+    secondaryBackground: '#212D3B',
+    divider: '#2C3744',
+    primaryText: '#FFFFFF',
+    secondaryText: '#AAB2BA',
+    accent: '#64A8F6',
+    unreadBadge: '#64A8F6',
+    success: '#4CAF50',
+    myMessageBubble: '#2B5278',
+    otherMessageBubble: '#182533',
+  },
+};
+
+export const TelegramSizes = {
+  baseUnit: 8,
+  avatar: { default: 40, chatList: 40, chat: 36, profile: 96 },
+  chatRowHeight: 72,
+  headerHeight: 56,
+  inputHeight: 52,
+  messageBubbleMaxWidth: '78%',
+  messageBubbleRadius: 18,
+  unreadBadgeSize: 22,
+  pinnedBarHeight: 48,
+  icon: { small: 16, medium: 20, default: 24, large: 28 },
+};
+
+export const TelegramFonts = {
+  family: 'Inter',
+  fallback: 'System',
+  sizes: { title: 20, name: 16, message: 14, time: 12, status: 12, button: 16, profileName: 24 },
+  weights: { regular: '400', semiBold: '600', bold: '700' },
+};

@@ -1,0 +1,169 @@
+import React, { useState, useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import RNFS from 'react-native-fs';
+
+// Экраны
+import AuthScreen from './src/screens/AuthScreen';
+import ChatListScreen from './src/screens/ChatListScreen';
+import ChatScreen from './src/screens/ChatScreen';
+import CreateChatScreen from './src/screens/CreateChatScreen';
+import ChatInfoScreen from './src/screens/ChatInfoScreen';
+import TopicListScreen from './src/screens/TopicListScreen';
+import TopicInfoScreen from './src/screens/TopicInfoScreen';
+import AddMembersScreen from './src/screens/AddMembersScreen';
+import MediaListScreen from './src/screens/MediaListScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import UserProfileScreen from './src/screens/UserProfileScreen';
+
+// Тема
+import { ThemeProvider } from './src/theme/ThemeContext';
+
+// SERVER_URL берём из utils.ts (правильный для эмулятора)
+import { SERVER_URL, getToken } from './src/utils';
+
+// ---------- Типы навигации ----------
+export type RootStackParamList = {
+  Auth: undefined;
+  ChatList: undefined;
+  Chat: { chatId: string; chatName: string; topicId?: number | null; messageId?: number };
+  CreateChat: undefined;
+  ChatInfo: { chatId: string };
+  TopicList: { chatId: string; chatName: string };
+  TopicInfo: { chatId: string; topicId: number };
+  AddMembers: { chatId: string };
+  MediaList: { chatId: string; type: 'files' | 'images' };
+  Profile: undefined;
+  UserProfile: {
+    userId: number;
+    username: string;
+    displayName: string;
+    avatarUrl: string;
+    role: string;
+  };
+};
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+// ---------- Главный компонент приложения ----------
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const token = await getToken();
+      if (token) {
+        try {
+          const res = await fetch(`${SERVER_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            setIsLoggedIn(true);
+            return;
+          }
+        } catch (e) {}
+        // Если токен невалидный — удаляем его
+        try {
+          await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
+        } catch (e) {}
+      }
+      setIsLoggedIn(false);
+    })();
+  }, []);
+
+  const handleLoginSuccess = (_token: string, _user: any) => {
+    setIsLoggedIn(true);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`);
+    } catch (e) {}
+    setIsLoggedIn(false);
+  };
+
+  if (isLoggedIn === null) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#3390EC" />
+      </View>
+    );
+  }
+
+  return (
+    <ThemeProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={isLoggedIn ? 'ChatList' : 'Auth'}
+          screenOptions={{
+            headerStyle: { backgroundColor: '#ffffff' },
+            headerTintColor: '#3390EC',
+            headerTitleStyle: { fontWeight: '600', fontSize: 18 },
+          }}
+        >
+          {!isLoggedIn ? (
+            <Stack.Screen
+              name="Auth"
+              options={{ headerShown: false }}
+              children={(props) => <AuthScreen {...props} onLoginSuccess={handleLoginSuccess} />}
+            />
+          ) : (
+            <>
+              <Stack.Screen
+                name="ChatList"
+                options={{ headerShown: false }}
+                children={(props) => <ChatListScreen {...props} onLogout={handleLogout} />}
+              />
+              <Stack.Screen
+                name="Chat"
+                component={ChatScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="CreateChat"
+                component={CreateChatScreen}
+                options={{ title: 'Новый чат' }}
+              />
+              <Stack.Screen
+                name="ChatInfo"
+                component={ChatInfoScreen}
+                options={{ title: 'Информация о чате' }}
+              />
+              <Stack.Screen
+                name="TopicList"
+                component={TopicListScreen}
+                options={{ title: 'Топики' }}
+              />
+              <Stack.Screen
+                name="TopicInfo"
+                component={TopicInfoScreen}
+                options={{ title: 'Информация о топике' }}
+              />
+              <Stack.Screen
+                name="AddMembers"
+                component={AddMembersScreen}
+                options={{ title: 'Добавить участников' }}
+              />
+              <Stack.Screen
+                name="MediaList"
+                component={MediaListScreen}
+                options={{ title: 'Медиа' }}
+              />
+              <Stack.Screen
+                name="Profile"
+                options={{ headerShown: false }}
+                children={(props) => <ProfileScreen {...props} onLogout={handleLogout} />}
+              />
+              <Stack.Screen
+                name="UserProfile"
+                component={UserProfileScreen}
+                options={{ title: 'Профиль пользователя' }}
+              />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </ThemeProvider>
+  );
+}

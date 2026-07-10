@@ -4,6 +4,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import RNFS from 'react-native-fs';
+import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
+import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
 
 // ===== Экраны мессенджера (от Ромы) =====
 import AuthScreen from './src/screens/AuthScreen';
@@ -42,7 +44,11 @@ type ChatStackParamList = {
   UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
 };
 
-type TasksStackParamList = { TasksHome: undefined };
+type TasksStackParamList = { 
+  TasksHome: undefined; 
+  CreateTask: undefined;
+  TaskDetail: { taskId: number };
+};
 type NotesStackParamList = { NotesHome: undefined };
 type KpiStackParamList = { KpiHome: undefined };
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
@@ -106,7 +112,9 @@ function TasksStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
     <TasksStack.Navigator screenOptions={headerStyle}>
-      <TasksStack.Screen name="TasksHome" component={TasksScreen} options={{ title: 'Задачи' }} />
+      <TasksStack.Screen name="TasksHome" component={TasksScreen} options={{ headerShown: false }} />
+      <TasksStack.Screen name="CreateTask" component={CreateTaskScreen} options={{ title: 'Новая задача' }} />
+      <TasksStack.Screen name="TaskDetail" component={TaskDetailScreen} options={{ title: 'Задача' }} />
     </TasksStack.Navigator>
   );
 }

@@ -75,16 +75,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       params.push(userId);
       paramIdx++;
     } else if (filter === 'watching') {
-      // Задачи где я смотрящий
-      whereClause += ` AND t.watcher_id = $${paramIdx}`;
+      // Задачи где я наблюдатель
+      whereClause += ` AND t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx})`;
       params.push(userId);
       paramIdx++;
     }
     // filter === 'all' или не указан — показываем задачи где:
     // 1. Я исполнитель
-    // 2. Я смотрящий
+    // 2. Я наблюдатель
     // 3. Создатель из моего поддерева (подчинённые)
-    // 4. Создатель из моего наДДерева (начальники)
+    // 4. Создатель из моего наддерева (начальники) + я участвую
     else {
       const subtree = await getUserSubtree(userId);
       const ancestors = await getUserAncestors(userId);
@@ -92,15 +92,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       whereClause += ` AND (
         -- Я исполнитель
         t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})
-        -- Я смотрящий
-        OR t.watcher_id = $${paramIdx + 1}
+        -- Я наблюдатель
+        OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 1})
         -- Задача создана кем-то из моего поддерева (подчинённые)
         OR t.creator_id IN (
           SELECT u.id FROM users u
           JOIN user_role_assignments ura ON ura.user_id = u.id
           WHERE ura.role_node_id = ANY($${paramIdx + 2})
         )
-        -- Задача создана кем-то из наДДерева (начальники), НО только если я участвую
+        -- Задача создана кем-то из наддерева (начальники), НО только если я участвую
         OR (
           t.creator_id IN (
             SELECT u.id FROM users u
@@ -109,7 +109,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           )
           AND (
             t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})
-            OR t.watcher_id = $${paramIdx + 1}
+            OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 1})
           )
         )
       )`;
@@ -133,6 +133,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               u_creator.username as creator_username,
               u_creator.display_name as creator_name,
               (SELECT COUNT(*) FROM task_assignees WHERE task_id = t.id) as assignees_count,
+              (SELECT COUNT(*) FROM task_watchers WHERE task_id = t.id) as watchers_count,
               (SELECT COUNT(*) FROM task_checkpoints WHERE task_id = t.id AND status = 'pending') as pending_checkpoints
        FROM tasks t
        JOIN users u_creator ON u_creator.id = t.creator_id
@@ -202,7 +203,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 router.post('/', async (req: AuthRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const { title, description, importance, hard_deadline, assignee_ids, watcher_id, checkpoints } = req.body;
+    const { title, description, importance, hard_deadline, assignee_ids, watcher_ids, checkpoints } = req.body;
     const creatorId = req.userId!;
     
     if (!title) return res.status(400).json({ error: 'Название обязательно' });
@@ -226,9 +227,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     
     // Создаём задачу
     const taskResult = await client.query(
-      `INSERT INTO tasks (title, description, importance, hard_deadline, creator_id, watcher_id, status_new)
-       VALUES ($1, $2, $3, $4, $5, $6, 'new') RETURNING *`,
-      [title, description, importance || 'yellow', hard_deadline || null, creatorId, watcher_id || creatorId]
+      `INSERT INTO tasks (title, description, importance, hard_deadline, creator_id, status_new)
+       VALUES ($1, $2, $3, $4, $5, 'new') RETURNING *`,
+      [title, description, importance || 'yellow', hard_deadline || null, creatorId]
     );
     const task = taskResult.rows[0];
     
@@ -236,6 +237,17 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     for (const userId of assignee_ids) {
       await client.query(
         'INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)',
+        [task.id, userId]
+      );
+    }
+    
+    // Добавляем наблюдателей (по умолчанию создатель, если не указаны)
+    const watchers = watcher_ids && Array.isArray(watcher_ids) && watcher_ids.length > 0 
+      ? watcher_ids 
+      : [creatorId];
+    for (const userId of watchers) {
+      await client.query(
+        'INSERT INTO task_watchers (task_id, user_id) VALUES ($1, $2)',
         [task.id, userId]
       );
     }
@@ -277,7 +289,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     // Проверка прав
     const isCreator = task.creator_id === userId;
     const isAssignee = (await pool.query('SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
-    const isWatcher = task.watcher_id === userId;
+    const isWatcher = (await pool.query('SELECT 1 FROM task_watchers WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
     
     // Кто что может менять
     if (title !== undefined || description !== undefined || importance !== undefined || archived_as !== undefined) {
@@ -287,7 +299,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Только исполнитель может писать комментарий исполнителя' });
     }
     if (watcher_comment !== undefined && !isWatcher && !isCreator) {
-      return res.status(403).json({ error: 'Только смотрящий может писать комментарий смотрящего' });
+      return res.status(403).json({ error: 'Только наблюдатель может писать комментарий наблюдателя' });
     }
     
     const result = await pool.query(

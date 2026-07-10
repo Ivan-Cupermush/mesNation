@@ -1,7 +1,38 @@
+# Зависимости
 node_modules/
-dist/
-build/
-.env
-*.log
+mobile/node_modules/
+server/node_modules/
+
+# Загруженные файлы пользователей (НИКОГДА не коммитим)
+server/uploads/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Системные файлы
 .DS_Store
 Thumbs.db
+*.log
+
+# Секреты
+.env
+.env.local
+.env.*.local
+
+# Build
+mobile/android/app/build/
+mobile/android/build/
+mobile/ios/build/
+
+# Логи
+*.log
+npm-debug.log*
+
+# Тестовые артефакты
+coverage/
+*.txt
+!docs/*.txt

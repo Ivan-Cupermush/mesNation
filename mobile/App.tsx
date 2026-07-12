@@ -25,6 +25,8 @@ import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
+import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
+import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
 import KnowledgeScreen from './src/screens/crm/KnowledgeScreen';
 
 // ===== Тема =====
@@ -56,7 +58,7 @@ type NotesStackParamList = {
   NoteEditor: { noteId?: number; noteDate?: string };
 };
 
-type KpiStackParamList = { KpiHome: undefined };
+type KpiStackParamList = { KpiHome: undefined; AddProductKpi: undefined; ProductKpiDetail: { targetId: number }; };
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
 
@@ -146,6 +148,8 @@ function KpiStackNavigator() {
   return (
     <KpiStack.Navigator screenOptions={headerStyle}>
       <KpiStack.Screen name="KpiHome" component={KpiScreen} options={{ title: 'Статистика' }} />
+      <KpiStack.Screen name="AddProductKpi" component={AddProductKpiScreen} options={{ headerShown: false }} />
+      <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
     </KpiStack.Navigator>
   );
 }

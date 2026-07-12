@@ -1,4 +1,4 @@
-import RNFS from 'react-native-fs';
+import * as RNFS from 'react-native-fs';
 
 export const SERVER_URL = 'http://10.0.2.2:5000';
 const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;

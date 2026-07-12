@@ -15,19 +15,16 @@ interface CalendarViewProps {
   onMonthChange: (date: Date) => void;
 }
 
-// Нормализует любую строку даты в формат YYYY-MM-DD (локально, без UTC сдвига!)
-const normalizeDateStr = (dateStr: string): string => {
-  if (!dateStr) return '';
-  // Берём только первые 10 символов (YYYY-MM-DD)
-  return dateStr.substring(0, 10);
-};
-
-// Форматируем Date объект в локальную строку YYYY-MM-DD
 const formatDateObj = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const normalizeDateStr = (dateStr: string): string => {
+  if (!dateStr) return '';
+  return dateStr.substring(0, 10);
 };
 
 export const CalendarView: React.FC<CalendarViewProps> = ({
@@ -44,53 +41,35 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     generateDays();
   }, [currentMonth]);
 
-  // Отладочный вывод при получении данных
-  useEffect(() => {
-    if (daysWithNotes.length > 0) {
-      console.log('📅 [CalendarView] Дни с заметками от API:', daysWithNotes);
-      console.log('📅 [CalendarView] Нормализованные:', daysWithNotes.map(d => ({
-        original: d.note_date,
-        normalized: normalizeDateStr(d.note_date),
-        count: d.note_count,
-      })));
-    }
-  }, [daysWithNotes]);
-
   const generateDays = () => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     const daysArray: Date[] = [];
-    
+
     const startDayOfWeek = (firstDay.getDay() + 6) % 7;
     for (let i = 0; i < startDayOfWeek; i++) {
       daysArray.push(new Date(year, month, -startDayOfWeek + i + 1));
     }
-    
+
     for (let d = 1; d <= lastDay.getDate(); d++) {
       daysArray.push(new Date(year, month, d));
     }
-    
+
     const totalDays = daysArray.length;
     const extraDays = totalDays <= 35 ? 35 - totalDays : 42 - totalDays;
     for (let i = 1; i <= extraDays; i++) {
       daysArray.push(new Date(year, month + 1, i));
     }
-    
+
     setDays(daysArray);
   };
 
   const getNoteCountForDate = (date: Date): number => {
     const localDateStr = formatDateObj(date);
-    
-    // Ищем по нормализованной строке
-    const found = daysWithNotes.find(d => {
-      const normalized = normalizeDateStr(d.note_date);
-      return normalized === localDateStr;
-    });
-    
+    const found = daysWithNotes.find(d => normalizeDateStr(d.note_date) === localDateStr);
     return found ? Number(found.note_count) : 0;
   };
 
@@ -125,6 +104,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
+      {/* Заголовок с навигацией */}
       <View style={styles.header}>
         <TouchableOpacity onPress={goToPreviousMonth} style={styles.navButton}>
           <Text style={[styles.navText, { color: colors.accent }]}>‹</Text>
@@ -137,6 +117,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </TouchableOpacity>
       </View>
 
+      {/* Дни недели */}
       <View style={styles.weekDaysRow}>
         {weekDays.map((day, index) => (
           <View key={index} style={styles.weekDayCell}>
@@ -147,6 +128,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         ))}
       </View>
 
+      {/* Сетка дней */}
       <View style={styles.daysGrid}>
         {days.map((date, index) => {
           const noteCount = getNoteCountForDate(date);
@@ -158,33 +140,38 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <TouchableOpacity
               key={index}
               onPress={() => onDateSelect(date)}
-              style={[
-                styles.dayCell,
-                {
-                  backgroundColor: selected ? colors.accent : 'transparent',
-                  opacity: inCurrentMonth ? 1 : 0.3,
-                },
-              ]}
+              style={styles.dayCellWrapper}
+              activeOpacity={0.7}
             >
-              <Text
+              <View
                 style={[
-                  styles.dayText,
-                  {
-                    color: selected ? colors.onAccent : today ? colors.accent : colors.textPrimary,
-                    fontWeight: today ? '700' : '400',
+                  styles.dayCell,
+                  selected && { backgroundColor: colors.accent },
+                  today && !selected && { 
+                    borderWidth: 1.5, 
+                    borderColor: colors.accent 
                   },
                 ]}
               >
-                {date.getDate()}
-              </Text>
-              {noteCount > 0 && (
-                <View
+                <Text
                   style={[
-                    styles.indicator,
-                    { backgroundColor: selected ? colors.onAccent : colors.accent },
+                    styles.dayText,
+                    { color: selected ? colors.onAccent : (inCurrentMonth ? colors.textPrimary : colors.textMuted) },
+                    today && !selected && { color: colors.accent, fontWeight: '700' },
+                    !inCurrentMonth && { opacity: 0.3 },
                   ]}
-                />
-              )}
+                >
+                  {date.getDate()}
+                </Text>
+                {noteCount > 0 && (
+                  <View
+                    style={[
+                      styles.indicator,
+                      { backgroundColor: selected ? colors.onAccent : colors.accent },
+                    ]}
+                  />
+                )}
+              </View>
             </TouchableOpacity>
           );
         })}
@@ -195,7 +182,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
+    padding: 12,
     borderRadius: 12,
     marginHorizontal: 16,
     marginTop: 8,
@@ -204,7 +191,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   navButton: {
     padding: 8,
@@ -221,11 +209,13 @@ const styles = StyleSheet.create({
   },
   weekDaysRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    marginBottom: 4,
+    paddingHorizontal: 2,
   },
   weekDayCell: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 6,
   },
   weekDayText: {
     fontSize: 12,
@@ -235,22 +225,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  dayCell: {
+  dayCellWrapper: {
     width: `${100 / 7}%`,
     aspectRatio: 1,
+    padding: 2,
+  },
+  dayCell: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 10,
     position: 'relative',
   },
   dayText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
   indicator: {
     width: 5,
     height: 5,
     borderRadius: 3,
     position: 'absolute',
-    bottom: 6,
+    bottom: 5,
+    alignSelf: 'center',
   },
 });

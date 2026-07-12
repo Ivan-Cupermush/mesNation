@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, Button, Alert,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import RNFS from 'react-native-fs';
+import * as RNFS from 'react-native-fs';
 import { appStyles } from '../styles/appStyles';
 
 const SERVER_URL = 'http://10.0.2.2:5000';

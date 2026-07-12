@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, RefreshControl,
-  StyleSheet, ActivityIndicator, SafeAreaView, StatusBar,
+  StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Card } from '../../components/ui/Card';
@@ -27,12 +28,12 @@ const IMPORTANCE_MAP = {
 
 const STATUS_MAP: Record<string, { label: string; emoji: string }> = {
   new: { label: 'Новая', emoji: '🆕' },
-  in_progress: { label: 'В работе', emoji: '⚙️' },
+  in_progress: { label: 'В работе', emoji: '⚙' },
   on_review: { label: 'На проверке', emoji: '👀' },
   done: { label: 'Выполнена', emoji: '✅' },
   overdue: { label: 'Просрочена', emoji: '⏰' },
-  rejected: { label: 'Отклонена', emoji: '↩️' },
-  archived: { label: 'В архиве', emoji: '🗂️' },
+  rejected: { label: 'Отклонена', emoji: '↩' },
+  archived: { label: 'В архиве', emoji: '🗂' },
 };
 
 function formatDate(iso: string | null): string {
@@ -186,8 +187,6 @@ export default function TasksScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-      
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Задачи</Text>
         <TouchableOpacity

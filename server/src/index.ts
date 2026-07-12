@@ -13,6 +13,7 @@ import fs from 'fs';
 import chatsRouter from './routes/chats';
 import roleTreeRouter from './routes/roleTree';
 import tasksRouter from './routes/tasks';
+import notesRouter from './routes/notes';
 
 dotenv.config();
 
@@ -200,6 +201,7 @@ app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res:
 app.use('/api/chats', authenticate, chatsRouter);
 app.use('/api/role-tree', authenticate, roleTreeRouter);
 app.use('/api/tasks', authenticate, tasksRouter);
+app.use('/api/notes', authenticate, notesRouter);
 
 // ========== Сообщения ==========
 app.get('/api/messages/:chatId', async (req: Request, res: Response) => {

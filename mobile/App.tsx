@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import RNFS from 'react-native-fs';
+import * as RNFS from 'react-native-fs';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
 import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
 
@@ -20,9 +20,10 @@ import MediaListScreen from './src/screens/MediaListScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 
-// ===== Экраны CRM (заглушки) =====
+// ===== Экраны CRM =====
 import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
+import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
 import KnowledgeScreen from './src/screens/crm/KnowledgeScreen';
 
@@ -49,7 +50,12 @@ type TasksStackParamList = {
   CreateTask: undefined;
   TaskDetail: { taskId: number };
 };
-type NotesStackParamList = { NotesHome: undefined };
+
+type NotesStackParamList = { 
+  NotesHome: undefined;
+  NoteEditor: { noteId?: number; noteDate?: string };
+};
+
 type KpiStackParamList = { KpiHome: undefined };
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
@@ -107,7 +113,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-// ========== Простые Stack-и для CRM-вкладок ==========
+// ========== Tasks Stack ==========
 function TasksStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
@@ -119,15 +125,22 @@ function TasksStackNavigator() {
   );
 }
 
+// ========== Notes Stack ==========
 function NotesStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
     <NotesStack.Navigator screenOptions={headerStyle}>
       <NotesStack.Screen name="NotesHome" component={NotesScreen} options={{ title: 'Заметки' }} />
+      <NotesStack.Screen 
+        name="NoteEditor" 
+        component={NoteEditorScreen} 
+        options={{ title: 'Редактор', headerShown: false }} 
+      />
     </NotesStack.Navigator>
   );
 }
 
+// ========== KPI Stack ==========
 function KpiStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
@@ -137,6 +150,7 @@ function KpiStackNavigator() {
   );
 }
 
+// ========== Knowledge Stack ==========
 function KnowledgeStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (

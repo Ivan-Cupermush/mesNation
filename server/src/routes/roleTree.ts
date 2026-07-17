@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
+import bcrypt from 'bcrypt';
 
 const router = Router();
 
@@ -8,7 +9,7 @@ interface AuthRequest extends Request {
   username?: string;
 }
 
-// Middleware: проверкака что пользователь — директор
+// Middleware: проверка что пользователь — директор
 async function requireDirector(req: AuthRequest, res: Response, next: Function) {
   try {
     const result = await pool.query(
@@ -103,7 +104,6 @@ router.patch('/:id', requireDirector, async (req: AuthRequest, res: Response) =>
     const id = parseInt(req.params.id);
     const { name, description, color, icon, parent_id } = req.body;
     
-    // Защита: нельзя сделать узел своим же потомком
     if (parent_id) {
       const subtree = await getSubtreeIds(id);
       if (subtree.includes(parent_id)) {
@@ -129,14 +129,12 @@ router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) =
   try {
     const id = parseInt(req.params.id);
     
-    // Защита: нельзя удалить корень (director)
     const node = await pool.query('SELECT name, parent_id FROM role_tree WHERE id = $1', [id]);
     if (node.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
     if (node.rows[0].name === 'director') {
       return res.status(400).json({ error: 'Нельзя удалить корень дерева' });
     }
     
-    // Проверка: есть ли пользователи в этом узле или в поддереве
     const subtree = await getSubtreeIds(id);
     const usersCheck = await pool.query(
       'SELECT COUNT(*) as cnt FROM user_role_assignments WHERE role_node_id = ANY($1)',
@@ -148,7 +146,6 @@ router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) =
       });
     }
     
-    // Рекурсивно удаляем всё поддерево
     await pool.query('DELETE FROM role_tree WHERE id = ANY($1)', [subtree]);
     res.json({ success: true, deleted_count: subtree.length });
   } catch (e) {
@@ -157,7 +154,7 @@ router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) =
   }
 });
 
-// POST /api/users/:id/role — назначить роль пользователю
+// POST /api/role-tree/users/:userId/assign — назначить роль пользователю
 router.post('/users/:userId/assign', requireDirector, async (req: AuthRequest, res: Response) => {
   try {
     const userId = parseInt(req.params.userId);
@@ -168,10 +165,8 @@ router.post('/users/:userId/assign', requireDirector, async (req: AuthRequest, r
     const node = await pool.query('SELECT id FROM role_tree WHERE id = $1', [role_node_id]);
     if (node.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
     
-    // Обновляем users.role_id (для совместимости)
     await pool.query('UPDATE users SET role_id = $1 WHERE id = $2', [role_node_id, userId]);
     
-    // Вставляем/обновляем в user_role_assignments
     await pool.query(
       `INSERT INTO user_role_assignments (user_id, role_node_id, assigned_by)
        VALUES ($1, $2, $3)
@@ -185,7 +180,7 @@ router.post('/users/:userId/assign', requireDirector, async (req: AuthRequest, r
   }
 });
 
-// GET /api/users/in-subtree/:nodeId — получить пользователей из поддерева
+// GET /api/role-tree/users/in-subtree/:nodeId — получить пользователей из поддерева
 router.get('/users/in-subtree/:nodeId', async (req: AuthRequest, res: Response) => {
   try {
     const nodeId = parseInt(req.params.nodeId);
@@ -201,6 +196,55 @@ router.get('/users/in-subtree/:nodeId', async (req: AuthRequest, res: Response) 
     );
     res.json(result.rows);
   } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// POST /api/role-tree/users — создать пользователя с выбором роли (только директор)
+router.post('/users', requireDirector, async (req: AuthRequest, res: Response) => {
+  try {
+    const { username, email, password, display_name, role_node_id } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'Логин, email и пароль обязательны' });
+    }
+    if (!role_node_id) {
+      return res.status(400).json({ error: 'Роль обязательна' });
+    }
+    
+    const node = await pool.query('SELECT id FROM role_tree WHERE id = $1', [role_node_id]);
+    if (node.rows.length === 0) {
+      return res.status(404).json({ error: 'Узел не найден' });
+    }
+    
+    const existing = await pool.query(
+      'SELECT id FROM users WHERE email = $1 OR username = $2',
+      [email, username]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Пользователь с таким email или логином уже существует' });
+    }
+    
+    const password_hash = await bcrypt.hash(password, 10);
+    
+    const result = await pool.query(
+      `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
+       VALUES ($1, $2, $3, $4, $5, $1)
+       RETURNING id, username, email, display_name, avatar_url, role_id`,
+      [username, email, password_hash, display_name || username, role_node_id]
+    );
+    
+    const user = result.rows[0];
+    
+    await pool.query(
+      `INSERT INTO user_role_assignments (user_id, role_node_id, assigned_by)
+       VALUES ($1, $2, $3)`,
+      [user.id, role_node_id, req.userId]
+    );
+    
+    res.status(201).json(user);
+  } catch (e: any) {
+    console.error('Ошибка создания пользователя:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

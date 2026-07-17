@@ -85,8 +85,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // ========== Онбординг: создание компании ==========
-// Проверка: есть ли уже компания (хотя бы один пользователь)?
-// Проверка: есть ли уже директор (корень дерева прав)?
+// Проверка: есть ли директор (корень дерева прав)?
 app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
@@ -102,13 +101,17 @@ app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
   }
 });
 
-// Создание первой компании и супер-пользователя (только если БД пуста!)
+// Создание первой компании и супер-пользователя (только если директора нет)
 app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    // 1. Проверяем что БД пуста
-    const userCount = await client.query('SELECT COUNT(*) FROM users');
-    if (parseInt(userCount.rows[0].count) > 0) {
+    // 1. Проверяем что директора ещё нет
+    const directorCheck = await client.query(`
+      SELECT COUNT(*) FROM users u
+      JOIN role_tree rt ON u.role_id = rt.id
+      WHERE rt.name = 'director'
+    `);
+    if (parseInt(directorCheck.rows[0].count) > 0) {
       client.release();
       return res.status(400).json({ error: 'Компания уже создана. Используйте вход.' });
     }
@@ -151,7 +154,7 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
     `);
-    
+
     // 5. Сохраняем название компании
     await client.query(
       `INSERT INTO app_settings (key, value) VALUES ('company_name', $1)
@@ -178,7 +181,7 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     await client.query('COMMIT');
     client.release();
 
-    // 8. Генерируем токен и возвращаем
+    // 8. Генерируем токен
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       JWT_SECRET,
@@ -211,7 +214,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
 // Получить название компании
 app.get('/api/company', async (_req: Request, res: Response) => {
   try {
-    // Сначала проверим существует ли таблица
     const tableCheck = await pool.query(
       `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'app_settings')`
     );

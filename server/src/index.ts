@@ -32,6 +32,7 @@ const upload = multer({
 
 fs.mkdirSync('uploads/thumbs', { recursive: true });
 fs.mkdirSync('uploads/avatars', { recursive: true });
+fs.mkdirSync('uploads/imports', { recursive: true });
 
 // ========== Middleware ==========
 app.use(cors());
@@ -83,6 +84,147 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ========== Онбординг: создание компании ==========
+// Проверка: есть ли уже компания (хотя бы один пользователь)?
+// Проверка: есть ли уже директор (корень дерева прав)?
+app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(*) FROM users u
+      JOIN role_tree rt ON u.role_id = rt.id
+      WHERE rt.name = 'director'
+    `);
+    const count = parseInt(result.rows[0].count);
+    res.json({ hasCompany: count > 0 });
+  } catch (err) {
+    console.error('Ошибка проверки компании:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Создание первой компании и супер-пользователя (только если БД пуста!)
+app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  try {
+    // 1. Проверяем что БД пуста
+    const userCount = await client.query('SELECT COUNT(*) FROM users');
+    if (parseInt(userCount.rows[0].count) > 0) {
+      client.release();
+      return res.status(400).json({ error: 'Компания уже создана. Используйте вход.' });
+    }
+
+    const { company_name, username, email, password, display_name } = req.body;
+
+    // 2. Валидация
+    if (!company_name || !company_name.trim()) {
+      client.release();
+      return res.status(400).json({ error: 'Название компании обязательно' });
+    }
+    if (!username || !email || !password) {
+      client.release();
+      return res.status(400).json({ error: 'Логин, email и пароль обязательны' });
+    }
+    if (password.length < 4) {
+      client.release();
+      return res.status(400).json({ error: 'Пароль должен быть не менее 4 символов' });
+    }
+
+    await client.query('BEGIN');
+
+    // 3. Убеждаемся что базовые роли существуют
+    const directorRole = await client.query("SELECT id FROM role_tree WHERE name = 'director'");
+    if (directorRole.rows.length === 0) {
+      await client.query(`
+        INSERT INTO role_tree (name, parent_id, description, level, icon, color) VALUES
+          ('director', NULL, 'Директор', 0, '👑', '#6366F1'),
+          ('manager', (SELECT id FROM role_tree WHERE name = 'director'), 'Менеджер', 1, '💼', '#10B981'),
+          ('employee', (SELECT id FROM role_tree WHERE name = 'manager'), 'Сотрудник', 2, '👤', '#F59E0B')
+      `);
+    }
+    const directorId = (await client.query("SELECT id FROM role_tree WHERE name = 'director'")).rows[0].id;
+
+    // 4. Создаём таблицу app_settings если её нет
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    
+    // 5. Сохраняем название компании
+    await client.query(
+      `INSERT INTO app_settings (key, value) VALUES ('company_name', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [company_name.trim()]
+    );
+
+    // 6. Создаём первого пользователя (супер-директор)
+    const password_hash = await bcrypt.hash(password, 10);
+    const userResult = await client.query(
+      `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
+       VALUES ($1, $2, $3, $4, $5, $1)
+       RETURNING id, username, email, display_name, avatar_url, role_id`,
+      [username.trim(), email.trim().toLowerCase(), password_hash, display_name || username.trim(), directorId]
+    );
+    const user = userResult.rows[0];
+
+    // 7. Создаём запись в user_role_assignments
+    await client.query(
+      'INSERT INTO user_role_assignments (user_id, role_node_id) VALUES ($1, $2)',
+      [user.id, directorId]
+    );
+
+    await client.query('COMMIT');
+    client.release();
+
+    // 8. Генерируем токен и возвращаем
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        display_name: user.display_name,
+        avatar_url: user.avatar_url,
+        role_id: user.role_id,
+      },
+      company_name: company_name.trim(),
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    client.release();
+    console.error('Ошибка создания компании:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Пользователь с таким логином или email уже существует' });
+    }
+    res.status(500).json({ error: 'Ошибка сервера при создании компании' });
+  }
+});
+
+// Получить название компании
+app.get('/api/company', async (_req: Request, res: Response) => {
+  try {
+    // Сначала проверим существует ли таблица
+    const tableCheck = await pool.query(
+      `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'app_settings')`
+    );
+    if (!tableCheck.rows[0].exists) {
+      return res.json({ company_name: null });
+    }
+    const result = await pool.query("SELECT value FROM app_settings WHERE key = 'company_name'");
+    res.json({ company_name: result.rows[0]?.value || null });
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 // ========== Auth ==========
 app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
@@ -96,11 +238,11 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     }
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-  `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
- VALUES ($1, $2, $3, $4, (SELECT id FROM role_tree WHERE name = 'employee'), $1)
- RETURNING id, username, email, display_name, avatar_url`,
-  [username, email, password_hash, display_name || username]
-);
+      `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
+       VALUES ($1, $2, $3, $4, (SELECT id FROM role_tree WHERE name = 'employee'), $1)
+       RETURNING id, username, email, display_name, avatar_url`,
+      [username, email, password_hash, display_name || username]
+    );
     const user = result.rows[0];
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user });
@@ -521,5 +663,5 @@ io.on('connection', (socket) => {
   });
 });
 
-// ========== СТАРТ СЕРВЕРА (ВСЕГДА В САМОМ КОНЦЕ!) ==========
+// ========== СТАРТ СЕРВЕРА ==========
 httpServer.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));

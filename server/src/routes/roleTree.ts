@@ -124,30 +124,45 @@ router.patch('/:id', requireDirector, async (req: AuthRequest, res: Response) =>
   }
 });
 
-// DELETE /api/role-tree/:id — удалить узел (только если нет привязанных пользователей)
+// DELETE /api/role-tree/:id — удалить узел (дети перепривязываются к родителю)
 router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     
-    const node = await pool.query('SELECT name, parent_id FROM role_tree WHERE id = $1', [id]);
+    // 1. Получаем узел
+    const node = await pool.query('SELECT * FROM role_tree WHERE id = $1', [id]);
     if (node.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
-    if (node.rows[0].name === 'director') {
+    
+    // 2. Нельзя удалить корень
+    if (node.rows[0].name === 'director' || node.rows[0].parent_id === null) {
       return res.status(400).json({ error: 'Нельзя удалить корень дерева' });
     }
     
-    const subtree = await getSubtreeIds(id);
+    // 3. Проверка: есть ли пользователи В ЭТОМ узле (именно в этом, не в поддереве!)
     const usersCheck = await pool.query(
-      'SELECT COUNT(*) as cnt FROM user_role_assignments WHERE role_node_id = ANY($1)',
-      [subtree]
+      'SELECT COUNT(*) as cnt FROM user_role_assignments WHERE role_node_id = $1',
+      [id]
     );
     if (parseInt(usersCheck.rows[0].cnt) > 0) {
       return res.status(400).json({ 
-        error: 'Нельзя удалить: есть пользователи в этом узле или поддереве. Сначала переназначьте их.' 
+        error: `Нельзя удалить: к роли "${node.rows[0].name}" привязаны пользователи (${usersCheck.rows[0].cnt} шт). Сначала переназначьте их на другую роль.` 
       });
     }
     
-    await pool.query('DELETE FROM role_tree WHERE id = ANY($1)', [subtree]);
-    res.json({ success: true, deleted_count: subtree.length });
+    // 4. Перепривязываем ВСЕХ детей к родителю удаляемого узла
+    const parentId = node.rows[0].parent_id;
+    await pool.query(
+      'UPDATE role_tree SET parent_id = $1 WHERE parent_id = $2',
+      [parentId, id]
+    );
+    
+    // 5. Удаляем сам узел
+    await pool.query('DELETE FROM role_tree WHERE id = $1', [id]);
+    
+    res.json({ 
+      success: true, 
+      message: 'Роль удалена, дети перепривязаны к родителю' 
+    });
   } catch (e) {
     console.error('Ошибка удаления:', e);
     res.status(500).json({ error: 'Ошибка сервера' });

@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Card } from '../../components/ui/Card';
 import { api, SalesSummary, SalesTarget } from '../../services/api';
+import FloatingActionMenu from '../../components/FloatingActionMenu';
 
 type Period = 'week' | 'month' | 'quarter';
 
@@ -62,7 +63,7 @@ export default function KpiScreen({ navigation }: any) {
     const now = Date.now();
     const totalDays = (end - start) / (1000 * 60 * 60 * 24);
     const passedDays = (now - start) / (1000 * 60 * 60 * 24);
-    
+
     if (passedDays <= 0 || totalDays <= 0) return 0;
     const dailyRate = Number(target.current_value) / passedDays;
     return Math.round(dailyRate * totalDays);
@@ -88,11 +89,11 @@ export default function KpiScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar 
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'} 
+      <StatusBar
+        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
         backgroundColor={colors.background}
       />
-      
+
       {/* Header с отступом под статус-бар */}
       <View style={[styles.header, { paddingTop: (StatusBar.currentHeight || 24) + 8 }]}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Статистика</Text>
@@ -247,7 +248,7 @@ export default function KpiScreen({ navigation }: any) {
             const percent = Number(target.progress_percent || 0);
             const current = Number(target.current_value);
             const total = Number(target.target_value);
-            const unit = target.metric_type === 'amount' ? '₽' 
+            const unit = target.metric_type === 'amount' ? '₽'
                        : target.metric_type === 'contracts' ? 'контр.' : 'шт';
 
             return (
@@ -266,7 +267,7 @@ export default function KpiScreen({ navigation }: any) {
                         {current} / {total} {unit}
                       </Text>
                     </View>
-                    <Text style={[styles.targetPercent, { 
+                    <Text style={[styles.targetPercent, {
                       color: getProgressColor(percent, colors),
                     }]}>
                       {percent}%
@@ -284,8 +285,8 @@ export default function KpiScreen({ navigation }: any) {
                     />
                   </View>
                   <Text style={[styles.remaining, { color: colors.textSecondary }]}>
-                    {percent >= 100 
-                      ? '🔥 Перевыполнение!' 
+                    {percent >= 100
+                      ? '🔥 Перевыполнение!'
                       : `Осталось: ${(total - current).toFixed(target.metric_type === 'amount' ? 0 : 0)} ${unit}`}
                   </Text>
                 </Card>
@@ -306,8 +307,8 @@ export default function KpiScreen({ navigation }: any) {
                   key={idx}
                   style={[
                     styles.topRow,
-                    idx < summary.topProducts.length - 1 && { 
-                      borderBottomWidth: StyleSheet.hairlineWidth, 
+                    idx < summary.topProducts.length - 1 && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
                       borderBottomColor: colors.border,
                       paddingBottom: 10,
                       marginBottom: 10,
@@ -330,7 +331,26 @@ export default function KpiScreen({ navigation }: any) {
             </Card>
           </>
         )}
+
+        {/* Отступ снизу чтобы FAB не перекрывал контент */}
+        <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Floating Action Menu */}
+      <FloatingActionMenu
+        actions={[
+          {
+            label: 'Редактор дерева прав',
+            icon: '🌳',
+            onPress: () => navigation.navigate('RoleTreeEditor'),
+          },
+          {
+            label: 'Создать пользователя',
+            icon: '👤',
+            onPress: () => navigation.navigate('CreateUserRole'),
+          },
+        ]}
+      />
     </View>
   );
 }

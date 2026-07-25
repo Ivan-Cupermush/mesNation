@@ -204,12 +204,42 @@ export const api = {
       body: JSON.stringify({ content, content_type }),
     }),
 
-  // ===== Дерево ролей (Role Tree) =====
+    // ===== Дерево ролей (Role Tree) =====
   getRoleTree: () => request<RoleNode[]>('/api/role-tree'),
-
   getUsersInSubtree: (nodeId: number) =>
     request<UserInSubtree[]>(`/api/role-tree/users/in-subtree/${nodeId}`),
-
+  createRoleNode: (data: {
+    name: string;
+    parent_id: number | null;
+    description?: string;
+    color?: string;
+    icon?: string;
+  }) =>
+    request<RoleNode>('/api/role-tree', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateRoleNode: (id: number, data: Partial<RoleNode>) =>
+    request<RoleNode>(`/api/role-tree/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteRoleNode: (id: number) =>
+    request<{ success: boolean; deleted_count: number }>(`/api/role-tree/${id}`, {
+      method: 'DELETE',
+    }),
+  createUser: (data: {
+    username: string;
+    email: string;
+    password: string;
+    display_name?: string;
+    role_node_id: number;
+  }) =>
+    request<any>('/api/role-tree/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    
   // ===== Заметки (Notes) =====
   getNotesByMonth: (month: string) =>
     request<Note[]>(`/api/notes?month=${month}`),

@@ -29,6 +29,10 @@ import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
 import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
 import KnowledgeScreen from './src/screens/crm/KnowledgeScreen';
 
+// ===== Экраны управления деревом прав =====
+import RoleTreeEditorScreen from './src/screens/crm/RoleTreeEditorScreen';
+import CreateUserRoleScreen from './src/screens/crm/CreateUserRoleScreen';
+
 // ===== Тема =====
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { SERVER_URL, getToken } from './src/utils';
@@ -47,18 +51,26 @@ type ChatStackParamList = {
   UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
 };
 
-type TasksStackParamList = { 
-  TasksHome: undefined; 
+type TasksStackParamList = {
+  TasksHome: undefined;
   CreateTask: undefined;
   TaskDetail: { taskId: number };
 };
 
-type NotesStackParamList = { 
+type NotesStackParamList = {
   NotesHome: undefined;
   NoteEditor: { noteId?: number; noteDate?: string };
 };
 
-type KpiStackParamList = { KpiHome: undefined; AddProductKpi: undefined; ProductKpiDetail: { targetId: number }; };
+type KpiStackParamList = {
+  KpiHome: undefined;
+  AddProductKpi: undefined;
+  ProductKpiDetail: { targetId: number };
+  ImportExcel: undefined;
+  RoleTreeEditor: undefined;
+  CreateUserRole: undefined;
+};
+
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
 
@@ -133,16 +145,16 @@ function NotesStackNavigator() {
   return (
     <NotesStack.Navigator screenOptions={headerStyle}>
       <NotesStack.Screen name="NotesHome" component={NotesScreen} options={{ title: 'Заметки' }} />
-      <NotesStack.Screen 
-        name="NoteEditor" 
-        component={NoteEditorScreen} 
-        options={{ title: 'Редактор', headerShown: false }} 
+      <NotesStack.Screen
+        name="NoteEditor"
+        component={NoteEditorScreen}
+        options={{ title: 'Редактор', headerShown: false }}
       />
     </NotesStack.Navigator>
   );
 }
 
-// ========== KPI Stack ==========
+// ========== KPI Stack (С ВАШИМИ НОВЫМИ ЭКРАНАМИ) ==========
 function KpiStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
@@ -150,6 +162,16 @@ function KpiStackNavigator() {
       <KpiStack.Screen name="KpiHome" component={KpiScreen} options={{ title: 'Статистика' }} />
       <KpiStack.Screen name="AddProductKpi" component={AddProductKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
+      <KpiStack.Screen
+        name="RoleTreeEditor"
+        component={RoleTreeEditorScreen}
+        options={{ title: 'Дерево прав', headerShown: false }}
+      />
+      <KpiStack.Screen
+        name="CreateUserRole"
+        component={CreateUserRoleScreen}
+        options={{ title: 'Новый пользователь', headerShown: false }}
+      />
     </KpiStack.Navigator>
   );
 }

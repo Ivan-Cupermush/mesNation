@@ -1,29 +1,90 @@
 import { SERVER_URL, getToken } from '../utils';
 
+// ========== ЗАДАЧИ ==========
+export interface TaskAssignee {
+  id: number;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+export interface TaskCheckpoint {
+  id: number;
+  task_id: number;
+  title: string;
+  deadline: string;
+  status: 'pending' | 'done';
+}
+
+export interface TaskCanvasPost {
+  id: number;
+  task_id: number;
+  author_id: number;
+  username: string;
+  display_name: string;
+  content: string;
+  content_type: string;
+  created_at: string;
+}
+
+export interface TaskFile {
+  id: number;
+  task_id: number;
+  file_url: string;
+  file_name: string;
+  uploaded_by: number;
+  created_at: string;
+}
+
 export interface Task {
   id: number;
   title: string;
   description: string;
   importance: 'green' | 'yellow' | 'red';
   hard_deadline: string | null;
+  status: string;
   status_new: 'new' | 'in_progress' | 'on_review' | 'done' | 'overdue' | 'rejected' | 'archived';
   creator_id: number;
   creator_username?: string;
   creator_name?: string;
-  watcher_id: number;
+  creator?: TaskAssignee;
+  watcher_id: number | null;
   executor_comment: string | null;
   watcher_comment: string | null;
+  archived_as: string | null;
   assignees_count: number;
+  watchers_count?: number;
   pending_checkpoints: number;
-  assignees?: Array<{
-    id: number;
-    username: string;
-    display_name: string;
-    avatar_url: string | null;
-  }>;
+  assignees?: TaskAssignee[];
+  watchers?: TaskAssignee[];
+  checkpoints?: TaskCheckpoint[];
+  canvas?: TaskCanvasPost[];
+  files?: TaskFile[];
+  transition?: {
+    from: string;
+    to: string;
+    action: string;
+    changed_by: number;
+    comment: string | null;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskHistoryItem {
+  id: number;
+  task_id: number;
+  from_status: string | null;
+  to_status: string;
+  changed_by: number;
+  changed_by_name: string;
+  changed_by_username: string;
+  avatar_url: string | null;
+  comment: string | null;
   created_at: string;
 }
 
+// ========== ДЕРЕВО РОЛЕЙ ==========
 export interface RoleNode {
   id: number;
   name: string;
@@ -33,6 +94,8 @@ export interface RoleNode {
   color: string;
   icon: string;
   users_count: number;
+  created_by: number | null;
+  created_at: string;
 }
 
 export interface UserInSubtree {
@@ -43,7 +106,7 @@ export interface UserInSubtree {
   role_name: string;
 }
 
-// ===== Типы для модуля Заметок =====
+// ========== ЗАМЕТКИ ==========
 export interface Note {
   id: number;
   user_id: number;
@@ -60,7 +123,7 @@ export interface DayWithNotes {
   note_count: number;
 }
 
-// ===== Типы для модуля KPI Продаж =====
+// ========== KPI ПРОДАЖ ==========
 export type MetricType = 'quantity' | 'amount' | 'contracts';
 
 export interface SalesTarget {
@@ -149,10 +212,11 @@ export interface SalesSummary {
   period: string;
 }
 
+// ========== БАЗОВАЯ ФУНКЦИЯ ЗАПРОСА ==========
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = await getToken();
   if (!token) throw new Error('Нет токена');
-  
+
   const res = await fetch(`${SERVER_URL}${path}`, {
     ...options,
     headers: {
@@ -161,19 +225,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       ...(options?.headers || {}),
     },
   });
-  
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
   return data;
 }
 
+// ========== API ==========
 export const api = {
-  // ===== Задачи (Tasks) =====
-  getTasks: (filter?: 'all' | 'mine' | 'created' | 'watching') =>
-    request<Task[]>(`/api/tasks${filter ? `?filter=${filter}` : ''}`),
+  // ==================== ЗАДАЧИ (Tasks) ====================
+  getTasks: (params?: { filter?: string; status?: string; importance?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<Task[]>(`/api/tasks${query ? '?' + query : ''}`);
+  },
 
-  getTask: (id: number) =>
-    request<any>(`/api/tasks/${id}`),
+  getTask: (id: number) => request<Task>(`/api/tasks/${id}`),
 
   createTask: (data: {
     title: string;
@@ -182,7 +248,7 @@ export const api = {
     hard_deadline?: string;
     assignee_ids: number[];
     watcher_ids?: number[];
-    checkpoints?: Array<{ title: string; deadline: string }>;
+    checkpoints?: { title: string; deadline: string }[];
   }) =>
     request<Task>('/api/tasks', {
       method: 'POST',
@@ -198,16 +264,30 @@ export const api = {
   deleteTask: (id: number) =>
     request<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
-  addCanvasPost: (taskId: number, content: string, content_type: string = 'text') =>
-    request<any>(`/api/tasks/${taskId}/canvas`, {
+  // 🆕 Переход статуса задачи (с проверкой прав!)
+  transitionTask: (id: number, to_status: string, comment?: string) =>
+    request<Task>(`/api/tasks/${id}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ to_status, comment }),
+    }),
+
+  // 🆕 История переходов статуса
+  getTaskHistory: (id: number) =>
+    request<TaskHistoryItem[]>(`/api/tasks/${id}/history`),
+
+  // Canvas посты
+  addCanvasPost: (taskId: number, content: string, content_type?: string) =>
+    request<TaskCanvasPost>(`/api/tasks/${taskId}/canvas`, {
       method: 'POST',
       body: JSON.stringify({ content, content_type }),
     }),
 
-    // ===== Дерево ролей (Role Tree) =====
+  // ==================== ДЕРЕВО РОЛЕЙ (Role Tree) ====================
   getRoleTree: () => request<RoleNode[]>('/api/role-tree'),
+
   getUsersInSubtree: (nodeId: number) =>
     request<UserInSubtree[]>(`/api/role-tree/users/in-subtree/${nodeId}`),
+
   createRoleNode: (data: {
     name: string;
     parent_id: number | null;
@@ -219,15 +299,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
   updateRoleNode: (id: number, data: Partial<RoleNode>) =>
     request<RoleNode>(`/api/role-tree/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+
   deleteRoleNode: (id: number) =>
-    request<{ success: boolean; deleted_count: number }>(`/api/role-tree/${id}`, {
+    request<{ success: boolean; message?: string }>(`/api/role-tree/${id}`, {
       method: 'DELETE',
     }),
+
   createUser: (data: {
     username: string;
     email: string;
@@ -239,8 +322,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-    
-  // ===== Заметки (Notes) =====
+
+  // ==================== ЗАМЕТКИ (Notes) ====================
   getNotesByMonth: (month: string) =>
     request<Note[]>(`/api/notes?month=${month}`),
 
@@ -273,8 +356,8 @@ export const api = {
   deleteNote: (id: number) =>
     request<{ success: boolean }>(`/api/notes/${id}`, { method: 'DELETE' }),
 
-  // ===== KPI Продаж =====
-  
+  // ==================== KPI ПРОДАЖИ ====================
+
   // Цели продаж
   getSalesTargets: () =>
     request<SalesTarget[]>('/api/kpi/sales/targets'),
@@ -334,14 +417,14 @@ export const api = {
   previewImport: async (fileUri: string, fileName: string, fileType: string): Promise<ImportPreview> => {
     const token = await getToken();
     if (!token) throw new Error('Нет токена');
-    
+
     const formData = new FormData();
     formData.append('file', {
       uri: fileUri,
       name: fileName,
       type: fileType,
     } as any);
-    
+
     const res = await fetch(`${SERVER_URL}/api/kpi/sales/import/preview`, {
       method: 'POST',
       headers: {
@@ -350,7 +433,7 @@ export const api = {
       },
       body: formData,
     });
-    
+
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Ошибка загрузки файла');
     return data;
@@ -364,4 +447,15 @@ export const api = {
 
   getImportHistory: () =>
     request<SalesImport[]>('/api/kpi/sales/import/history'),
+
+  // ==================== АВТОРИЗАЦИЯ ====================
+  getCurrentUser: () => request<{
+    id: number;
+    username: string;
+    email: string;
+    display_name: string;
+    avatar_url: string | null;
+    role_id: number;
+    department_id: number | null;
+  }>('/api/auth/me'),
 };

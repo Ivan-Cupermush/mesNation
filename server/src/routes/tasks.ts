@@ -8,6 +8,8 @@ interface AuthRequest extends Request {
   username?: string;
 }
 
+// ========== Вспомогательные функции ==========
+
 // Функция для получения поддерева пользователя (всех потомков)
 async function getUserSubtree(userId: number): Promise<number[]> {
   const roleResult = await pool.query(
@@ -54,7 +56,7 @@ async function getUserAncestors(userId: number): Promise<number[]> {
   return result.rows.map((r: any) => r.id);
 }
 
-// GET /api/tasks — список задач (с фильтрами)
+// ========== GET /api/tasks — список задач (с фильтрами) ==========
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!;
@@ -65,42 +67,29 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let paramIdx = 1;
     
     if (filter === 'mine') {
-      // Задачи где я исполнитель
       whereClause += ` AND t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})`;
       params.push(userId);
       paramIdx++;
     } else if (filter === 'created') {
-      // Задачи которые я создал
       whereClause += ` AND t.creator_id = $${paramIdx}`;
       params.push(userId);
       paramIdx++;
     } else if (filter === 'watching') {
-      // Задачи где я наблюдатель
       whereClause += ` AND t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx})`;
       params.push(userId);
       paramIdx++;
-    }
-    // filter === 'all' или не указан — показываем задачи где:
-    // 1. Я исполнитель
-    // 2. Я наблюдатель
-    // 3. Создатель из моего поддерева (подчинённые)
-    // 4. Создатель из моего наддерева (начальники) + я участвую
-    else {
+    } else {
       const subtree = await getUserSubtree(userId);
       const ancestors = await getUserAncestors(userId);
       
       whereClause += ` AND (
-        -- Я исполнитель
         t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})
-        -- Я наблюдатель
         OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 1})
-        -- Задача создана кем-то из моего поддерева (подчинённые)
         OR t.creator_id IN (
           SELECT u.id FROM users u
           JOIN user_role_assignments ura ON ura.user_id = u.id
           WHERE ura.role_node_id = ANY($${paramIdx + 2})
         )
-        -- Задача создана кем-то из наддерева (начальники), НО только если я участвую
         OR (
           t.creator_id IN (
             SELECT u.id FROM users u
@@ -145,7 +134,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       params
     );
     
-    // Для каждой задачи подгружаем исполнителей
     for (const task of result.rows) {
       const assignees = await pool.query(
         `SELECT u.id, u.username, u.display_name, u.avatar_url 
@@ -163,7 +151,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// GET /api/tasks/:id — детали задачи
+// ========== GET /api/tasks/:id — детали задачи ==========
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
@@ -171,7 +159,6 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     const task = result.rows[0];
     
-    // Подгружаем связанные данные
     const [assignees, watchers, checkpoints, canvas, files, creator] = await Promise.all([
       pool.query(`SELECT u.id, u.username, u.display_name, u.avatar_url 
                   FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = $1`, [id]),
@@ -199,19 +186,22 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/tasks — создать задачу
+// ========== POST /api/tasks — создать задачу ==========
 router.post('/', async (req: AuthRequest, res: Response) => {
   const client = await pool.connect();
   try {
     const { title, description, importance, hard_deadline, assignee_ids, watcher_ids, checkpoints } = req.body;
     const creatorId = req.userId!;
     
-    if (!title) return res.status(400).json({ error: 'Название обязательно' });
+    if (!title) {
+      client.release();
+      return res.status(400).json({ error: 'Название обязательно' });
+    }
     if (!assignee_ids || !Array.isArray(assignee_ids) || assignee_ids.length === 0) {
+      client.release();
       return res.status(400).json({ error: 'Укажите хотя бы одного исполнителя' });
     }
     
-    // Проверка: исполнители должны быть в поддереве создателя
     const subtree = await getUserSubtree(creatorId);
     const assigneesCheck = await pool.query(
       `SELECT u.id FROM users u
@@ -220,12 +210,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       [assignee_ids, subtree]
     );
     if (assigneesCheck.rows.length !== assignee_ids.length) {
+      client.release();
       return res.status(403).json({ error: 'Некоторые исполнители не из вашего поддерева' });
     }
     
     await client.query('BEGIN');
     
-    // Создаём задачу
     const taskResult = await client.query(
       `INSERT INTO tasks (title, description, importance, hard_deadline, creator_id, status_new)
        VALUES ($1, $2, $3, $4, $5, 'new') RETURNING *`,
@@ -233,7 +223,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     );
     const task = taskResult.rows[0];
     
-    // Добавляем исполнителей
     for (const userId of assignee_ids) {
       await client.query(
         'INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)',
@@ -241,7 +230,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       );
     }
     
-    // Добавляем наблюдателей (по умолчанию создатель, если не указаны)
     const watchers = watcher_ids && Array.isArray(watcher_ids) && watcher_ids.length > 0 
       ? watcher_ids 
       : [creatorId];
@@ -252,7 +240,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       );
     }
     
-    // Добавляем контрольные точки
     if (checkpoints && Array.isArray(checkpoints)) {
       for (const cp of checkpoints) {
         if (cp.title && cp.deadline) {
@@ -264,34 +251,47 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
     
+    // Записываем в историю: создание задачи
+    await client.query(
+      `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
+       VALUES ($1, NULL, 'new', $2, 'Задача создана')`,
+      [task.id, creatorId]
+    );
+    
     await client.query('COMMIT');
+    client.release();
     res.status(201).json(task);
   } catch (e) {
     await client.query('ROLLBACK');
+    client.release();
     console.error('Ошибка создания задачи:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
-  } finally {
-    client.release();
   }
 });
 
-// PATCH /api/tasks/:id — обновить задачу
+// ========== PATCH /api/tasks/:id — обновить задачу ==========
+// ВАЖНО: статус нельзя менять напрямую — используйте POST /:id/transition
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const { title, description, importance, hard_deadline, status_new, executor_comment, watcher_comment, archived_as } = req.body;
+    const { title, description, importance, hard_deadline, executor_comment, watcher_comment, archived_as } = req.body;
     const userId = req.userId!;
+    
+    // Запрещаем менять статус_new через PATCH — только через /transition
+    if (req.body.status_new !== undefined) {
+      return res.status(400).json({ 
+        error: 'Статус нельзя менять напрямую. Используйте POST /api/tasks/:id/transition' 
+      });
+    }
     
     const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
     if (taskResult.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     const task = taskResult.rows[0];
     
-    // Проверка прав
     const isCreator = task.creator_id === userId;
     const isAssignee = (await pool.query('SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
     const isWatcher = (await pool.query('SELECT 1 FROM task_watchers WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
     
-    // Кто что может менять
     if (title !== undefined || description !== undefined || importance !== undefined || archived_as !== undefined) {
       if (!isCreator) return res.status(403).json({ error: 'Только создатель может менять эти поля' });
     }
@@ -308,21 +308,163 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
          description = COALESCE($2, description),
          importance = COALESCE($3, importance),
          hard_deadline = COALESCE($4, hard_deadline),
-         status_new = COALESCE($5, status_new),
-         executor_comment = COALESCE($6, executor_comment),
-         watcher_comment = COALESCE($7, watcher_comment),
-         archived_as = COALESCE($8, archived_as),
+         executor_comment = COALESCE($5, executor_comment),
+         watcher_comment = COALESCE($6, watcher_comment),
+         archived_as = COALESCE($7, archived_as),
          updated_at = NOW()
-       WHERE id = $9 RETURNING *`,
-      [title, description, importance, hard_deadline, status_new, executor_comment, watcher_comment, archived_as, id]
+       WHERE id = $8 RETURNING *`,
+      [title, description, importance, hard_deadline, executor_comment, watcher_comment, archived_as, id]
     );
     res.json(result.rows[0]);
   } catch (e) {
+    console.error('Ошибка обновления задачи:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
-// POST /api/tasks/:id/canvas — добавить пост в Shared Canvas
+// ========== 🆕 POST /api/tasks/:id/transition — переход между статусами ==========
+router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const taskId = parseInt(req.params.id);
+    const { to_status, comment } = req.body;
+    const userId = req.userId!;
+
+    if (!to_status) {
+      client.release();
+      return res.status(400).json({ error: 'Укажите to_status' });
+    }
+
+    // 1. Получаем задачу
+    const taskResult = await client.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (taskResult.rows.length === 0) {
+      client.release();
+      return res.status(404).json({ error: 'Задача не найдена' });
+    }
+    const task = taskResult.rows[0];
+    const currentStatus = task.status_new;
+    const creatorId = task.creator_id;
+
+    // 2. Проверяем роли пользователя
+    const assigneeCheck = await client.query(
+      'SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2',
+      [taskId, userId]
+    );
+    const isAssignee = assigneeCheck.rows.length > 0;
+    const isCreator = creatorId === userId;
+
+    // 3. Таблица разрешённых переходов
+    //    key: "from→to", role: кто может выполнить
+    const allowedTransitions: Record<string, { role: 'creator' | 'assignee'; action: string }> = {
+      'new→in_progress':        { role: 'assignee', action: 'Взять в работу' },
+      'in_progress→on_review':  { role: 'assignee', action: 'Отправить на проверку' },
+      'on_review→done':         { role: 'creator',  action: 'Принять задачу' },
+      'on_review→rejected':     { role: 'creator',  action: 'Отклонить задачу' },
+      'rejected→in_progress':   { role: 'assignee', action: 'Вернуть на доработку' },
+      'done→archived':          { role: 'creator',  action: 'Архивировать' },
+    };
+
+    const transitionKey = `${currentStatus}→${to_status}`;
+    const transition = allowedTransitions[transitionKey];
+
+    if (!transition) {
+      client.release();
+      return res.status(400).json({ 
+        error: `Переход из статуса "${currentStatus}" в "${to_status}" невозможен`,
+        allowed_from_current: Object.keys(allowedTransitions)
+          .filter(k => k.startsWith(currentStatus + '→'))
+          .map(k => k.split('→')[1])
+      });
+    }
+
+    // 4. Проверка прав
+    if (transition.role === 'assignee' && !isAssignee) {
+      client.release();
+      return res.status(403).json({ 
+        error: `Только исполнитель может: ${transition.action}` 
+      });
+    }
+    if (transition.role === 'creator' && !isCreator) {
+      client.release();
+      return res.status(403).json({ 
+        error: `Только создатель может: ${transition.action}` 
+      });
+    }
+
+    // 5. Обязательный комментарий при отклонении
+    if (to_status === 'rejected' && (!comment || !String(comment).trim())) {
+      client.release();
+      return res.status(400).json({ 
+        error: 'При отклонении задачи обязателен комментарий с указанием причин' 
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // 6. Обновляем статус задачи
+    await client.query(
+      'UPDATE tasks SET status_new = $1, updated_at = NOW() WHERE id = $2',
+      [to_status, taskId]
+    );
+
+    // 7. Сохраняем переход в историю
+    await client.query(
+      `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [taskId, currentStatus, to_status, userId, comment || null]
+    );
+
+    await client.query('COMMIT');
+    client.release();
+
+    // 8. Возвращаем обновлённую задачу с подгруженными данными
+    const updatedTask = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    const assignees = await pool.query(
+      `SELECT u.id, u.username, u.display_name 
+       FROM task_assignees ta JOIN users u ON u.id = ta.user_id
+       WHERE ta.task_id = $1`,
+      [taskId]
+    );
+
+    res.json({
+      ...updatedTask.rows[0],
+      assignees: assignees.rows,
+      transition: {
+        from: currentStatus,
+        to: to_status,
+        action: transition.action,
+        changed_by: userId,
+        comment: comment || null,
+      },
+    });
+  } catch (e: any) {
+    await client.query('ROLLBACK');
+    client.release();
+    console.error('Ошибка перехода статуса:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 GET /api/tasks/:id/history — история переходов ==========
+router.get('/:id/history', async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const result = await pool.query(
+      `SELECT h.*, u.display_name as changed_by_name, u.username as changed_by_username, u.avatar_url
+       FROM task_status_history h
+       LEFT JOIN users u ON u.id = h.changed_by
+       WHERE h.task_id = $1
+       ORDER BY h.created_at ASC`,
+      [taskId]
+    );
+    res.json(result.rows);
+  } catch (e) {
+    console.error('Ошибка получения истории:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== POST /api/tasks/:id/canvas — добавить пост ==========
 router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -331,7 +473,6 @@ router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
     
     if (!content) return res.status(400).json({ error: 'Контент обязателен' });
     
-    // Проверка: пользователь должен быть исполнителем или создателем
     const task = await pool.query('SELECT creator_id FROM tasks WHERE id = $1', [taskId]);
     if (task.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     const isCreator = task.rows[0].creator_id === userId;
@@ -347,7 +488,6 @@ router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
       [taskId, userId, content, content_type || 'text']
     );
     
-    // Подгружаем данные автора
     const author = await pool.query(
       'SELECT username, display_name, avatar_url FROM users WHERE id = $1',
       [userId]
@@ -362,7 +502,7 @@ router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/tasks/:id — удалить задачу (только создатель)
+// ========== DELETE /api/tasks/:id — удалить задачу ==========
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);

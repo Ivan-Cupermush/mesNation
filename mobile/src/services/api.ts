@@ -22,9 +22,12 @@ export interface TaskCanvasPost {
   author_id: number;
   username: string;
   display_name: string;
+  avatar_url: string | null;
   content: string;
   content_type: string;
   created_at: string;
+  updated_at: string;
+  is_edited?: boolean;
 }
 
 export interface TaskFile {
@@ -233,6 +236,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ========== API ==========
 export const api = {
+  // ==================== АВТОРИЗАЦИЯ ====================
+  getCurrentUser: () => request<{
+    id: number;
+    username: string;
+    email: string;
+    display_name: string;
+    avatar_url: string | null;
+    role_id: number;
+    department_id: number | null;
+  }>('/api/auth/me'),
+
   // ==================== ЗАДАЧИ (Tasks) ====================
   getTasks: (params?: { filter?: string; status?: string; importance?: string }) => {
     const query = new URLSearchParams(params as any).toString();
@@ -264,29 +278,39 @@ export const api = {
   deleteTask: (id: number) =>
     request<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
-  // 🆕 Переход статуса задачи (с проверкой прав!)
+  // Переход статуса задачи (с проверкой прав!)
   transitionTask: (id: number, to_status: string, comment?: string) =>
     request<Task>(`/api/tasks/${id}/transition`, {
       method: 'POST',
       body: JSON.stringify({ to_status, comment }),
     }),
 
-  // 🆕 История переходов статуса
+  // История переходов статуса
   getTaskHistory: (id: number) =>
     request<TaskHistoryItem[]>(`/api/tasks/${id}/history`),
 
-  // Canvas посты
-  
-  // 🆕 Ручная проверка дедлайнов (для админа/тестов)
-  checkDeadlines: () =>
-    request<{ success: boolean; updated: number; tasks: any[]; message: string }>('/api/tasks/check-deadlines', {
-      method: 'POST',
-    }),
-
+  // Canvas посты (создание)
   addCanvasPost: (taskId: number, content: string, content_type?: string) =>
     request<TaskCanvasPost>(`/api/tasks/${taskId}/canvas`, {
       method: 'POST',
       body: JSON.stringify({ content, content_type }),
+    }),
+
+  // 🆕 Получить комментарии задачи
+  getTaskComments: (taskId: number) =>
+    request<TaskCanvasPost[]>(`/api/tasks/${taskId}/comments`),
+
+  // 🆕 Редактировать комментарий
+  updateTaskComment: (taskId: number, commentId: number, content: string) =>
+    request<TaskCanvasPost>(`/api/tasks/${taskId}/comments/${commentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    }),
+
+  // 🆕 Удалить комментарий
+  deleteTaskComment: (taskId: number, commentId: number) =>
+    request<{ success: boolean }>(`/api/tasks/${taskId}/comments/${commentId}`, {
+      method: 'DELETE',
     }),
 
   // ==================== ДЕРЕВО РОЛЕЙ (Role Tree) ====================
@@ -365,7 +389,6 @@ export const api = {
 
   // ==================== KPI ПРОДАЖИ ====================
 
-  // Цели продаж
   getSalesTargets: () =>
     request<SalesTarget[]>('/api/kpi/sales/targets'),
 
@@ -393,7 +416,6 @@ export const api = {
   deleteSalesTarget: (id: number) =>
     request<{ success: boolean }>(`/api/kpi/sales/targets/${id}`, { method: 'DELETE' }),
 
-  // Транзакции
   getSalesTransactions: (params?: { target_id?: number; period?: 'week' | 'month' }) => {
     const query = new URLSearchParams();
     if (params?.target_id) query.set('target_id', String(params.target_id));
@@ -416,11 +438,9 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // Сводка
   getSalesSummary: (period: 'week' | 'month' | 'quarter' = 'month') =>
     request<SalesSummary>(`/api/kpi/sales/summary?period=${period}`),
 
-  // Импорт Excel
   previewImport: async (fileUri: string, fileName: string, fileType: string): Promise<ImportPreview> => {
     const token = await getToken();
     if (!token) throw new Error('Нет токена');
@@ -454,15 +474,4 @@ export const api = {
 
   getImportHistory: () =>
     request<SalesImport[]>('/api/kpi/sales/import/history'),
-
-  // ==================== АВТОРИЗАЦИЯ ====================
-  getCurrentUser: () => request<{
-    id: number;
-    username: string;
-    email: string;
-    display_name: string;
-    avatar_url: string | null;
-    role_id: number;
-    department_id: number | null;
-  }>('/api/auth/me'),
 };

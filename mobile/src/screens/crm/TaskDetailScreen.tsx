@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, StatusBar, Alert, TextInput, Modal,
-  RefreshControl,
+  RefreshControl, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
-import { api, Task, TaskHistoryItem } from '../../services/api';
-// getCurrentUser теперь берётся из api
+import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
@@ -28,10 +27,18 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   const [task, setTask] = useState<Task | null>(null);
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
+  const [comments, setComments] = useState<TaskCanvasPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [transitioning, setTransitioning] = useState(false);
+
+  // Комментарии
+  const [newComment, setNewComment] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Модалка отклонения
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -39,16 +46,34 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   const loadData = async () => {
     try {
-      const [taskData, historyData, user] = await Promise.all([
-        api.getTask(taskId),
-        api.getTaskHistory(taskId),
-        api.getCurrentUser(),
-      ]);
+      const taskData = await api.getTask(taskId);
       setTask(taskData);
-      setHistory(historyData);
-      setCurrentUser(user);
+
+      try {
+        const historyData = await api.getTaskHistory(taskId);
+        setHistory(historyData);
+      } catch (e) {
+        console.warn('⚠️ Не удалось загрузить историю:', e);
+        setHistory([]);
+      }
+
+      try {
+        const commentsData = await api.getTaskComments(taskId);
+        setComments(commentsData);
+      } catch (e) {
+        console.warn('⚠️ Не удалось загрузить комментарии:', e);
+        setComments([]);
+      }
+
+      try {
+        const user = await api.getCurrentUser();
+        setCurrentUser(user);
+      } catch (e) {
+        console.warn('⚠️ Не удалось загрузить пользователя:', e);
+        setCurrentUser(null);
+      }
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      Alert.alert('Ошибка загрузки задачи', e.message || 'Не удалось загрузить задачу');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -62,11 +87,10 @@ export default function TaskDetailScreen({ navigation }: any) {
     loadData();
   };
 
-  // === Определение ролей текущего пользователя ===
   const isCreator = task?.creator_id === currentUser?.id;
   const isAssignee = task?.assignees?.some((a: any) => a.id === currentUser?.id) || false;
 
-  // === Обработчики переходов ===
+  // Переходы статусов
   const handleTransition = async (toStatus: string) => {
     setTransitioning(true);
     try {
@@ -80,36 +104,24 @@ export default function TaskDetailScreen({ navigation }: any) {
   };
 
   const handleTake = () => {
-    Alert.alert(
-      'Взять в работу?',
-      'Задача будет переведена в статус "В работе"',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Взять', onPress: () => handleTransition('in_progress') },
-      ]
-    );
+    Alert.alert('Взять в работу?', 'Задача будет переведена в статус "В работе"', [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Взять', onPress: () => handleTransition('in_progress') },
+    ]);
   };
 
   const handleSendToReview = () => {
-    Alert.alert(
-      'Отправить на проверку?',
-      'Создатель получит уведомление для проверки результата',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Отправить', onPress: () => handleTransition('on_review') },
-      ]
-    );
+    Alert.alert('Отправить на проверку?', 'Создатель получит уведомление для проверки результата', [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Отправить', onPress: () => handleTransition('on_review') },
+    ]);
   };
 
   const handleAccept = () => {
-    Alert.alert(
-      'Принять задачу?',
-      'Задача будет помечена как выполненная',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Принять', onPress: () => handleTransition('done') },
-      ]
-    );
+    Alert.alert('Принять задачу?', 'Задача будет помечена как выполненная', [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Принять', onPress: () => handleTransition('done') },
+    ]);
   };
 
   const handleReject = () => {
@@ -135,25 +147,68 @@ export default function TaskDetailScreen({ navigation }: any) {
   };
 
   const handleReturnToWork = () => {
-    Alert.alert(
-      'Вернуть на доработку?',
-      'Задача будет возвращена в статус "В работе"',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Вернуть', onPress: () => handleTransition('in_progress') },
-      ]
-    );
+    Alert.alert('Вернуть на доработку?', 'Задача будет возвращена в статус "В работе"', [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Вернуть', onPress: () => handleTransition('in_progress') },
+    ]);
   };
 
   const handleArchive = () => {
-    Alert.alert(
-      'Архивировать задачу?',
-      'Задача будет перемещена в архив',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Архивировать', onPress: () => handleTransition('archived') },
-      ]
-    );
+    Alert.alert('Архивировать задачу?', 'Задача будет перемещена в архив', [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Архивировать', onPress: () => handleTransition('archived') },
+    ]);
+  };
+
+  // Комментарии
+  const handleSendComment = async () => {
+    if (!newComment.trim()) return;
+    setSendingComment(true);
+    try {
+      await api.addCanvasPost(taskId, newComment.trim());
+      setNewComment('');
+      Keyboard.dismiss();
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось отправить комментарий');
+    } finally {
+      setSendingComment(false);
+    }
+  };
+
+  const handleEditComment = (comment: TaskCanvasPost) => {
+    setEditingCommentId(comment.id);
+    setEditingText(comment.content);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingText.trim() || editingCommentId === null) return;
+    try {
+      await api.updateTaskComment(taskId, editingCommentId, editingText.trim());
+      setEditingCommentId(null);
+      setEditingText('');
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось обновить комментарий');
+    }
+  };
+
+  const handleDeleteComment = (commentId: number) => {
+    Alert.alert('Удалить комментарий?', 'Это действие нельзя отменить', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteTaskComment(taskId, commentId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить комментарий');
+          }
+        },
+      },
+    ]);
   };
 
   if (loading || !task) {
@@ -172,17 +227,23 @@ export default function TaskDetailScreen({ navigation }: any) {
   }[task.importance || 'yellow'];
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <StatusBar
         barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
         backgroundColor={colors.background}
       />
 
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
         }
+        keyboardShouldPersistTaps="handled"
       >
         {/* Статус + важность */}
         <View style={styles.badgesRow}>
@@ -234,40 +295,31 @@ export default function TaskDetailScreen({ navigation }: any) {
           )}
         </View>
 
-        {/* ===== ДИНАМИЧЕСКИЕ КНОПКИ ПЕРЕХОДОВ ===== */}
+        {/* Динамические кнопки переходов */}
         {task.status_new !== 'archived' && task.status_new !== 'done' && (
           <View style={styles.actionsBlock}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              ⚡ Действия
-            </Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>⚡ Действия</Text>
 
-            {/* Исполнитель + новая задача → "Взять в работу" */}
             {isAssignee && task.status_new === 'new' && (
               <TouchableOpacity
                 onPress={handleTake}
                 disabled={transitioning}
                 style={[styles.actionBtn, { backgroundColor: '#3B82F6' }]}
               >
-                <Text style={styles.actionBtnText}>
-                  🚀 Взять в работу
-                </Text>
+                <Text style={styles.actionBtnText}>🚀 Взять в работу</Text>
               </TouchableOpacity>
             )}
 
-            {/* Исполнитель + в работе → "Отправить на проверку" */}
             {isAssignee && task.status_new === 'in_progress' && (
               <TouchableOpacity
                 onPress={handleSendToReview}
                 disabled={transitioning}
                 style={[styles.actionBtn, { backgroundColor: '#F59E0B' }]}
               >
-                <Text style={styles.actionBtnText}>
-                  📤 Отправить на проверку
-                </Text>
+                <Text style={styles.actionBtnText}>📤 Отправить на проверку</Text>
               </TouchableOpacity>
             )}
 
-            {/* Создатель + на проверке → "Принять" + "Отклонить" */}
             {isCreator && task.status_new === 'on_review' && (
               <View style={styles.dualButtons}>
                 <TouchableOpacity
@@ -287,20 +339,16 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             )}
 
-            {/* Исполнитель + отклонена → "Вернуть на доработку" */}
             {isAssignee && task.status_new === 'rejected' && (
               <TouchableOpacity
                 onPress={handleReturnToWork}
                 disabled={transitioning}
                 style={[styles.actionBtn, { backgroundColor: '#3B82F6' }]}
               >
-                <Text style={styles.actionBtnText}>
-                  🔄 Вернуть на доработку
-                </Text>
+                <Text style={styles.actionBtnText}>🔄 Вернуть на доработку</Text>
               </TouchableOpacity>
             )}
 
-            {/* Если не показывается ни одной кнопки — подсказка */}
             {!(isAssignee && task.status_new === 'new') &&
              !(isAssignee && task.status_new === 'in_progress') &&
              !(isCreator && task.status_new === 'on_review') &&
@@ -318,7 +366,6 @@ export default function TaskDetailScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Кнопка "Архивировать" для выполненной задачи */}
         {isCreator && task.status_new === 'done' && (
           <TouchableOpacity
             onPress={handleArchive}
@@ -329,7 +376,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           </TouchableOpacity>
         )}
 
-        {/* ===== ИСТОРИЯ ПЕРЕХОДОВ ===== */}
+        {/* ИСТОРИЯ ПЕРЕХОДОВ */}
         <View style={styles.historyBlock}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
             📜 История переходов ({history.length})
@@ -385,9 +432,138 @@ export default function TaskDetailScreen({ navigation }: any) {
             );
           })}
         </View>
+
+        {/* КОММЕНТАРИИ */}
+        <View style={styles.commentsBlock}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            💬 Комментарии ({comments.length})
+          </Text>
+          
+          {comments.length === 0 ? (
+            <View style={[styles.emptyComments, { backgroundColor: colors.surface }]}>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, textAlign: 'center' }}>
+                Пока нет комментариев. Напишите первый!
+              </Text>
+            </View>
+          ) : (
+            comments.map((comment) => {
+              const isOwn = comment.author_id === currentUser?.id;
+              const isCommentCreator = comment.author_id === task.creator_id;
+              const isCommentAssignee = task.assignees?.some((a: any) => a.id === comment.author_id);
+              
+              let roleColor = '#94A3B8';
+              let roleLabel = '';
+              if (isCommentCreator) {
+                roleColor = '#6366F1';
+                roleLabel = 'Создатель';
+              } else if (isCommentAssignee) {
+                roleColor = '#3B82F6';
+                roleLabel = 'Исполнитель';
+              }
+
+              return (
+                <View
+                  key={comment.id}
+                  style={[
+                    styles.commentItem,
+                    { backgroundColor: colors.surface, borderLeftColor: roleColor },
+                  ]}
+                >
+                  <View style={styles.commentHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.commentAuthor, { color: colors.textPrimary }]}>
+                        {comment.display_name}
+                      </Text>
+                      {roleLabel && (
+                        <View style={[styles.roleBadge, { backgroundColor: roleColor }]}>
+                          <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.commentDate, { color: colors.textMuted }]}>
+                      {new Date(comment.created_at).toLocaleString('ru-RU', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+
+                  {editingCommentId === comment.id ? (
+                    <View>
+                      <TextInput
+                        style={[
+                          styles.editInput,
+                          { backgroundColor: colors.background, color: colors.textPrimary, borderColor: colors.border },
+                        ]}
+                        value={editingText}
+                        onChangeText={setEditingText}
+                        multiline
+                        autoFocus
+                      />
+                      <View style={styles.editButtons}>
+                        <TouchableOpacity
+                          onPress={() => { setEditingCommentId(null); setEditingText(''); }}
+                          style={[styles.editBtn, { backgroundColor: colors.surface }]}
+                        >
+                          <Text style={{ color: colors.textPrimary }}>Отмена</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={handleSaveEdit}
+                          style={[styles.editBtn, { backgroundColor: colors.accent }]}
+                        >
+                          <Text style={{ color: colors.onAccent }}>Сохранить</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={[styles.commentText, { color: colors.textPrimary }]}>
+                      {comment.content}
+                    </Text>
+                  )}
+
+                  {isOwn && editingCommentId !== comment.id && (
+                    <View style={styles.commentActions}>
+                      <TouchableOpacity onPress={() => handleEditComment(comment)}>
+                        <Text style={{ color: colors.accent, fontSize: 12 }}>✏️ Редактировать</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDeleteComment(comment.id)}>
+                        <Text style={{ color: '#EF4444', fontSize: 12 }}>🗑 Удалить</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </View>
       </ScrollView>
 
-      {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
+      {/* Поле ввода комментария */}
+      <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+        <TextInput
+          style={[
+            styles.commentInput,
+            { backgroundColor: colors.background, color: colors.textPrimary, borderColor: colors.border },
+          ]}
+          value={newComment}
+          onChangeText={setNewComment}
+          placeholder="Напишите комментарий..."
+          placeholderTextColor={colors.textMuted}
+          multiline
+          maxLength={1000}
+        />
+        <TouchableOpacity
+          onPress={handleSendComment}
+          disabled={!newComment.trim() || sendingComment}
+          style={[
+            styles.sendBtn,
+            { backgroundColor: newComment.trim() ? colors.accent : '#CBD5E1' },
+          ]}
+        >
+          <Text style={{ color: '#fff', fontSize: 20 }}>{sendingComment ? '⏳' : '📤'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Модалка отклонения */}
       <Modal visible={showRejectModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
@@ -433,7 +609,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -443,7 +619,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingTop: (StatusBar.currentHeight || 24) + 16,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   badgesRow: {
     flexDirection: 'row',
@@ -492,7 +668,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
   },
-  historyBlock: { marginTop: 8 },
+  historyBlock: { marginTop: 8, marginBottom: 16 },
   historyItem: {
     padding: 12,
     borderRadius: 10,
@@ -522,6 +698,78 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 6,
     marginTop: 6,
+  },
+  commentsBlock: { marginTop: 8 },
+  emptyComments: {
+    padding: 20,
+    borderRadius: 12,
+  },
+  commentItem: {
+    padding: 12,
+    borderRadius: 10,
+    borderLeftWidth: 4,
+    marginBottom: 8,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  commentAuthor: { fontSize: 13, fontWeight: '600' },
+  roleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  roleBadgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  commentDate: { fontSize: 11 },
+  commentText: { fontSize: 14, lineHeight: 20 },
+  commentActions: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 8,
+  },
+  editInput: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  editButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  editBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: 12,
+    borderTopWidth: 1,
+    gap: 8,
+  },
+  commentInput: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    fontSize: 14,
+    maxHeight: 100,
+  },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalOverlay: {
     flex: 1,

@@ -11,7 +11,6 @@ interface AuthRequest extends Request {
 
 // ========== Вспомогательные функции ==========
 
-// Функция для получения поддерева пользователя (всех потомков)
 async function getUserSubtree(userId: number): Promise<number[]> {
   const roleResult = await pool.query(
     'SELECT role_id FROM users WHERE id = $1',
@@ -34,7 +33,6 @@ async function getUserSubtree(userId: number): Promise<number[]> {
   return result.rows.map((r: any) => r.id);
 }
 
-// Функция для получения "наддерева" (всех предков)
 async function getUserAncestors(userId: number): Promise<number[]> {
   const roleResult = await pool.query(
     'SELECT role_id FROM users WHERE id = $1',
@@ -271,7 +269,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
     
-    // Записываем в историю: создание задачи
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
        VALUES ($1, NULL, 'new', $2, 'Задача создана')`,
@@ -290,14 +287,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 });
 
 // ========== PATCH /api/tasks/:id — обновить задачу ==========
-// ВАЖНО: статус нельзя менять напрямую — используйте POST /:id/transition
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const { title, description, importance, hard_deadline, executor_comment, watcher_comment, archived_as } = req.body;
     const userId = req.userId!;
     
-    // Запрещаем менять статус_new через PATCH — только через /transition
     if (req.body.status_new !== undefined) {
       return res.status(400).json({ 
         error: 'Статус нельзя менять напрямую. Используйте POST /api/tasks/:id/transition' 
@@ -342,7 +337,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// ========== 🆕 POST /api/tasks/:id/transition — переход между статусами ==========
+// ========== POST /api/tasks/:id/transition — переход между статусами ==========
 router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
   const client = await pool.connect();
   try {
@@ -355,7 +350,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Укажите to_status' });
     }
 
-    // 1. Получаем задачу
     const taskResult = await client.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
     if (taskResult.rows.length === 0) {
       client.release();
@@ -365,7 +359,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
     const currentStatus = task.status_new;
     const creatorId = task.creator_id;
 
-    // 2. Проверяем роли пользователя
     const assigneeCheck = await client.query(
       'SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2',
       [taskId, userId]
@@ -373,8 +366,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
     const isAssignee = assigneeCheck.rows.length > 0;
     const isCreator = creatorId === userId;
 
-    // 3. Таблица разрешённых переходов
-    //    key: "from→to", role: кто может выполнить
     const allowedTransitions: Record<string, { role: 'creator' | 'assignee'; action: string }> = {
       'new→in_progress':        { role: 'assignee', action: 'Взять в работу' },
       'in_progress→on_review':  { role: 'assignee', action: 'Отправить на проверку' },
@@ -397,7 +388,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 4. Проверка прав
     if (transition.role === 'assignee' && !isAssignee) {
       client.release();
       return res.status(403).json({ 
@@ -411,7 +401,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 5. Обязательный комментарий при отклонении
     if (to_status === 'rejected' && (!comment || !String(comment).trim())) {
       client.release();
       return res.status(400).json({ 
@@ -421,13 +410,11 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
 
     await client.query('BEGIN');
 
-    // 6. Обновляем статус задачи
     await client.query(
       'UPDATE tasks SET status_new = $1, updated_at = NOW() WHERE id = $2',
       [to_status, taskId]
     );
 
-    // 7. Сохраняем переход в историю
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
        VALUES ($1, $2, $3, $4, $5)`,
@@ -437,7 +424,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
     await client.query('COMMIT');
     client.release();
 
-    // 8. Возвращаем обновлённую задачу с подгруженными данными
     const updatedTask = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
     const assignees = await pool.query(
       `SELECT u.id, u.username, u.display_name 
@@ -465,7 +451,7 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// ========== 🆕 GET /api/tasks/:id/history — история переходов ==========
+// ========== GET /api/tasks/:id/history — история переходов ==========
 router.get('/:id/history', async (req: AuthRequest, res: Response) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -484,7 +470,7 @@ router.get('/:id/history', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// ========== POST /api/tasks/:id/canvas — добавить пост ==========
+// ========== POST /api/tasks/:id/canvas — добавить пост/комментарий ==========
 router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
   try {
     const taskId = parseInt(req.params.id);
@@ -497,9 +483,10 @@ router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
     if (task.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     const isCreator = task.rows[0].creator_id === userId;
     const isAssignee = (await pool.query('SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2', [taskId, userId])).rows.length > 0;
+    const isWatcher = (await pool.query('SELECT 1 FROM task_watchers WHERE task_id = $1 AND user_id = $2', [taskId, userId])).rows.length > 0;
     
-    if (!isCreator && !isAssignee) {
-      return res.status(403).json({ error: 'Только создатель или исполнитель может писать в общий блокнот' });
+    if (!isCreator && !isAssignee && !isWatcher) {
+      return res.status(403).json({ error: 'Только создатель, исполнитель или наблюдатель может писать комментарии' });
     }
     
     const result = await pool.query(
@@ -518,6 +505,96 @@ router.post('/:id/canvas', async (req: AuthRequest, res: Response) => {
       ...author.rows[0],
     });
   } catch (e) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 GET /api/tasks/:id/comments — получить комментарии ==========
+router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const result = await pool.query(
+      `SELECT cp.*, u.username, u.display_name, u.avatar_url
+       FROM task_canvas_posts cp
+       JOIN users u ON u.id = cp.author_id
+       WHERE cp.task_id = $1
+       ORDER BY cp.created_at ASC`,
+      [taskId]
+    );
+    res.json(result.rows);
+  } catch (e) {
+    console.error('Ошибка получения комментариев:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 PATCH /api/tasks/:id/comments/:commentId — редактировать комментарий ==========
+router.patch('/:id/comments/:commentId', async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const commentId = parseInt(req.params.commentId);
+    const { content } = req.body;
+    const userId = req.userId!;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: 'Контент не может быть пустым' });
+    }
+
+    const comment = await pool.query(
+      'SELECT * FROM task_canvas_posts WHERE id = $1 AND task_id = $2',
+      [commentId, taskId]
+    );
+    if (comment.rows.length === 0) {
+      return res.status(404).json({ error: 'Комментарий не найден' });
+    }
+    if (comment.rows[0].author_id !== userId) {
+      return res.status(403).json({ error: 'Только автор может редактировать комментарий' });
+    }
+
+    const result = await pool.query(
+      `UPDATE task_canvas_posts 
+       SET content = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [content.trim(), commentId]
+    );
+
+    const author = await pool.query(
+      'SELECT username, display_name, avatar_url FROM users WHERE id = $1',
+      [userId]
+    );
+
+    res.json({
+      ...result.rows[0],
+      ...author.rows[0],
+    });
+  } catch (e) {
+    console.error('Ошибка редактирования комментария:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 DELETE /api/tasks/:id/comments/:commentId — удалить комментарий ==========
+router.delete('/:id/comments/:commentId', async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const commentId = parseInt(req.params.commentId);
+    const userId = req.userId!;
+
+    const comment = await pool.query(
+      'SELECT * FROM task_canvas_posts WHERE id = $1 AND task_id = $2',
+      [commentId, taskId]
+    );
+    if (comment.rows.length === 0) {
+      return res.status(404).json({ error: 'Комментарий не найден' });
+    }
+    if (comment.rows[0].author_id !== userId) {
+      return res.status(403).json({ error: 'Только автор может удалить комментарий' });
+    }
+
+    await pool.query('DELETE FROM task_canvas_posts WHERE id = $1', [commentId]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Ошибка удаления комментария:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

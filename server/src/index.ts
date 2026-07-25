@@ -15,6 +15,7 @@ import roleTreeRouter from './routes/roleTree';
 import tasksRouter from './routes/tasks';
 import notesRouter from './routes/notes';
 import kpiSalesRouter from './routes/kpiSales';
+import { startDeadlineChecker } from './services/deadlineChecker';
 
 dotenv.config();
 
@@ -85,7 +86,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // ========== Онбординг: создание компании ==========
-// Проверка: есть ли директор (корень дерева прав)?
 app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
@@ -101,11 +101,9 @@ app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
   }
 });
 
-// Создание первой компании и супер-пользователя (только если директора нет)
 app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    // 1. Проверяем что директора ещё нет
     const directorCheck = await client.query(`
       SELECT COUNT(*) FROM users u
       JOIN role_tree rt ON u.role_id = rt.id
@@ -118,7 +116,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
 
     const { company_name, username, email, password, display_name } = req.body;
 
-    // 2. Валидация
     if (!company_name || !company_name.trim()) {
       client.release();
       return res.status(400).json({ error: 'Название компании обязательно' });
@@ -134,7 +131,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
 
     await client.query('BEGIN');
 
-    // 3. Убеждаемся что базовые роли существуют
     const directorRole = await client.query("SELECT id FROM role_tree WHERE name = 'director'");
     if (directorRole.rows.length === 0) {
       await client.query(`
@@ -146,7 +142,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     }
     const directorId = (await client.query("SELECT id FROM role_tree WHERE name = 'director'")).rows[0].id;
 
-    // 4. Создаём таблицу app_settings если её нет
     await client.query(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key VARCHAR(100) PRIMARY KEY,
@@ -155,14 +150,12 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
       )
     `);
 
-    // 5. Сохраняем название компании
     await client.query(
       `INSERT INTO app_settings (key, value) VALUES ('company_name', $1)
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [company_name.trim()]
     );
 
-    // 6. Создаём первого пользователя (супер-директор)
     const password_hash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
       `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
@@ -172,7 +165,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     );
     const user = userResult.rows[0];
 
-    // 7. Создаём запись в user_role_assignments
     await client.query(
       'INSERT INTO user_role_assignments (user_id, role_node_id) VALUES ($1, $2)',
       [user.id, directorId]
@@ -181,7 +173,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     await client.query('COMMIT');
     client.release();
 
-    // 8. Генерируем токен
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       JWT_SECRET,
@@ -211,7 +202,6 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
   }
 });
 
-// Получить название компании
 app.get('/api/company', async (_req: Request, res: Response) => {
   try {
     const tableCheck = await pool.query(
@@ -666,4 +656,9 @@ io.on('connection', (socket) => {
 });
 
 // ========== СТАРТ СЕРВЕРА ==========
-httpServer.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  
+  // Запускаем периодическую проверку дедлайнов (каждый час)
+  startDeadlineChecker(60 * 60 * 1000);
+});

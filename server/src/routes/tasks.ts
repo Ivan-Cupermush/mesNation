@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
+import { checkOverdueTasks } from '../services/deadlineChecker';
 
 const router = Router();
 
@@ -147,6 +148,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     res.json(result.rows);
   } catch (e) {
     console.error('Ошибка получения задач:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 POST /api/tasks/check-deadlines — ручная проверка дедлайнов ==========
+// ВАЖНО: объявлен ДО /:id чтобы Express не парсил "check-deadlines" как id!
+router.post('/check-deadlines', async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await checkOverdueTasks();
+    res.json({
+      success: true,
+      updated: result.updated,
+      tasks: result.tasks,
+      message: result.updated > 0 
+        ? `Обновлено ${result.updated} задач на статус 'overdue'`
+        : 'Просроченных задач не найдено',
+    });
+  } catch (e: any) {
+    console.error('Ошибка ручной проверки дедлайнов:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

@@ -276,6 +276,13 @@ export const api = {
     request<TaskHistoryItem[]>(`/api/tasks/${id}/history`),
 
   // Canvas посты
+  
+  // 🆕 Ручная проверка дедлайнов (для админа/тестов)
+  checkDeadlines: () =>
+    request<{ success: boolean; updated: number; tasks: any[]; message: string }>('/api/tasks/check-deadlines', {
+      method: 'POST',
+    }),
+
   addCanvasPost: (taskId: number, content: string, content_type?: string) =>
     request<TaskCanvasPost>(`/api/tasks/${taskId}/canvas`, {
       method: 'POST',

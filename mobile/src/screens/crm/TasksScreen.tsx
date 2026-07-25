@@ -129,6 +129,9 @@ export default function TasksScreen({ navigation }: any) {
       ? getDeadlineColor(task.hard_deadline)
       : '#94A3B8';
     const overdue = task.status_new !== 'done' && task.status_new !== 'archived' && isOverdue(task.hard_deadline);
+    const daysOverdue = overdue && task.hard_deadline 
+      ? Math.floor((Date.now() - new Date(task.hard_deadline).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
 
     return (
       <TouchableOpacity
@@ -136,6 +139,16 @@ export default function TasksScreen({ navigation }: any) {
         onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
       >
         <Card padding="none" style={{ marginBottom: 10, overflow: 'hidden' }}>
+          {/* Предупреждение о просрочке */}
+          {overdue && task.status_new !== 'overdue' && (
+            <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 14 }}>⚠️</Text>
+              <Text style={{ fontSize: 12, color: '#991B1B', fontWeight: '600' }}>
+                Просрочено на {daysOverdue} {daysOverdue === 1 ? 'день' : daysOverdue < 5 ? 'дня' : 'дней'}
+              </Text>
+            </View>
+          )}
+          
           <View style={{ flexDirection: 'row' }}>
             {/* Цветная полоска слева (индикатор статуса) */}
             <View style={{ width: 6, backgroundColor: statusConf.color }} />

@@ -62,18 +62,11 @@ async function getUserAncestors(userId: number): Promise<number[]> {
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!;
-    const { filter, status, importance, sort_by, include_archived } = req.query;
+    const { filter, status, importance } = req.query;
     
     let whereClause = 'WHERE 1=1';
     const params: any[] = [];
     let paramIdx = 1;
-
-    // 🆕 По умолчанию не показываем архив (кроме когда явно просят)
-    if (include_archived === 'true') {
-      whereClause += ` AND t.status_new = 'archived'`;
-    } else {
-      whereClause += ` AND t.status_new != 'archived'`;
-    }
     
     if (filter === 'mine') {
       whereClause += ` AND t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})`;
@@ -85,11 +78,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       paramIdx++;
     } else if (filter === 'watching') {
       whereClause += ` AND t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx})`;
-      params.push(userId);
-      paramIdx++;
-    } else if (filter === 'review') {
-      // 🆕 Задачи на проверке где я creator
-      whereClause += ` AND t.status_new = 'on_review' AND t.creator_id = $${paramIdx}`;
       params.push(userId);
       paramIdx++;
     } else {
@@ -131,15 +119,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       paramIdx++;
     }
     
-    // 🆕 Параметрическая сортировка
-    let orderBy = '';
-    if (sort_by === 'priority') {
-      orderBy = `ORDER BY CASE t.importance WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END, COALESCE(t.executor_deadline, t.hard_deadline) ASC NULLS LAST, t.created_at DESC`;
-    } else {
-      // По умолчанию: по дедлайну, потом по приоритету
-      orderBy = `ORDER BY COALESCE(t.executor_deadline, t.hard_deadline) ASC NULLS LAST, CASE t.importance WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END, t.created_at DESC`;
-    }
-
     const result = await pool.query(
       `SELECT t.*, 
               u_creator.username as creator_username,
@@ -150,7 +129,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
        FROM tasks t
        JOIN users u_creator ON u_creator.id = t.creator_id
        ${whereClause}
-       ${orderBy}`,
+       ORDER BY 
+         CASE t.importance WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END,
+         t.hard_deadline ASC NULLS LAST,
+         t.created_at DESC`,
       params
     );
     
@@ -172,11 +154,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // ========== 🆕 POST /api/tasks/check-deadlines — ручная проверка дедлайнов ==========
-// ИНФОРМАЦИОННЫЙ: не меняет статусы, только возвращает список просроченных
+// ВАЖНО: объявлен ДО /:id чтобы Express не парсил "check-deadlines" как id!
 router.post('/check-deadlines', async (req: AuthRequest, res: Response) => {
   try {
     const result = await checkOverdueTasks();
-    res.json({ success: true, ...result });
+    res.json({
+      success: true,
+      updated: result.updated,
+      tasks: result.tasks,
+      message: result.updated > 0 
+        ? `Обновлено ${result.updated} задач на статус 'overdue'`
+        : 'Просроченных задач не найдено',
+    });
   } catch (e: any) {
     console.error('Ошибка ручной проверки дедлайнов:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -222,11 +211,9 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 router.post('/', async (req: AuthRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const { title, description, importance, hard_deadline, executor_deadline, assignee_ids, watcher_ids, checkpoints } = req.body;
+    const { title, description, importance, hard_deadline, assignee_ids, watcher_ids, checkpoints } = req.body;
     const creatorId = req.userId!;
-    // 🆕 Поддержка обоих полей: executor_deadline (новый) или hard_deadline (старый, для совместимости)
-    const deadline = executor_deadline || hard_deadline || null;
-
+    
     if (!title) {
       client.release();
       return res.status(400).json({ error: 'Название обязательно' });
@@ -251,9 +238,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     await client.query('BEGIN');
     
     const taskResult = await client.query(
-      `INSERT INTO tasks (title, description, importance, hard_deadline, executor_deadline, creator_id, status_new)
-       VALUES ($1, $2, $3, $4, $4, $5, 'new') RETURNING *`,
-      [title, description, importance || 'yellow', deadline, creatorId]
+      `INSERT INTO tasks (title, description, importance, hard_deadline, creator_id, status_new)
+       VALUES ($1, $2, $3, $4, $5, 'new') RETURNING *`,
+      [title, description, importance || 'yellow', hard_deadline || null, creatorId]
     );
     const task = taskResult.rows[0];
     
@@ -306,24 +293,19 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const { title, description, importance, hard_deadline, executor_deadline, reviewer_deadline, executor_comment, watcher_comment, archived_as } = req.body;
+    const { title, description, importance, hard_deadline, executor_comment, watcher_comment, archived_as } = req.body;
     const userId = req.userId!;
-
+    
     if (req.body.status_new !== undefined) {
-      return res.status(400).json({
-        error: 'Статус нельзя менять напрямую. Используйте POST /api/tasks/:id/transition'
+      return res.status(400).json({ 
+        error: 'Статус нельзя менять напрямую. Используйте POST /api/tasks/:id/transition' 
       });
     }
-
+    
     const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [id]);
     if (taskResult.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
     const task = taskResult.rows[0];
-
-    // 🆕 Архивированные задачи нельзя редактировать (только просматривать)
-    if (task.status_new === 'archived') {
-      return res.status(400).json({ error: 'Архивированную задачу нельзя редактировать' });
-    }
-
+    
     const isCreator = task.creator_id === userId;
     const isAssignee = (await pool.query('SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
     const isWatcher = (await pool.query('SELECT 1 FROM task_watchers WHERE task_id = $1 AND user_id = $2', [id, userId])).rows.length > 0;
@@ -338,27 +320,18 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Только наблюдатель может писать комментарий наблюдателя' });
     }
     
-    // 🆕 Поддержка executor_deadline (приоритет над hard_deadline)
-    const deadline = executor_deadline || hard_deadline;
-
     const result = await pool.query(
-      `UPDATE tasks SET
+      `UPDATE tasks SET 
          title = COALESCE($1, title),
          description = COALESCE($2, description),
          importance = COALESCE($3, importance),
          hard_deadline = COALESCE($4, hard_deadline),
-         executor_deadline = COALESCE($5, executor_deadline),
-         reviewer_deadline = COALESCE($6, reviewer_deadline),
-         executor_comment = COALESCE($7, executor_comment),
-         watcher_comment = COALESCE($8, watcher_comment),
-         archived_as = COALESCE($9, archived_as),
+         executor_comment = COALESCE($5, executor_comment),
+         watcher_comment = COALESCE($6, watcher_comment),
+         archived_as = COALESCE($7, archived_as),
          updated_at = NOW()
-       WHERE id = $10 RETURNING *`,
-      [title, description, importance,
-       deadline || null,
-       deadline || null,
-       reviewer_deadline || null,
-       executor_comment, watcher_comment, archived_as, id]
+       WHERE id = $8 RETURNING *`,
+      [title, description, importance, hard_deadline, executor_comment, watcher_comment, archived_as, id]
     );
     res.json(result.rows[0]);
   } catch (e) {
@@ -396,12 +369,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
     const isAssignee = assigneeCheck.rows.length > 0;
     const isCreator = creatorId === userId;
 
-    // 🆕 Архивированные задачи нельзя менять
-    if (currentStatus === 'archived') {
-      client.release();
-      return res.status(400).json({ error: 'Архивированную задачу нельзя изменить' });
-    }
-
     const allowedTransitions: Record<string, { role: 'creator' | 'assignee'; action: string }> = {
       'new→in_progress':        { role: 'assignee', action: 'Взять в работу' },
       'in_progress→on_review':  { role: 'assignee', action: 'Отправить на проверку' },
@@ -409,9 +376,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       'on_review→rejected':     { role: 'creator',  action: 'Отклонить задачу' },
       'rejected→in_progress':   { role: 'assignee', action: 'Вернуть на доработку' },
       'done→archived':          { role: 'creator',  action: 'Архивировать' },
-      // 🆕 Для "overdue" работают те же переходы (механика не блокируется)
-      'overdue→in_progress':    { role: 'assignee', action: 'Взять в работу' },
-      'overdue→on_review':      { role: 'assignee', action: 'Отправить на проверку' },
     };
 
     const transitionKey = `${currentStatus}→${to_status}`;
@@ -453,22 +417,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       'UPDATE tasks SET status_new = $1, updated_at = NOW() WHERE id = $2',
       [to_status, taskId]
     );
-
-    // 🆕 АВТО: при переходе в on_review — устанавливаем reviewer_deadline (+2 дня), если его нет
-    if (to_status === 'on_review' && !task.reviewer_deadline) {
-      const reviewDeadline = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-      await client.query('UPDATE tasks SET reviewer_deadline = $1 WHERE id = $2', [reviewDeadline, taskId]);
-    }
-
-    // 🆕 АВТО: при архивации — ставим archived_at
-    if (to_status === 'archived') {
-      await client.query('UPDATE tasks SET archived_at = NOW() WHERE id = $1', [taskId]);
-    }
-
-    // 🆕 АВТО: при возврате из on_review (rejected) — очищаем reviewer_deadline
-    if (currentStatus === 'on_review' && to_status === 'rejected') {
-      await client.query('UPDATE tasks SET reviewer_deadline = NULL WHERE id = $1', [taskId]);
-    }
 
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)

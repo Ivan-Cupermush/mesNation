@@ -11,15 +11,16 @@ import { Badge } from '../../components/ui/Badge';
 import { Avatar } from '../../components/ui/Avatar';
 import { api, Task } from '../../services/api';
 
-type Filter = 'all' | 'mine' | 'created' | 'watching' | 'on_review' | 'rejected' | 'overdue';
+type Filter = 'all' | 'mine' | 'created' | 'watching' | 'review' | 'rejected' | 'overdue' | 'archived';
 
 const FILTERS: { id: Filter; label: string; emoji: string }[] = [
-  { id: 'all',       label: 'Все',        emoji: '📋' },
-  { id: 'mine',      label: 'Мои',        emoji: '🔨' },
-  { id: 'created',   label: 'Созданные',  emoji: '✨' },
-  { id: 'on_review', label: 'На проверке', emoji: '👁' },
-  { id: 'rejected',  label: 'Отклонённые', emoji: '❌' },
-  { id: 'overdue',   label: 'Просрочены', emoji: '⏰' },
+  { id: 'all',       label: 'Все',          emoji: '📋' },
+  { id: 'mine',      label: 'Мои',          emoji: '🔨' },
+  { id: 'created',   label: 'Созданные',    emoji: '✨' },
+  { id: 'review',    label: 'На проверке',  emoji: '👁' },
+  { id: 'rejected',  label: 'Отклонённые',  emoji: '❌' },
+  { id: 'overdue',   label: 'Просрочены',   emoji: '⏰' },
+  { id: 'archived',  label: '🗄 Архив',     emoji: '🗄' },
 ];
 
 // Конфигурация статусов с цветами
@@ -82,24 +83,47 @@ export default function TasksScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
+  const [sortBy, setSortBy] = useState<'deadline' | 'priority'>('deadline');
 
   const loadData = useCallback(async () => {
     try {
-      let params: any = {};
-      if (filter === 'on_review') params = { status: 'on_review' };
-      else if (filter === 'rejected') params = { status: 'rejected' };
-      else if (filter === 'overdue') params = { status: 'overdue' };
-      else params = { filter };
+      let params: any = { sort_by: sortBy };
+
+      if (filter === 'archived') {
+        // Архив — отдельный режим
+        params = { include_archived: true, sort_by: sortBy };
+      } else if (filter === 'review') {
+        params = { ...params, filter: 'review' };
+      } else if (filter === 'rejected') {
+        params = { ...params, status: 'rejected' };
+      } else if (filter === 'overdue') {
+        // Просроченные — фильтр на клиенте (backend не меняет статусы)
+        params = { ...params, filter: 'all' };
+      } else {
+        params = { ...params, filter };
+      }
 
       const data = await api.getTasks(params);
-      setTasks(data);
+
+      // Клиентская фильтрация "overdue" (backend больше не меняет статус)
+      let filteredData = data;
+      if (filter === 'overdue') {
+        filteredData = data.filter(t => {
+          if (t.status_new === 'done' || t.status_new === 'archived') return false;
+          const dl = t.executor_deadline || t.hard_deadline;
+          if (!dl) return false;
+          return new Date(dl).getTime() < Date.now();
+        });
+      }
+
+      setTasks(filteredData);
     } catch (e) {
       console.error('Ошибка загрузки задач:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filter]);
+  }, [filter, sortBy]);
 
   useFocusEffect(useCallback(() => {
     loadData();
@@ -125,13 +149,20 @@ export default function TasksScreen({ navigation }: any) {
   const renderTaskCard = (task: Task) => {
     const statusConf = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
     const importanceConf = IMPORTANCE_MAP[task.importance] || IMPORTANCE_MAP.yellow;
+    // 🆕 Используем executor_deadline (новый) или hard_deadline (старый)
+    const deadline = task.executor_deadline || task.hard_deadline;
+    const reviewDeadline = task.reviewer_deadline;
+
     const deadlineColor = task.status_new !== 'done' && task.status_new !== 'archived'
-      ? getDeadlineColor(task.hard_deadline)
+      ? getDeadlineColor(deadline)
       : '#94A3B8';
-    const overdue = task.status_new !== 'done' && task.status_new !== 'archived' && isOverdue(task.hard_deadline);
-    const daysOverdue = overdue && task.hard_deadline 
-      ? Math.floor((Date.now() - new Date(task.hard_deadline).getTime()) / (1000 * 60 * 60 * 24))
+    const overdue = task.status_new !== 'done' && task.status_new !== 'archived' && isOverdue(deadline);
+    const daysOverdue = overdue && deadline
+      ? Math.floor((Date.now() - new Date(deadline).getTime()) / (1000 * 60 * 60 * 24))
       : 0;
+
+    // Проверка просрочки по reviewer_deadline (для задач на проверке)
+    const reviewOverdue = task.status_new === 'on_review' && isOverdue(reviewDeadline);
 
     return (
       <TouchableOpacity
@@ -139,12 +170,21 @@ export default function TasksScreen({ navigation }: any) {
         onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
       >
         <Card padding="none" style={{ marginBottom: 10, overflow: 'hidden' }}>
-          {/* Предупреждение о просрочке */}
+          {/* Предупреждение о просрочке выполнения */}
           {overdue && task.status_new !== 'overdue' && (
             <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ fontSize: 14 }}>⚠️</Text>
               <Text style={{ fontSize: 12, color: '#991B1B', fontWeight: '600' }}>
-                Просрочено на {daysOverdue} {daysOverdue === 1 ? 'день' : daysOverdue < 5 ? 'дня' : 'дней'}
+                🔨 Просрочено выполнение на {daysOverdue} {daysOverdue === 1 ? 'день' : daysOverdue < 5 ? 'дня' : 'дней'}
+              </Text>
+            </View>
+          )}
+          {/* Предупреждение о просрочке проверки (для создателя) */}
+          {reviewOverdue && (
+            <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 14 }}>⚠️</Text>
+              <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+                👁 Просрочена проверка — проверьте задачу!
               </Text>
             </View>
           )}
@@ -196,7 +236,7 @@ export default function TasksScreen({ navigation }: any) {
                   {/* Дедлайн */}
                   <Text style={{ fontSize: 12, color: deadlineColor, fontWeight: '600' }}>
                     {overdue ? '⚠️ ' : '⏰ '}
-                    {formatDate(task.hard_deadline)}
+                    {formatDate(deadline)}
                   </Text>
 
                   {/* Счётчики */}
@@ -250,7 +290,7 @@ export default function TasksScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Заголовок */}
+      {/* Заголовок + переключатель сортировки */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Задачи</Text>
         <View style={styles.headerBadge}>
@@ -258,6 +298,46 @@ export default function TasksScreen({ navigation }: any) {
             {totalCount} {totalCount === 1 ? 'задача' : totalCount < 5 ? 'задачи' : 'задач'}
           </Text>
         </View>
+      </View>
+
+      {/* 🆕 Переключатель сортировки */}
+      <View style={[styles.sortRow, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => setSortBy('deadline')}
+          style={[
+            styles.sortBtn,
+            {
+              backgroundColor: sortBy === 'deadline' ? colors.accent : 'transparent',
+              borderColor: sortBy === 'deadline' ? colors.accent : colors.border,
+            },
+          ]}
+        >
+          <Text style={{
+            color: sortBy === 'deadline' ? colors.onAccent : colors.textSecondary,
+            fontSize: 13,
+            fontWeight: sortBy === 'deadline' ? '600' : '400',
+          }}>
+            ⏰ По дедлайну
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setSortBy('priority')}
+          style={[
+            styles.sortBtn,
+            {
+              backgroundColor: sortBy === 'priority' ? colors.accent : 'transparent',
+              borderColor: sortBy === 'priority' ? colors.accent : colors.border,
+            },
+          ]}
+        >
+          <Text style={{
+            color: sortBy === 'priority' ? colors.onAccent : colors.textSecondary,
+            fontSize: 13,
+            fontWeight: sortBy === 'priority' ? '600' : '400',
+          }}>
+            🔴 По приоритету
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Счётчики статусов */}
@@ -480,5 +560,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+  },
+  sortBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
   },
 });

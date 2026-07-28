@@ -35,8 +35,10 @@ export interface TaskFile {
   task_id: number;
   file_url: string;
   file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
   uploaded_by: number;
-  created_at: string;
+  uploaded_at: string;
 }
 
 export interface Task {
@@ -45,6 +47,9 @@ export interface Task {
   description: string;
   importance: 'green' | 'yellow' | 'red';
   hard_deadline: string | null;
+  executor_deadline: string | null;
+  reviewer_deadline: string | null;
+  archived_at: string | null;
   status: string;
   status_new: 'new' | 'in_progress' | 'on_review' | 'done' | 'overdue' | 'rejected' | 'archived';
   creator_id: number;
@@ -248,7 +253,13 @@ export const api = {
   }>('/api/auth/me'),
 
   // ==================== ЗАДАЧИ (Tasks) ====================
-  getTasks: (params?: { filter?: string; status?: string; importance?: string }) => {
+  getTasks: (params?: {
+    filter?: 'all' | 'mine' | 'created' | 'watching' | 'review';
+    status?: string;
+    importance?: string;
+    sort_by?: 'deadline' | 'priority';
+    include_archived?: boolean;
+  }) => {
     const query = new URLSearchParams(params as any).toString();
     return request<Task[]>(`/api/tasks${query ? '?' + query : ''}`);
   },
@@ -260,6 +271,7 @@ export const api = {
     description?: string;
     importance?: 'green' | 'yellow' | 'red';
     hard_deadline?: string;
+    executor_deadline?: string;
     assignee_ids: number[];
     watcher_ids?: number[];
     checkpoints?: { title: string; deadline: string }[];
@@ -269,7 +281,17 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  updateTask: (id: number, data: Partial<Task>) =>
+  updateTask: (id: number, data: Partial<{
+    title: string;
+    description: string;
+    importance: 'green' | 'yellow' | 'red';
+    hard_deadline: string | null;
+    executor_deadline: string | null;
+    reviewer_deadline: string | null;
+    executor_comment: string | null;
+    watcher_comment: string | null;
+    archived_as: string | null;
+  }>) =>
     request<Task>(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

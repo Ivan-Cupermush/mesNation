@@ -347,11 +347,21 @@ export default function TaskDetailScreen({ navigation }: any) {
               {task.assignees?.map((a: any) => a.display_name).join(', ') || '—'}
             </Text>
           </View>
-          {task.hard_deadline && (
+          {(task.executor_deadline || task.hard_deadline) && (
             <View style={styles.metaRow}>
-              <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>⏰ Дедлайн:</Text>
+              <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>🔨 Дедлайн выполнения:</Text>
               <Text style={[styles.metaValue, { color: colors.textPrimary }]}>
-                {new Date(task.hard_deadline).toLocaleDateString('ru-RU', {
+                {new Date(task.executor_deadline || task.hard_deadline!).toLocaleDateString('ru-RU', {
+                  day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                })}
+              </Text>
+            </View>
+          )}
+          {task.reviewer_deadline && (
+            <View style={styles.metaRow}>
+              <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>👁 Дедлайн проверки:</Text>
+              <Text style={[styles.metaValue, { color: '#F59E0B' }]}>
+                {new Date(task.reviewer_deadline).toLocaleDateString('ru-RU', {
                   day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
                 })}
               </Text>

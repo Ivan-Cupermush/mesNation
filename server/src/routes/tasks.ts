@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { checkOverdueTasks } from '../services/deadlineChecker';
 
 const router = Router();
@@ -599,7 +602,113 @@ router.delete('/:id/comments/:commentId', async (req: AuthRequest, res: Response
   }
 });
 
-// ========== DELETE /api/tasks/:id — удалить задачу ==========
+
+// ========== Конфигурация multer для файлов задач ==========
+const taskFilesUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = 'uploads/tasks';
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+      cb(null, uniqueName);
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
+
+// ========== 🆕 POST /api/tasks/:id/files — загрузить файл ==========
+router.post('/:id/files', taskFilesUpload.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const userId = req.userId!;
+    const file = req.file;
+
+    if (!file) return res.status(400).json({ error: 'Файл не загружен' });
+
+    // Проверяем что задача существует
+    const task = await pool.query('SELECT creator_id FROM tasks WHERE id = $1', [taskId]);
+    if (task.rows.length === 0) return res.status(404).json({ error: 'Задача не найдена' });
+
+    // Проверяем права: creator/assignee/watcher могут загружать
+    const isCreator = task.rows[0].creator_id === userId;
+    const isAssignee = (await pool.query('SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2', [taskId, userId])).rows.length > 0;
+    const isWatcher = (await pool.query('SELECT 1 FROM task_watchers WHERE task_id = $1 AND user_id = $2', [taskId, userId])).rows.length > 0;
+
+    if (!isCreator && !isAssignee && !isWatcher) {
+      // Удаляем загруженный файл
+      fs.unlink(file.path, () => {});
+      return res.status(403).json({ error: 'Только участники задачи могут загружать файлы' });
+    }
+
+    const fileUrl = '/uploads/tasks/' + file.filename;
+    const result = await pool.query(
+      `INSERT INTO task_files (task_id, file_url, file_name, file_size, mime_type, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [taskId, fileUrl, file.originalname, file.size, file.mimetype, userId]
+    );
+
+    // Подгружаем информацию о загрузившем
+    const uploader = await pool.query(
+      'SELECT username, display_name, avatar_url FROM users WHERE id = $1',
+      [userId]
+    );
+
+    res.status(201).json({
+      ...result.rows[0],
+      uploader: uploader.rows[0],
+    });
+  } catch (e) {
+    console.error('Ошибка загрузки файла:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== 🆕 DELETE /api/tasks/:id/files/:fileId — удалить файл ==========
+router.delete('/:id/files/:fileId', async (req: AuthRequest, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id);
+    const fileId = parseInt(req.params.fileId);
+    const userId = req.userId!;
+
+    // Получаем информацию о файле
+    const fileResult = await pool.query(
+      'SELECT * FROM task_files WHERE id = $1 AND task_id = $2',
+      [fileId, taskId]
+    );
+    if (fileResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Файл не найден' });
+    }
+    const file = fileResult.rows[0];
+
+    // Проверяем права: автор файла или создатель задачи могут удалять
+    const task = await pool.query('SELECT creator_id FROM tasks WHERE id = $1', [taskId]);
+    const isCreator = task.rows[0].creator_id === userId;
+    const isUploader = file.uploaded_by === userId;
+
+    if (!isCreator && !isUploader) {
+      return res.status(403).json({ error: 'Только автор файла или создатель задачи может удалить файл' });
+    }
+
+    // Удаляем физический файл
+    const filePath = path.join('.', file.file_url);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // Удаляем запись из БД
+    await pool.query('DELETE FROM task_files WHERE id = $1', [fileId]);
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Ошибка удаления файла:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// ========== DELETE /api/tasks/:id — удалить задача ==========
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);

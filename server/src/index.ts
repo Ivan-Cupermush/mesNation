@@ -74,6 +74,7 @@ function authenticateQuery(req: AuthRequest, res: Response, next: NextFunction) 
 
 // Статика для аплоадов
 app.use('/uploads/thumbs', express.static('uploads/thumbs'));
+app.use('/uploads/tasks', express.static('uploads/tasks'));
 app.use('/uploads/avatars', express.static('uploads/avatars'));
 app.use('/uploads', (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.query.token) return authenticateQuery(req, res, next);

@@ -308,6 +308,39 @@ export const api = {
     }),
 
   // 🆕 Удалить комментарий
+
+  // 🆕 Загрузить файл в задачу
+  uploadTaskFile: async (taskId: number, fileUri: string, fileName: string, fileType: string, fileSize: number) => {
+    const token = await getToken();
+    if (!token) throw new Error('Нет токена');
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: fileUri,
+      name: fileName,
+      type: fileType,
+    } as any);
+
+    const res = await fetch(`${SERVER_URL}/api/tasks/${taskId}/files`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка загрузки файла');
+    return data;
+  },
+
+  // 🆕 Удалить файл из задачи
+  deleteTaskFile: (taskId: number, fileId: number) =>
+    request<{ success: boolean }>(`/api/tasks/${taskId}/files/${fileId}`, {
+      method: 'DELETE',
+    }),
+
   deleteTaskComment: (taskId: number, commentId: number) =>
     request<{ success: boolean }>(`/api/tasks/${taskId}/comments/${commentId}`, {
       method: 'DELETE',

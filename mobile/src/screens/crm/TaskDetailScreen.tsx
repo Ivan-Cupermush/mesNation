@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, StatusBar, Alert, TextInput, Modal,
-  RefreshControl, KeyboardAvoidingView, Platform, Keyboard,
+  RefreshControl, KeyboardAvoidingView, Platform, Keyboard, Linking,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
+import { SERVER_URL } from '../../utils';
+import { pick, types, isCancel } from '@react-native-documents/picker';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
@@ -33,14 +35,13 @@ export default function TaskDetailScreen({ navigation }: any) {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [transitioning, setTransitioning] = useState(false);
 
-  // Комментарии
   const [newComment, setNewComment] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [uploadingFile, setUploadingFile] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Модалка отклонения
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
 
@@ -90,7 +91,6 @@ export default function TaskDetailScreen({ navigation }: any) {
   const isCreator = task?.creator_id === currentUser?.id;
   const isAssignee = task?.assignees?.some((a: any) => a.id === currentUser?.id) || false;
 
-  // Переходы статусов
   const handleTransition = async (toStatus: string) => {
     setTransitioning(true);
     try {
@@ -124,9 +124,7 @@ export default function TaskDetailScreen({ navigation }: any) {
     ]);
   };
 
-  const handleReject = () => {
-    setShowRejectModal(true);
-  };
+  const handleReject = () => setShowRejectModal(true);
 
   const submitReject = async () => {
     if (!rejectComment.trim()) {
@@ -160,7 +158,6 @@ export default function TaskDetailScreen({ navigation }: any) {
     ]);
   };
 
-  // Комментарии
   const handleSendComment = async () => {
     if (!newComment.trim()) return;
     setSendingComment(true);
@@ -211,6 +208,77 @@ export default function TaskDetailScreen({ navigation }: any) {
     ]);
   };
 
+  const handlePickFile = async () => {
+    try {
+      const result = await pick({
+        type: [types.allFiles],
+        allowMultiSelection: false,
+        copyTo: 'cachesDirectory',
+      });
+      const file = result[0];
+      if (!file || !file.uri) return;
+      
+      setUploadingFile(true);
+      try {
+        await api.uploadTaskFile(taskId, file.uri, file.name || 'file', file.type || 'application/octet-stream', file.size || 0);
+        loadData();
+      } catch (e: any) {
+        Alert.alert('Ошибка', e.message || 'Не удалось загрузить файл');
+      } finally {
+        setUploadingFile(false);
+      }
+    } catch (e: any) {
+      if (!isCancel(e)) {
+        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+      }
+    }
+  };
+
+  const handleDeleteFile = (fileId: number, fileName: string) => {
+    Alert.alert('Удалить файл?', `"${fileName}" будет удалён без возможности восстановления`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteTaskFile(taskId, fileId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить файл');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleOpenFile = (fileUrl: string) => {
+    const fullUrl = `${SERVER_URL}${fileUrl}`;
+    Linking.openURL(fullUrl).catch(() => {
+      Alert.alert('Ошибка', 'Не удалось открыть файл');
+    });
+  };
+
+  const getFileIcon = (mimeType: string, fileName: string): string => {
+    if (!mimeType) return '📄';
+    if (mimeType.startsWith('image/')) return '🖼';
+    if (mimeType.startsWith('video/')) return '🎥';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    if (mimeType.includes('pdf')) return '📕';
+    if (mimeType.includes('word') || fileName.endsWith('.docx') || fileName.endsWith('.doc')) return '📘';
+    if (mimeType.includes('sheet') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) return '📗';
+    if (mimeType.includes('presentation') || fileName.endsWith('.pptx')) return '📙';
+    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('archive')) return '🗜';
+    return '📄';
+  };
+
+  const formatFileSize = (bytes: number | null): string => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} Б`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+  };
+
   if (loading || !task) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
@@ -245,7 +313,6 @@ export default function TaskDetailScreen({ navigation }: any) {
         }
         keyboardShouldPersistTaps="handled"
       >
-        {/* Статус + важность */}
         <View style={styles.badgesRow}>
           <View style={[styles.badge, { backgroundColor: statusConf.color }]}>
             <Text style={styles.badgeText}>{statusConf.emoji} {statusConf.label}</Text>
@@ -255,10 +322,8 @@ export default function TaskDetailScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Заголовок */}
         <Text style={[styles.title, { color: colors.textPrimary }]}>{task.title}</Text>
 
-        {/* Описание */}
         {task.description ? (
           <Text style={[styles.description, { color: colors.textSecondary }]}>
             {task.description}
@@ -269,7 +334,6 @@ export default function TaskDetailScreen({ navigation }: any) {
           </Text>
         )}
 
-        {/* Метаданные */}
         <View style={[styles.metaBlock, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.metaRow}>
             <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>👤 Создатель:</Text>
@@ -295,7 +359,6 @@ export default function TaskDetailScreen({ navigation }: any) {
           )}
         </View>
 
-        {/* Динамические кнопки переходов */}
         {task.status_new !== 'archived' && task.status_new !== 'done' && (
           <View style={styles.actionsBlock}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>⚡ Действия</Text>
@@ -376,12 +439,11 @@ export default function TaskDetailScreen({ navigation }: any) {
           </TouchableOpacity>
         )}
 
-        {/* ИСТОРИЯ ПЕРЕХОДОВ */}
         <View style={styles.historyBlock}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
             📜 История переходов ({history.length})
           </Text>
-          {history.map((item, idx) => {
+          {history.map((item) => {
             const fromConf = item.from_status ? STATUS_CONFIG[item.from_status] : null;
             const toConf = STATUS_CONFIG[item.to_status];
             return (
@@ -433,7 +495,6 @@ export default function TaskDetailScreen({ navigation }: any) {
           })}
         </View>
 
-        {/* КОММЕНТАРИИ */}
         <View style={styles.commentsBlock}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
             💬 Комментарии ({comments.length})
@@ -535,9 +596,70 @@ export default function TaskDetailScreen({ navigation }: any) {
             })
           )}
         </View>
+
+        <View style={styles.filesBlock}>
+          <View style={styles.filesHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              📎 Файлы ({(task.files || []).length})
+            </Text>
+            <TouchableOpacity
+              onPress={handlePickFile}
+              disabled={uploadingFile}
+              style={[styles.attachBtn, { backgroundColor: colors.accent }]}
+            >
+              <Text style={{ color: colors.onAccent, fontSize: 13, fontWeight: '600' }}>
+                {uploadingFile ? '⏳' : '📎 Прикрепить'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {(task.files || []).length === 0 ? (
+            <View style={[styles.emptyFiles, { backgroundColor: colors.surface }]}>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, textAlign: 'center' }}>
+                Файлы не прикреплены
+              </Text>
+            </View>
+          ) : (
+            (task.files || []).map((file: any) => {
+              const isOwnFile = file.uploaded_by === currentUser?.id;
+              const isTaskCreator = task.creator_id === currentUser?.id;
+              return (
+                <TouchableOpacity
+                  key={file.id}
+                  onPress={() => handleOpenFile(file.file_url)}
+                  activeOpacity={0.7}
+                  style={[styles.fileItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                >
+                  <View style={styles.fileIcon}>
+                    <Text style={{ fontSize: 28 }}>
+                      {getFileIcon(file.mime_type, file.file_name)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.fileName, { color: colors.textPrimary }]} numberOfLines={1}>
+                      {file.file_name || 'Без имени'}
+                    </Text>
+                    <Text style={[styles.fileMeta, { color: colors.textSecondary }]}>
+                      {formatFileSize(file.file_size)} · {new Date(file.uploaded_at).toLocaleDateString('ru-RU', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                      })}
+                    </Text>
+                  </View>
+                  {(isOwnFile || isTaskCreator) && (
+                    <TouchableOpacity
+                      onPress={() => handleDeleteFile(file.id, file.file_name)}
+                      style={styles.fileDeleteBtn}
+                    >
+                      <Text style={{ color: '#EF4444', fontSize: 18 }}>🗑</Text>
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
       </ScrollView>
 
-      {/* Поле ввода комментария */}
       <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TextInput
           style={[
@@ -563,7 +685,6 @@ export default function TaskDetailScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Модалка отклонения */}
       <Modal visible={showRejectModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
@@ -801,5 +922,44 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  filesBlock: { marginTop: 16 },
+  filesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  attachBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  emptyFiles: {
+    padding: 20,
+    borderRadius: 12,
+  },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  fileIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  fileName: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  fileMeta: { fontSize: 12 },
+  fileDeleteBtn: {
+    padding: 8,
+    marginLeft: 8,
   },
 });

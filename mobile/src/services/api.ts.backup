@@ -240,74 +240,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ========== API ==========
-
-// ==================== KNOWLEDGE ИНТЕРФЕЙСЫ ====================
-
-export interface KnowledgeHealth {
-  ollama: boolean;
-  database: boolean;
-  pgvector: boolean;
-  ready: boolean;
-}
-
-export interface KnowledgeDocument {
-  id: number;
-  filename: string;
-  original_name: string;
-  file_size: number;
-  mime_type: string;
-  tags: string[];
-  description: string | null;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  chunks_count: number;
-  error_message: string | null;
-  uploaded_by: number;
-  uploaded_by_name?: string;
-  created_at: string;
-  processed_at: string | null;
-}
-
-export interface ChatSession {
-  id: number;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  last_message?: string;
-}
-
-export interface SourceChunk {
-  chunk_id: number;
-  document_name: string;
-  document_id: number;
-  content: string;
-  similarity: string;
-}
-
-export interface ChatMessage {
-  id: number;
-  session_id: number;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  source_chunk_ids?: number[];
-  source_chunks?: SourceChunk[];
-  feedback?: 'positive' | 'negative' | null;
-  feedback_comment?: string | null;
-  created_at: string;
-}
-
-export interface ChatResponse {
-  session_id: number;
-  user_message: ChatMessage;
-  assistant_message: ChatMessage & { source_chunks: SourceChunk[] };
-}
-
-export interface KnowledgeStats {
-  documents_by_status: Record<string, number>;
-  total_chunks: number;
-  total_sessions: number;
-  messages_by_role: Record<string, number>;
-}
-
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
   getCurrentUser: () => request<{
@@ -597,77 +529,147 @@ export const api = {
 
   getImportHistory: () =>
     request<SalesImport[]>('/api/kpi/sales/import/history'),
-
-  // ==================== KNOWLEDGE (База знаний + AI чат) ====================
-
-  getKnowledgeHealth: (): Promise<KnowledgeHealth> =>
-    request<KnowledgeHealth>('/api/knowledge/health'),
-
-  sendChatMessage: (data: { session_id?: number; message: string }): Promise<ChatResponse> =>
-    request<ChatResponse>('/api/knowledge/chat', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  getChatSessions: (): Promise<ChatSession[]> =>
-    request<ChatSession[]>('/api/knowledge/sessions'),
-
-  getSessionMessages: (sessionId: number): Promise<ChatMessage[]> =>
-    request<ChatMessage[]>(`/api/knowledge/sessions/${sessionId}/messages`),
-
-  deleteChatSession: (sessionId: number): Promise<void> =>
-    request<void>(`/api/knowledge/sessions/${sessionId}`, { method: 'DELETE' }),
-
-  sendMessageFeedback: (
-    messageId: number,
-    feedback: 'positive' | 'negative',
-    comment?: string
-  ): Promise<void> =>
-    request<void>(`/api/knowledge/messages/${messageId}/feedback`, {
-      method: 'POST',
-      body: JSON.stringify({ feedback, comment }),
-    }),
-
-  getKnowledgeDocuments: (filters?: { status?: string; tag?: string }): Promise<KnowledgeDocument[]> => {
-    const params = new URLSearchParams();
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.tag) params.append('tag', filters.tag);
-    const query = params.toString();
-    return request<KnowledgeDocument[]>(`/api/knowledge/documents${query ? `?${query}` : ''}`);
-  },
-
-  deleteKnowledgeDocument: (id: number): Promise<void> =>
-    request<void>(`/api/knowledge/documents/${id}`, { method: 'DELETE' }),
-
-  uploadKnowledgeDocument: async (
-    file: { uri: string; name: string; type: string },
-    tags: string[] = [],
-    description?: string
-  ): Promise<KnowledgeDocument> => {
-    const formData = new FormData();
-    formData.append('file', {
-      uri: file.uri,
-      name: file.name,
-      type: file.type,
-    } as any);
-    formData.append('tags', JSON.stringify(tags));
-    if (description) formData.append('description', description);
-
-    const token = await getToken();
-    const response = await fetch(`${SERVER_URL}/api/knowledge/documents`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
-      },
-      body: formData,
-    });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Ошибка загрузки');
-    return data;
-  },
-
-  getKnowledgeStats: (): Promise<KnowledgeStats> =>
-    request<KnowledgeStats>('/api/knowledge/stats'),
 };
+// ==================== KNOWLEDGE (База знаний + AI чат) ====================
+
+export interface KnowledgeHealth {
+  ollama: boolean;
+  database: boolean;
+  pgvector: boolean;
+  ready: boolean;
+}
+
+export interface KnowledgeDocument {
+  id: number;
+  filename: string;
+  original_name: string;
+  file_size: number;
+  mime_type: string;
+  tags: string[];
+  description: string | null;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  chunks_count: number;
+  error_message: string | null;
+  uploaded_by: number;
+  uploaded_by_name?: string;
+  created_at: string;
+  processed_at: string | null;
+}
+
+export interface ChatSession {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  last_message?: string;
+}
+
+export interface SourceChunk {
+  chunk_id: number;
+  document_name: string;
+  document_id: number;
+  content: string;
+  similarity: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  session_id: number;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  source_chunk_ids?: number[];
+  source_chunks?: SourceChunk[];
+  feedback?: 'positive' | 'negative' | null;
+  feedback_comment?: string | null;
+  created_at: string;
+}
+
+export interface ChatResponse {
+  session_id: number;
+  user_message: ChatMessage;
+  assistant_message: ChatMessage & { source_chunks: SourceChunk[] };
+}
+
+export interface KnowledgeStats {
+  documents_by_status: Record<string, number>;
+  total_chunks: number;
+  total_sessions: number;
+  messages_by_role: Record<string, number>;
+}
+
+// Health check
+getKnowledgeHealth: (): Promise<KnowledgeHealth> =>
+  request<KnowledgeHealth>('/api/knowledge/health'),
+
+// Чат
+sendChatMessage: (data: { session_id?: number; message: string }): Promise<ChatResponse> =>
+  request<ChatResponse>('/api/knowledge/chat', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+// Сессии
+getChatSessions: (): Promise<ChatSession[]> =>
+  request<ChatSession[]>('/api/knowledge/sessions'),
+
+getSessionMessages: (sessionId: number): Promise<ChatMessage[]> =>
+  request<ChatMessage[]>(`/api/knowledge/sessions/${sessionId}/messages`),
+
+deleteChatSession: (sessionId: number): Promise<void> =>
+  request<void>(`/api/knowledge/sessions/${sessionId}`, { method: 'DELETE' }),
+
+// Feedback
+sendMessageFeedback: (
+  messageId: number,
+  feedback: 'positive' | 'negative',
+  comment?: string
+): Promise<void> =>
+  request<void>(`/api/knowledge/messages/${messageId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({ feedback, comment }),
+  }),
+
+// Документы
+getKnowledgeDocuments: (filters?: { status?: string; tag?: string }): Promise<KnowledgeDocument[]> => {
+  const params = new URLSearchParams();
+  if (filters?.status) params.append('status', filters.status);
+  if (filters?.tag) params.append('tag', filters.tag);
+  const query = params.toString();
+  return request<KnowledgeDocument[]>(`/api/knowledge/documents${query ? `?${query}` : ''}`);
+},
+
+deleteKnowledgeDocument: (id: number): Promise<void> =>
+  request<void>(`/api/knowledge/documents/${id}`, { method: 'DELETE' }),
+
+uploadKnowledgeDocument: async (
+  file: { uri: string; name: string; type: string },
+  tags: string[] = [],
+  description?: string
+): Promise<KnowledgeDocument> => {
+  const formData = new FormData();
+  formData.append('file', {
+    uri: file.uri,
+    name: file.name,
+    type: file.type,
+  } as any);
+  formData.append('tags', JSON.stringify(tags));
+  if (description) formData.append('description', description);
+
+  const token = await getToken();
+  const response = await fetch(`${SERVER_URL}/api/knowledge/documents`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data',
+    },
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Ошибка загрузки');
+  return data;
+},
+
+// Статистика
+getKnowledgeStats: (): Promise<KnowledgeStats> =>
+  request<KnowledgeStats>('/api/knowledge/stats'),

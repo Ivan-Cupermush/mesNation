@@ -146,11 +146,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               <View
                 style={[
                   styles.dayCell,
+                  selected && styles.selectedDay,
                   selected && { backgroundColor: colors.accent },
-                  today && !selected && { 
-                    borderWidth: 1.5, 
-                    borderColor: colors.accent 
-                  },
+                  today && !selected && styles.todayDay,
+                  today && !selected && { borderColor: colors.accent },
                 ]}
               >
                 <Text
@@ -183,7 +182,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 const styles = StyleSheet.create({
   container: {
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     marginHorizontal: 16,
     marginTop: 8,
   },
@@ -234,8 +233,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    borderRadius: 12,
     position: 'relative',
+  },
+  selectedDay: {
+    borderRadius: 14,
+  },
+  todayDay: {
+    borderWidth: 1.5,
+    borderRadius: 14,
   },
   dayText: {
     fontSize: 15,
@@ -248,7 +254,7 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     position: 'absolute',
-    bottom: 5,
+    bottom: 6,
     alignSelf: 'center',
   },
 });

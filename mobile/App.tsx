@@ -27,7 +27,7 @@ import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
 import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
-import KnowledgeScreen from './src/screens/crm/KnowledgeScreen';
+import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
 
 // ===== Экраны управления деревом прав =====
 import RoleTreeEditorScreen from './src/screens/crm/RoleTreeEditorScreen';

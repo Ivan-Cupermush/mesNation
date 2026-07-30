@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Card } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
 import { Avatar } from '../../components/ui/Avatar';
 import { api, Task } from '../../services/api';
+import TaskCalendar from '../../components/tasks/TaskCalendar';
 
 type Filter = 'all' | 'mine' | 'created' | 'watching' | 'review' | 'rejected' | 'overdue' | 'archived';
 
@@ -23,13 +23,8 @@ const FILTERS: { id: Filter; label: string; emoji: string }[] = [
   { id: 'archived',  label: '🗄 Архив',     emoji: '🗄' },
 ];
 
-// Конфигурация статусов с цветами
 const STATUS_CONFIG: Record<string, {
-  label: string;
-  emoji: string;
-  color: string;
-  bgColor: string;
-  textColor: string;
+  label: string; emoji: string; color: string; bgColor: string; textColor: string;
 }> = {
   new:         { label: 'Новая',       emoji: '🆕', color: '#94A3B8', bgColor: '#F1F5F9', textColor: '#475569' },
   in_progress: { label: 'В работе',    emoji: '🔨', color: '#3B82F6', bgColor: '#DBEAFE', textColor: '#1E40AF' },
@@ -51,7 +46,6 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso);
   const now = new Date();
   const diffDays = Math.floor((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
   if (diffDays < -7) return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
   if (diffDays < 0) return `${Math.abs(diffDays)} дн. назад`;
   if (diffDays === 0) return 'Сегодня';
@@ -66,10 +60,10 @@ function getDeadlineColor(iso: string | null): string {
   const d = new Date(iso);
   const now = new Date();
   const diffDays = Math.floor((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return '#DC2626';      // просрочено — красный
-  if (diffDays <= 2) return '#EF4444';     // сегодня-завтра — красный
-  if (diffDays <= 7) return '#F59E0B';     // неделя — жёлтый
-  return '#10B981';                         // много времени — зелёный
+  if (diffDays < 0) return '#DC2626';
+  if (diffDays <= 2) return '#EF4444';
+  if (diffDays <= 7) return '#F59E0B';
+  return '#10B981';
 }
 
 function isOverdue(iso: string | null): boolean {
@@ -84,20 +78,19 @@ export default function TasksScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [sortBy, setSortBy] = useState<'deadline' | 'priority'>('deadline');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   const loadData = useCallback(async () => {
     try {
       let params: any = { sort_by: sortBy };
 
       if (filter === 'archived') {
-        // Архив — отдельный режим
         params = { include_archived: true, sort_by: sortBy };
       } else if (filter === 'review') {
         params = { ...params, filter: 'review' };
       } else if (filter === 'rejected') {
         params = { ...params, status: 'rejected' };
       } else if (filter === 'overdue') {
-        // Просроченные — фильтр на клиенте (backend не меняет статусы)
         params = { ...params, filter: 'all' };
       } else {
         params = { ...params, filter };
@@ -105,7 +98,6 @@ export default function TasksScreen({ navigation }: any) {
 
       const data = await api.getTasks(params);
 
-      // Клиентская фильтрация "overdue" (backend больше не меняет статус)
       let filteredData = data;
       if (filter === 'overdue') {
         filteredData = data.filter(t => {
@@ -134,7 +126,6 @@ export default function TasksScreen({ navigation }: any) {
     loadData();
   };
 
-  // Подсчёт задач по статусам
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     tasks.forEach(t => {
@@ -143,13 +134,11 @@ export default function TasksScreen({ navigation }: any) {
     return counts;
   }, [tasks]);
 
-  // Общее количество задач
   const totalCount = tasks.length;
 
   const renderTaskCard = (task: Task) => {
     const statusConf = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
     const importanceConf = IMPORTANCE_MAP[task.importance] || IMPORTANCE_MAP.yellow;
-    // 🆕 Используем executor_deadline (новый) или hard_deadline (старый)
     const deadline = task.executor_deadline || task.hard_deadline;
     const reviewDeadline = task.reviewer_deadline;
 
@@ -161,7 +150,6 @@ export default function TasksScreen({ navigation }: any) {
       ? Math.floor((Date.now() - new Date(deadline).getTime()) / (1000 * 60 * 60 * 24))
       : 0;
 
-    // Проверка просрочки по reviewer_deadline (для задач на проверке)
     const reviewOverdue = task.status_new === 'on_review' && isOverdue(reviewDeadline);
 
     return (
@@ -170,7 +158,6 @@ export default function TasksScreen({ navigation }: any) {
         onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
       >
         <Card padding="none" style={{ marginBottom: 10, overflow: 'hidden' }}>
-          {/* Предупреждение о просрочке выполнения */}
           {overdue && task.status_new !== 'overdue' && (
             <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ fontSize: 14 }}>⚠️</Text>
@@ -179,7 +166,6 @@ export default function TasksScreen({ navigation }: any) {
               </Text>
             </View>
           )}
-          {/* Предупреждение о просрочке проверки (для создателя) */}
           {reviewOverdue && (
             <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ fontSize: 14 }}>⚠️</Text>
@@ -190,11 +176,8 @@ export default function TasksScreen({ navigation }: any) {
           )}
           
           <View style={{ flexDirection: 'row' }}>
-            {/* Цветная полоска слева (индикатор статуса) */}
             <View style={{ width: 6, backgroundColor: statusConf.color }} />
-
             <View style={{ flex: 1, padding: 14 }}>
-              {/* Верхняя строка: важность + статус */}
               <View style={styles.topRow}>
                 <View style={[styles.statusBadge, { backgroundColor: statusConf.bgColor }]}>
                   <Text style={[styles.statusBadgeText, { color: statusConf.textColor }]}>
@@ -208,7 +191,6 @@ export default function TasksScreen({ navigation }: any) {
                 </View>
               </View>
 
-              {/* Заголовок задачи */}
               <Text
                 style={[
                   styles.title,
@@ -220,7 +202,6 @@ export default function TasksScreen({ navigation }: any) {
                 {task.title}
               </Text>
 
-              {/* Описание (если есть) */}
               {task.description ? (
                 <Text
                   style={[styles.description, { color: colors.textSecondary }]}
@@ -230,16 +211,12 @@ export default function TasksScreen({ navigation }: any) {
                 </Text>
               ) : null}
 
-              {/* Нижняя строка: дедлайн + исполнители */}
               <View style={styles.bottomRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {/* Дедлайн */}
                   <Text style={{ fontSize: 12, color: deadlineColor, fontWeight: '600' }}>
                     {overdue ? '⚠️ ' : '⏰ '}
                     {formatDate(deadline)}
                   </Text>
-
-                  {/* Счётчики */}
                   {task.pending_checkpoints > 0 && (
                     <View style={[styles.miniBadge, { backgroundColor: '#F59E0B' }]}>
                       <Text style={styles.miniBadgeText}>📋 {task.pending_checkpoints}</Text>
@@ -247,7 +224,6 @@ export default function TasksScreen({ navigation }: any) {
                   )}
                 </View>
 
-                {/* Аватарки исполнителей */}
                 <View style={styles.assigneesRow}>
                   {task.assignees?.slice(0, 3).map((a, idx) => (
                     <View
@@ -257,11 +233,7 @@ export default function TasksScreen({ navigation }: any) {
                         { marginLeft: idx > 0 ? -8 : 0, borderColor: colors.background },
                       ]}
                     >
-                      <Avatar
-                        uri={a.avatar_url}
-                        size={28}
-                        name={a.display_name}
-                      />
+                      <Avatar uri={a.avatar_url} size={28} name={a.display_name} />
                     </View>
                   ))}
                   {(task.assignees?.length || 0) > 3 && (
@@ -290,144 +262,173 @@ export default function TasksScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Заголовок + переключатель сортировки */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Задачи</Text>
-        <View style={styles.headerBadge}>
-          <Text style={[styles.headerBadgeText, { color: colors.textSecondary }]}>
-            {totalCount} {totalCount === 1 ? 'задача' : totalCount < 5 ? 'задачи' : 'задач'}
-          </Text>
+        <View style={styles.headerRight}>
+          <View style={[styles.headerBadge, { marginRight: 8 }]}>
+            <Text style={[styles.headerBadgeText, { color: colors.textSecondary }]}>
+              {totalCount} {totalCount === 1 ? 'задача' : totalCount < 5 ? 'задачи' : 'задач'}
+            </Text>
+          </View>
+          <View style={[styles.viewModeSwitch, { borderColor: colors.border }]}>
+            <TouchableOpacity
+              onPress={() => setViewMode('list')}
+              style={[
+                styles.viewModeBtn,
+                { backgroundColor: viewMode === 'list' ? colors.accent : 'transparent' },
+              ]}
+            >
+              <Text style={{ color: viewMode === 'list' ? colors.onAccent : colors.textSecondary, fontSize: 14 }}>
+                📋
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode('calendar')}
+              style={[
+                styles.viewModeBtn,
+                { backgroundColor: viewMode === 'calendar' ? colors.accent : 'transparent' },
+              ]}
+            >
+              <Text style={{ color: viewMode === 'calendar' ? colors.onAccent : colors.textSecondary, fontSize: 14 }}>
+                📅
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
-      {/* 🆕 Переключатель сортировки */}
-      <View style={[styles.sortRow, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => setSortBy('deadline')}
-          style={[
-            styles.sortBtn,
-            {
-              backgroundColor: sortBy === 'deadline' ? colors.accent : 'transparent',
-              borderColor: sortBy === 'deadline' ? colors.accent : colors.border,
-            },
-          ]}
-        >
-          <Text style={{
-            color: sortBy === 'deadline' ? colors.onAccent : colors.textSecondary,
-            fontSize: 13,
-            fontWeight: sortBy === 'deadline' ? '600' : '400',
-          }}>
-            ⏰ По дедлайну
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setSortBy('priority')}
-          style={[
-            styles.sortBtn,
-            {
-              backgroundColor: sortBy === 'priority' ? colors.accent : 'transparent',
-              borderColor: sortBy === 'priority' ? colors.accent : colors.border,
-            },
-          ]}
-        >
-          <Text style={{
-            color: sortBy === 'priority' ? colors.onAccent : colors.textSecondary,
-            fontSize: 13,
-            fontWeight: sortBy === 'priority' ? '600' : '400',
-          }}>
-            🔴 По приоритету
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {viewMode === 'list' && (
+        <View style={[styles.sortRow, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => setSortBy('deadline')}
+            style={[
+              styles.sortBtn,
+              {
+                backgroundColor: sortBy === 'deadline' ? colors.accent : 'transparent',
+                borderColor: sortBy === 'deadline' ? colors.accent : colors.border,
+              },
+            ]}
+          >
+            <Text style={{
+              color: sortBy === 'deadline' ? colors.onAccent : colors.textSecondary,
+              fontSize: 13,
+              fontWeight: sortBy === 'deadline' ? '600' : '400',
+            }}>
+              ⏰ По дедлайну
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setSortBy('priority')}
+            style={[
+              styles.sortBtn,
+              {
+                backgroundColor: sortBy === 'priority' ? colors.accent : 'transparent',
+                borderColor: sortBy === 'priority' ? colors.accent : colors.border,
+              },
+            ]}
+          >
+            <Text style={{
+              color: sortBy === 'priority' ? colors.onAccent : colors.textSecondary,
+              fontSize: 13,
+              fontWeight: sortBy === 'priority' ? '600' : '400',
+            }}>
+              🔴 По приоритету
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* Счётчики статусов */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.countersRow}
-      >
-        {Object.entries(STATUS_CONFIG).map(([status, conf]) => {
-          const count = statusCounts[status] || 0;
-          if (count === 0) return null;
-          return (
-            <View key={status} style={[styles.counterItem, { backgroundColor: conf.bgColor }]}>
-              <Text style={{ fontSize: 16 }}>{conf.emoji}</Text>
-              <Text style={[styles.counterNumber, { color: conf.textColor }]}>{count}</Text>
-            </View>
-          );
-        })}
-      </ScrollView>
+      {viewMode === 'list' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.countersRow}
+        >
+          {Object.entries(STATUS_CONFIG).map(([status, conf]) => {
+            const count = statusCounts[status] || 0;
+            if (count === 0) return null;
+            return (
+              <View key={status} style={[styles.counterItem, { backgroundColor: conf.bgColor }]}>
+                <Text style={{ fontSize: 16 }}>{conf.emoji}</Text>
+                <Text style={[styles.counterNumber, { color: conf.textColor }]}>{count}</Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
 
-      {/* Фильтры */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filtersRow}
-      >
-        {FILTERS.map((f) => {
-          const active = filter === f.id;
-          return (
-            <TouchableOpacity
-              key={f.id}
-              onPress={() => setFilter(f.id)}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: active ? colors.accent : colors.surface,
-                  borderColor: active ? colors.accent : colors.border,
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 14 }}>{f.emoji}</Text>
-              <Text
-                style={{
-                  color: active ? colors.onAccent : colors.textPrimary,
-                  fontWeight: active ? '600' : '400',
-                  fontSize: 13,
-                  marginLeft: 4,
-                }}
+      {viewMode === 'list' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filtersRow}
+        >
+          {FILTERS.map((f) => {
+            const active = filter === f.id;
+            return (
+              <TouchableOpacity
+                key={f.id}
+                onPress={() => setFilter(f.id)}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: active ? colors.accent : colors.surface,
+                    borderColor: active ? colors.accent : colors.border,
+                  },
+                ]}
               >
-                {f.label}
+                <Text style={{ fontSize: 14 }}>{f.emoji}</Text>
+                <Text
+                  style={{
+                    color: active ? colors.onAccent : colors.textPrimary,
+                    fontWeight: active ? '600' : '400',
+                    fontSize: 13,
+                    marginLeft: 4,
+                  }}
+                >
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {viewMode === 'list' ? (
+        <FlatList
+          data={tasks}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => renderTaskCard(item)}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyBlock}>
+              <Text style={{ fontSize: 64, marginBottom: 12 }}>📭</Text>
+              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>Нет задач</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                {filter === 'all'
+                  ? 'Нажмите + чтобы создать первую задачу'
+                  : 'В этой категории нет задач'}
               </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+            </View>
+          }
+        />
+      ) : (
+        <TaskCalendar
+          tasks={tasks || []}
+          onPressTask={(task) => navigation.navigate('TaskDetail', { taskId: task.id })}
+        />
+      )}
 
-      {/* Список задач */}
-      <FlatList
-        data={tasks}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => renderTaskCard(item)}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyBlock}>
-            <Text style={{ fontSize: 64, marginBottom: 12 }}>📭</Text>
-            <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-              Нет задач
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              {filter === 'all'
-                ? 'Нажмите + чтобы создать первую задачу'
-                : 'В этой категории нет задач'}
-            </Text>
-          </View>
-        }
-      />
-
-      {/* FAB — создать задачу */}
       <TouchableOpacity
         onPress={() => navigation.navigate('CreateTask')}
         activeOpacity={0.8}
         style={[styles.fab, { backgroundColor: colors.accent }]}
       >
-        <Text style={{ color: colors.onAccent, fontSize: 32, fontWeight: '300', lineHeight: 34 }}>
-          +
-        </Text>
+        <Text style={{ color: colors.onAccent, fontSize: 32, fontWeight: '300', lineHeight: 34 }}>+</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -445,6 +446,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   title: { fontSize: 32, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
   headerBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -452,11 +454,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(99, 102, 241, 0.1)',
   },
   headerBadgeText: { fontSize: 13, fontWeight: '600' },
-  countersRow: {
+  viewModeSwitch: { flexDirection: 'row', borderWidth: 1, borderRadius: 10, padding: 2, gap: 2 },
+  viewModeBtn: { width: 34, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  sortRow: {
+    flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
     gap: 8,
+    borderBottomWidth: 1,
   },
+  sortBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
+  countersRow: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
   counterItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -466,11 +475,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   counterNumber: { fontSize: 14, fontWeight: '700' },
-  filtersRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 8,
-  },
+  filtersRow: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -479,58 +484,18 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 100,
-  },
-  topRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 8,
-    flexWrap: 'wrap',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
+  listContent: { paddingHorizontal: 16, paddingBottom: 100 },
+  topRow: { flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   statusBadgeText: { fontSize: 11, fontWeight: '600' },
-  importanceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
-    lineHeight: 22,
-  },
-  description: {
-    fontSize: 13,
-    marginBottom: 10,
-    lineHeight: 18,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  miniBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
+  importanceBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  title: { fontSize: 16, fontWeight: '700', marginBottom: 4, lineHeight: 22 },
+  description: { fontSize: 13, marginBottom: 10, lineHeight: 18 },
+  bottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  miniBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   miniBadgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  assigneesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarWrapper: {
-    borderWidth: 2,
-    borderRadius: 14,
-  },
+  assigneesRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarWrapper: { borderWidth: 2, borderRadius: 14 },
   avatarMore: {
     width: 28,
     height: 28,
@@ -540,10 +505,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     marginLeft: -8,
   },
-  emptyBlock: {
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
+  emptyBlock: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
   emptySubtitle: { fontSize: 13, textAlign: 'center' },
   fab: {
@@ -560,20 +522,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
-  },
-  sortRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 8,
-    gap: 8,
-    borderBottomWidth: 1,
-  },
-  sortBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
   },
 });

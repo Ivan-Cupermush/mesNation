@@ -15,6 +15,7 @@ import roleTreeRouter from './routes/roleTree';
 import tasksRouter from './routes/tasks';
 import notesRouter from './routes/notes';
 import kpiSalesRouter from './routes/kpiSales';
+import knowledgeRouter from './routes/knowledge';
 import { startDeadlineChecker } from './services/deadlineChecker';
 
 dotenv.config();
@@ -339,6 +340,7 @@ app.use('/api/role-tree', authenticate, roleTreeRouter);
 app.use('/api/tasks', authenticate, tasksRouter);
 app.use('/api/notes', authenticate, notesRouter);
 app.use('/api/kpi/sales', authenticate, kpiSalesRouter);
+app.use('/api/knowledge', authenticate, knowledgeRouter);
 
 // ========== Сообщения ==========
 app.get('/api/messages/:chatId', async (req: Request, res: Response) => {

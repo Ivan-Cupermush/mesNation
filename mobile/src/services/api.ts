@@ -1,6 +1,9 @@
 import { SERVER_URL, getToken } from '../utils';
 
-// ========== ЗАДАЧИ ==========
+// ================================================================
+// ========== ЗАДАЧИ (Tasks) — интерфейсы ========================
+// ================================================================
+
 export interface TaskAssignee {
   id: number;
   username: string;
@@ -92,7 +95,10 @@ export interface TaskHistoryItem {
   created_at: string;
 }
 
-// ========== ДЕРЕВО РОЛЕЙ ==========
+// ================================================================
+// ========== ДЕРЕВО РОЛЕЙ (Role Tree) ===========================
+// ================================================================
+
 export interface RoleNode {
   id: number;
   name: string;
@@ -114,7 +120,10 @@ export interface UserInSubtree {
   role_name: string;
 }
 
-// ========== ЗАМЕТКИ ==========
+// ================================================================
+// ========== ЗАМЕТКИ (Notes) ====================================
+// ================================================================
+
 export interface Note {
   id: number;
   user_id: number;
@@ -131,7 +140,10 @@ export interface DayWithNotes {
   note_count: number;
 }
 
-// ========== KPI ПРОДАЖ ==========
+// ================================================================
+// ========== KPI ПРОДАЖИ ========================================
+// ================================================================
+
 export type MetricType = 'quantity' | 'amount' | 'contracts';
 
 export interface SalesTarget {
@@ -220,28 +232,9 @@ export interface SalesSummary {
   period: string;
 }
 
-// ========== БАЗОВАЯ ФУНКЦИЯ ЗАПРОСА ==========
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = await getToken();
-  if (!token) throw new Error('Нет токена');
-
-  const res = await fetch(`${SERVER_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(options?.headers || {}),
-    },
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
-  return data;
-}
-
-// ========== API ==========
-
-// ==================== KNOWLEDGE ИНТЕРФЕЙСЫ ====================
+// ================================================================
+// ========== БАЗА ЗНАНИЙ (Knowledge + AI) =======================
+// ================================================================
 
 export interface KnowledgeHealth {
   ollama: boolean;
@@ -308,17 +301,44 @@ export interface KnowledgeStats {
   messages_by_role: Record<string, number>;
 }
 
+// ================================================================
+// ========== БАЗОВАЯ ФУНКЦИЯ ЗАПРОСА ============================
+// ================================================================
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = await getToken();
+  if (!token) throw new Error('Нет токена');
+
+  const res = await fetch(`${SERVER_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options?.headers || {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
+  return data;
+}
+
+// ================================================================
+// ========== API ==================================================
+// ================================================================
+
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
-  getCurrentUser: () => request<{
-    id: number;
-    username: string;
-    email: string;
-    display_name: string;
-    avatar_url: string | null;
-    role_id: number;
-    department_id: number | null;
-  }>('/api/auth/me'),
+  getCurrentUser: () =>
+    request<{
+      id: number;
+      username: string;
+      email: string;
+      display_name: string;
+      avatar_url: string | null;
+      role_id: number;
+      department_id: number | null;
+    }>('/api/auth/me'),
 
   // ==================== ЗАДАЧИ (Tasks) ====================
   getTasks: (params?: {
@@ -349,17 +369,20 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  updateTask: (id: number, data: Partial<{
-    title: string;
-    description: string;
-    importance: 'green' | 'yellow' | 'red';
-    hard_deadline: string | null;
-    executor_deadline: string | null;
-    reviewer_deadline: string | null;
-    executor_comment: string | null;
-    watcher_comment: string | null;
-    archived_as: string | null;
-  }>) =>
+  updateTask: (
+    id: number,
+    data: Partial<{
+      title: string;
+      description: string;
+      importance: 'green' | 'yellow' | 'red';
+      hard_deadline: string | null;
+      executor_deadline: string | null;
+      reviewer_deadline: string | null;
+      executor_comment: string | null;
+      watcher_comment: string | null;
+      archived_as: string | null;
+    }>,
+  ) =>
     request<Task>(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -368,39 +391,42 @@ export const api = {
   deleteTask: (id: number) =>
     request<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
-  // Переход статуса задачи (с проверкой прав!)
   transitionTask: (id: number, to_status: string, comment?: string) =>
     request<Task>(`/api/tasks/${id}/transition`, {
       method: 'POST',
       body: JSON.stringify({ to_status, comment }),
     }),
 
-  // История переходов статуса
   getTaskHistory: (id: number) =>
     request<TaskHistoryItem[]>(`/api/tasks/${id}/history`),
 
-  // Canvas посты (создание)
   addCanvasPost: (taskId: number, content: string, content_type?: string) =>
     request<TaskCanvasPost>(`/api/tasks/${taskId}/canvas`, {
       method: 'POST',
       body: JSON.stringify({ content, content_type }),
     }),
 
-  // 🆕 Получить комментарии задачи
   getTaskComments: (taskId: number) =>
     request<TaskCanvasPost[]>(`/api/tasks/${taskId}/comments`),
 
-  // 🆕 Редактировать комментарий
   updateTaskComment: (taskId: number, commentId: number, content: string) =>
     request<TaskCanvasPost>(`/api/tasks/${taskId}/comments/${commentId}`, {
       method: 'PATCH',
       body: JSON.stringify({ content }),
     }),
 
-  // 🆕 Удалить комментарий
+  deleteTaskComment: (taskId: number, commentId: number) =>
+    request<{ success: boolean }>(`/api/tasks/${taskId}/comments/${commentId}`, {
+      method: 'DELETE',
+    }),
 
-  // 🆕 Загрузить файл в задачу
-  uploadTaskFile: async (taskId: number, fileUri: string, fileName: string, fileType: string, fileSize: number) => {
+  uploadTaskFile: async (
+    taskId: number,
+    fileUri: string,
+    fileName: string,
+    fileType: string,
+    fileSize: number,
+  ) => {
     const token = await getToken();
     if (!token) throw new Error('Нет токена');
 
@@ -425,14 +451,8 @@ export const api = {
     return data;
   },
 
-  // 🆕 Удалить файл из задачи
   deleteTaskFile: (taskId: number, fileId: number) =>
     request<{ success: boolean }>(`/api/tasks/${taskId}/files/${fileId}`, {
-      method: 'DELETE',
-    }),
-
-  deleteTaskComment: (taskId: number, commentId: number) =>
-    request<{ success: boolean }>(`/api/tasks/${taskId}/comments/${commentId}`, {
       method: 'DELETE',
     }),
 
@@ -441,6 +461,23 @@ export const api = {
 
   getUsersInSubtree: (nodeId: number) =>
     request<UserInSubtree[]>(`/api/role-tree/users/in-subtree/${nodeId}`),
+
+  /**
+   * Получает всех пользователей из поддерева текущего юзера.
+   * Используется в CreateTaskScreen для выбора исполнителей/наблюдателей.
+   */
+  getSubtreeUsers: async (): Promise<UserInSubtree[]> => {
+    try {
+      const me = await api.getCurrentUser();
+      if (!me.role_id) return [];
+      const users = await api.getUsersInSubtree(me.role_id);
+      // Исключаем самого себя (создатель не может быть исполнителем у самого себя в большинстве случаев)
+      return users.filter((u) => u.id !== me.id);
+    } catch (e) {
+      console.log('getSubtreeUsers error:', e);
+      return [];
+    }
+  },
 
   createRoleNode: (data: {
     name: string;
@@ -484,8 +521,7 @@ export const api = {
   getNotesByDate: (date: string) =>
     request<Note[]>(`/api/notes?date=${date}`),
 
-  getFavoriteNotes: () =>
-    request<Note[]>('/api/notes?favorite=true'),
+  getFavoriteNotes: () => request<Note[]>('/api/notes?favorite=true'),
 
   getDaysWithNotes: (month: string) =>
     request<DayWithNotes[]>(`/api/notes/days-with-notes?month=${month}`),
@@ -511,9 +547,7 @@ export const api = {
     request<{ success: boolean }>(`/api/notes/${id}`, { method: 'DELETE' }),
 
   // ==================== KPI ПРОДАЖИ ====================
-
-  getSalesTargets: () =>
-    request<SalesTarget[]>('/api/kpi/sales/targets'),
+  getSalesTargets: () => request<SalesTarget[]>('/api/kpi/sales/targets'),
 
   createSalesTarget: (data: {
     product_name?: string;
@@ -544,7 +578,9 @@ export const api = {
     if (params?.target_id) query.set('target_id', String(params.target_id));
     if (params?.period) query.set('period', params.period);
     const q = query.toString();
-    return request<SalesTransaction[]>(`/api/kpi/sales/transactions${q ? `?${q}` : ''}`);
+    return request<SalesTransaction[]>(
+      `/api/kpi/sales/transactions${q ? `?${q}` : ''}`,
+    );
   },
 
   createSalesTransaction: (data: {
@@ -564,7 +600,11 @@ export const api = {
   getSalesSummary: (period: 'week' | 'month' | 'quarter' = 'month') =>
     request<SalesSummary>(`/api/kpi/sales/summary?period=${period}`),
 
-  previewImport: async (fileUri: string, fileName: string, fileType: string): Promise<ImportPreview> => {
+  previewImport: async (
+    fileUri: string,
+    fileName: string,
+    fileType: string,
+  ): Promise<ImportPreview> => {
     const token = await getToken();
     if (!token) throw new Error('Нет токена');
 
@@ -595,15 +635,16 @@ export const api = {
       body: JSON.stringify({ importId, mapping }),
     }),
 
-  getImportHistory: () =>
-    request<SalesImport[]>('/api/kpi/sales/import/history'),
+  getImportHistory: () => request<SalesImport[]>('/api/kpi/sales/import/history'),
 
-  // ==================== KNOWLEDGE (База знаний + AI чат) ====================
-
+  // ==================== БАЗА ЗНАНИЙ (Knowledge + AI) ====================
   getKnowledgeHealth: (): Promise<KnowledgeHealth> =>
     request<KnowledgeHealth>('/api/knowledge/health'),
 
-  sendChatMessage: (data: { session_id?: number; message: string }): Promise<ChatResponse> =>
+  sendChatMessage: (data: {
+    session_id?: number;
+    message: string;
+  }): Promise<ChatResponse> =>
     request<ChatResponse>('/api/knowledge/chat', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -621,19 +662,24 @@ export const api = {
   sendMessageFeedback: (
     messageId: number,
     feedback: 'positive' | 'negative',
-    comment?: string
+    comment?: string,
   ): Promise<void> =>
     request<void>(`/api/knowledge/messages/${messageId}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ feedback, comment }),
     }),
 
-  getKnowledgeDocuments: (filters?: { status?: string; tag?: string }): Promise<KnowledgeDocument[]> => {
+  getKnowledgeDocuments: (filters?: {
+    status?: string;
+    tag?: string;
+  }): Promise<KnowledgeDocument[]> => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.tag) params.append('tag', filters.tag);
     const query = params.toString();
-    return request<KnowledgeDocument[]>(`/api/knowledge/documents${query ? `?${query}` : ''}`);
+    return request<KnowledgeDocument[]>(
+      `/api/knowledge/documents${query ? `?${query}` : ''}`,
+    );
   },
 
   deleteKnowledgeDocument: (id: number): Promise<void> =>
@@ -642,7 +688,7 @@ export const api = {
   uploadKnowledgeDocument: async (
     file: { uri: string; name: string; type: string },
     tags: string[] = [],
-    description?: string
+    description?: string,
   ): Promise<KnowledgeDocument> => {
     const formData = new FormData();
     formData.append('file', {

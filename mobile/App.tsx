@@ -133,8 +133,8 @@ function TasksStackNavigator() {
   return (
     <TasksStack.Navigator screenOptions={headerStyle}>
       <TasksStack.Screen name="TasksHome" component={TasksScreen} options={{ headerShown: false }} />
-      <TasksStack.Screen name="CreateTask" component={CreateTaskScreen} options={{ title: 'Новая задача' }} />
-      <TasksStack.Screen name="TaskDetail" component={TaskDetailScreen} options={{ title: 'Задача' }} />
+      <TasksStack.Screen name="CreateTask" component={CreateTaskScreen} options={{ headerShown: false }} />
+      <TasksStack.Screen name="TaskDetail" component={TaskDetailScreen} options={{ headerShown: false }} />
     </TasksStack.Navigator>
   );
 }
@@ -187,11 +187,13 @@ function KnowledgeStackNavigator() {
 }
 
 // ========== Иконка вкладки ==========
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
+import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen } from 'lucide-react-native';
+
+function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   const { colors } = useTheme();
   return (
-    <View style={[styles.tabIcon, { opacity: focused ? 1 : 0.5 }]}>
-      <Text style={{ fontSize: 22 }}>{emoji}</Text>
+    <View style={[styles.tabIcon, { opacity: focused ? 1 : 0.55 }]}>
+      <Icon size={22} color={focused ? colors.tabBarIconActive : colors.tabBarIcon} strokeWidth={2} />
     </View>
   );
 }
@@ -221,7 +223,7 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         component={TasksStackNavigator}
         options={{
           title: 'Задачи',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon icon={ListTodo} focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -229,7 +231,7 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         component={NotesStackNavigator}
         options={{
           title: 'Заметки',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📝" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon icon={NotebookPen} focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -237,14 +239,14 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         component={KpiStackNavigator}
         options={{
           title: 'Статистика',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📊" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon icon={ChartColumn} focused={focused} />,
         }}
       />
       <Tab.Screen
         name="ChatTab"
         options={{
           title: 'Чаты',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon icon={MessageCircle} focused={focused} />,
         }}
         children={() => <ChatStackNavigator onLogout={onLogout} />}
       />
@@ -253,7 +255,7 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         component={KnowledgeStackNavigator}
         options={{
           title: 'База',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📚" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon icon={BookOpen} focused={focused} />,
         }}
       />
     </Tab.Navigator>

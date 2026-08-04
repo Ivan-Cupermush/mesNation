@@ -36,3 +36,15 @@ npm-debug.log*
 coverage/
 *.txt
 !docs/*.txt
+
+# Локальные бэкапы
+*.backup
+*.backup.*
+*.bak
+
+# Временные файлы для анализа
+structure_new.txt
+server-all.txt
+mobile-screens.txt
+mobile-config.txt
+all-mobile-ui.txt

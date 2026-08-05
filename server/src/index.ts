@@ -275,7 +275,10 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 app.get('/api/auth/me', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, username, email, display_name, avatar_url, role_id, department_id FROM users WHERE id = $1',
+      `SELECT u.id, u.username, u.email, u.display_name, u.avatar_url, u.role_id, u.department_id, rt.name as role_name
+       FROM users u
+       LEFT JOIN role_tree rt ON u.role_id = rt.id
+       WHERE u.id = $1`,
       [req.userId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -283,6 +286,7 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res: Response) =>
   } catch (err) {
     console.error('Ошибка получения профиля:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
+
   }
 });
 

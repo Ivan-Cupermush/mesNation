@@ -21,7 +21,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const systemScheme = useColorScheme();
   const [mode, setModeState] = useState<ThemeMode>(systemScheme === 'dark' ? 'dark' : 'light');
-  const [paletteId, setPaletteState] = useState<PaletteId>('linear');
+  const [paletteId, setPaletteState] = useState<PaletteId>('emerald');
 
   useEffect(() => {
     (async () => {
@@ -29,7 +29,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         const savedMode = await AsyncStorage.getItem(STORAGE_KEY_MODE);
         const savedPalette = await AsyncStorage.getItem(STORAGE_KEY_PALETTE);
         if (savedMode === 'light' || savedMode === 'dark') setModeState(savedMode);
-        if (savedPalette && ['linear', 'telegram', 'notion', 'obsidian'].includes(savedPalette)) {
+        if (savedPalette && ['linear', 'telegram', 'notion', 'obsidian', 'emerald'].includes(savedPalette)) {
           setPaletteState(savedPalette as PaletteId);
         }
       } catch (e) {}

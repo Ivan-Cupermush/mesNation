@@ -1,5 +1,5 @@
 export type ThemeMode = 'light' | 'dark';
-export type PaletteId = 'linear' | 'telegram' | 'notion' | 'obsidian';
+export type PaletteId = 'linear' | 'telegram' | 'notion' | 'obsidian' | 'emerald';
 
 export interface PaletteColors {
   background: string;
@@ -166,6 +166,38 @@ export const PALETTES: Palette[] = [
         myMessageText: '#E8E8E8', otherMessageText: '#E8E8E8',
         tabBar: '#1E1E1E', tabBarIcon: '#6C6C6C', tabBarIconActive: '#A78BFA',
         header: '#2A2A2A', shadow: '#000000',
+      },
+    },
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald',
+    description: 'Зелёный акцент из референса. Свежий, воздушный',
+    emoji: '🌿',
+    colors: {
+      light: {
+        background: '#FFFFFF', surface: '#F7FBF8', surfaceHover: '#EEF7F0',
+        surfaceActive: '#E2F0E6', elevated: '#FFFFFF',
+        border: '#E3EDE6', divider: '#F0F6F1',
+        textPrimary: '#10231A', textSecondary: '#5B6B62', textMuted: '#93A29A', textInverse: '#FFFFFF',
+        accent: '#16A34A', accentHover: '#15803D', accentMuted: '#DCFCE7', onAccent: '#FFFFFF',
+        success: '#10B981', warning: '#F59E0B', danger: '#EF4444', info: '#3B82F6',
+        myMessageBubble: '#DCFCE7', otherMessageBubble: '#F0F6F1',
+        myMessageText: '#14532D', otherMessageText: '#10231A',
+        tabBar: '#FFFFFF', tabBarIcon: '#93A29A', tabBarIconActive: '#16A34A',
+        header: '#FFFFFF', shadow: '#0A3D24',
+      },
+      dark: {
+        background: '#0B1512', surface: '#122019', surfaceHover: '#1A2C22',
+        surfaceActive: '#22382C', elevated: '#16241D',
+        border: '#24382D', divider: '#1A2C22',
+        textPrimary: '#EAF5EE', textSecondary: '#9DB4A8', textMuted: '#647A6F', textInverse: '#0B1512',
+        accent: '#4ADE80', accentHover: '#86EFAC', accentMuted: '#14532D', onAccent: '#FFFFFF',
+        success: '#34D399', warning: '#FBBF24', danger: '#F87171', info: '#60A5FA',
+        myMessageBubble: '#14532D', otherMessageBubble: '#1A2C22',
+        myMessageText: '#DCFCE7', otherMessageText: '#EAF5EE',
+        tabBar: '#0B1512', tabBarIcon: '#647A6F', tabBarIconActive: '#4ADE80',
+        header: '#0B1512', shadow: '#000000',
       },
     },
   },

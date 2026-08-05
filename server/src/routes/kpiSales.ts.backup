@@ -4,7 +4,6 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
-import { requireManagerOf } from '../middleware/requireManagerOf';
 
 const router = Router();
 
@@ -22,35 +21,6 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || 'postgres',
   database: process.env.DB_NAME || 'mesnation',
 });
-
-// ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
-
-/**
- * Проверяет, что userId является руководителем targetUserId через role_tree.
- * Возвращает true, если targetUserId в поддереве userId.
- */
-async function isManagerOf(managerId: number, targetUserId: number): Promise<boolean> {
-  const rolesResult = await pool.query(
-    `SELECT 
-       (SELECT role_id FROM users WHERE id = $1) as manager_role,
-       (SELECT role_id FROM users WHERE id = $2) as target_role`,
-    [managerId, targetUserId]
-  );
-  const { manager_role, target_role } = rolesResult.rows[0];
-  if (!manager_role || !target_role) return false;
-
-  const subtreeResult = await pool.query(
-    `WITH RECURSIVE subtree AS (
-       SELECT id FROM role_tree WHERE id = $1
-       UNION
-       SELECT rt.id FROM role_tree rt
-       INNER JOIN subtree s ON rt.parent_id = s.id
-     )
-     SELECT id FROM subtree`,
-    [manager_role]
-  );
-  return subtreeResult.rows.some((r: any) => r.id === target_role);
-}
 
 // ===================== ЦЕЛИ ПРОДАЖ =====================
 
@@ -101,61 +71,7 @@ router.get('/targets/my-monthly', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/kpi/sales/targets/subordinates — цели моих подчинённых (для руководителя)
-router.get('/targets/subordinates', async (req: Request, res: Response) => {
-  try {
-    const managerId = (req as any).userId;
-    
-    // Получить поддерево ролей руководителя
-    const managerRoleResult = await pool.query(
-      'SELECT role_id FROM users WHERE id = $1',
-      [managerId]
-    );
-    const managerRoleId = managerRoleResult.rows[0]?.role_id;
-    if (!managerRoleId) {
-      return res.json([]);
-    }
-    
-    const subtreeResult = await pool.query(
-      `WITH RECURSIVE subtree AS (
-         SELECT id FROM role_tree WHERE id = $1
-         UNION
-         SELECT rt.id FROM role_tree rt
-         INNER JOIN subtree s ON rt.parent_id = s.id
-       )
-       SELECT id FROM subtree WHERE id != $1`,
-      [managerRoleId]
-    );
-    const subordinateRoleIds = subtreeResult.rows.map((r: any) => r.id);
-    
-    if (subordinateRoleIds.length === 0) {
-      return res.json([]);
-    }
-    
-    // Получить пользователей с этими ролями и их активные цели
-    const result = await pool.query(
-      `SELECT u.id as user_id, u.username, u.display_name,
-              st.id as target_id, st.product_name, st.metric_type,
-              st.target_value, st.current_value,
-              ROUND((st.current_value / st.target_value * 100)::numeric, 1) as progress_percent,
-              st.is_personal_monthly_target, st.period_start, st.period_end
-       FROM users u
-       LEFT JOIN sales_targets st ON st.user_id = u.id 
-         AND st.period_start <= CURRENT_DATE 
-         AND st.period_end >= CURRENT_DATE
-       WHERE u.role_id = ANY($1)
-       ORDER BY u.display_name, st.created_at DESC`,
-      [subordinateRoleIds]
-    );
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Ошибка получения целей подчинённых:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// POST /api/kpi/sales/targets — создать СЕБЕ товарный KPI (любой юзер)
+// POST /api/kpi/sales/targets — создать товарный KPI
 router.post('/targets', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
@@ -202,68 +118,65 @@ router.post('/targets', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/kpi/sales/targets/personal-monthly — назначить личный план подчинённому
-// С проверкой иерархии через role_tree
-router.post(
-  '/targets/personal-monthly',
-  requireManagerOf((req) => req.body.user_id),
-  async (req: Request, res: Response) => {
-    try {
-      const managerId = (req as any).userId;
-      const {
+// POST /api/kpi/sales/targets/personal-monthly — назначить личный план (руководитель)
+router.post('/targets/personal-monthly', async (req: Request, res: Response) => {
+  try {
+    const managerId = (req as any).userId;
+    const {
+      user_id,
+      target_value,
+      period_start,
+      period_end,
+      description,
+    } = req.body;
+    
+    if (!user_id) {
+      return res.status(400).json({ error: 'Не указан пользователь' });
+    }
+    
+    if (!target_value || target_value <= 0) {
+      return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
+    }
+    
+    // TODO: Проверить, что managerId является руководителем user_id
+    // (через role_tree)
+    
+    // Деактивировать старые планы этого пользователя
+    await pool.query(
+      `UPDATE sales_targets 
+       SET period_end = CURRENT_DATE - INTERVAL '1 day'
+       WHERE user_id = $1 
+         AND is_personal_monthly_target = TRUE
+         AND period_end >= CURRENT_DATE`,
+      [user_id]
+    );
+    
+    // Создать новый план
+    const result = await pool.query(
+      `INSERT INTO sales_targets 
+         (user_id, metric_type, target_value, current_value, 
+          period_start, period_end, description, 
+          is_personal_monthly_target, created_by)
+       VALUES ($1, 'amount', $2, 0, $3, $4, $5, TRUE, $6)
+       RETURNING *`,
+      [
         user_id,
         target_value,
-        period_start,
-        period_end,
+        period_start || new Date(),
+        period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         description,
-      } = req.body;
-      
-      if (!user_id) {
-        return res.status(400).json({ error: 'Не указан пользователь' });
-      }
-      
-      if (!target_value || target_value <= 0) {
-        return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
-      }
-      
-      // Деактивировать старые планы этого пользователя
-      await pool.query(
-        `UPDATE sales_targets 
-         SET period_end = CURRENT_DATE - INTERVAL '1 day'
-         WHERE user_id = $1 
-           AND is_personal_monthly_target = TRUE
-           AND period_end >= CURRENT_DATE`,
-        [user_id]
-      );
-      
-      // Создать новый план
-      const result = await pool.query(
-        `INSERT INTO sales_targets 
-           (user_id, metric_type, target_value, current_value, 
-            period_start, period_end, description, 
-            is_personal_monthly_target, created_by)
-         VALUES ($1, 'amount', $2, 0, $3, $4, $5, TRUE, $6)
-         RETURNING *`,
-        [
-          user_id,
-          target_value,
-          period_start || new Date(),
-          period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          description,
-          managerId
-        ]
-      );
-      
-      res.status(201).json(result.rows[0]);
-    } catch (error) {
-      console.error('Ошибка назначения плана:', error);
-      res.status(500).json({ error: 'Ошибка сервера' });
-    }
+        managerId
+      ]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Ошибка назначения плана:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
-);
+});
 
 // PATCH /api/kpi/sales/targets/:id — обновить цель
-// Доступно: владельцу ИЛИ его руководителю (через role_tree)
 router.patch('/targets/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
@@ -279,14 +192,8 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Цель не найдена' });
     }
     
-    const targetUserId = check.rows[0].user_id;
-    
-    // Проверка: владелец ИЛИ руководитель
-    if (targetUserId !== userId) {
-      const isManager = await isManagerOf(userId, targetUserId);
-      if (!isManager) {
-        return res.status(403).json({ error: 'Нет доступа' });
-      }
+    if (check.rows[0].user_id !== userId) {
+      return res.status(403).json({ error: 'Нет доступа' });
     }
     
     const updates: string[] = [];
@@ -334,27 +241,9 @@ router.delete('/targets/:id', async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const targetId = parseInt(req.params.id);
     
-    // Проверка: владелец ИЛИ руководитель
-    const check = await pool.query(
-      'SELECT user_id FROM sales_targets WHERE id = $1',
-      [targetId]
-    );
-    
-    if (check.rows.length === 0) {
-      return res.status(404).json({ error: 'Цель не найдена' });
-    }
-    
-    const targetUserId = check.rows[0].user_id;
-    if (targetUserId !== userId) {
-      const isManager = await isManagerOf(userId, targetUserId);
-      if (!isManager) {
-        return res.status(403).json({ error: 'Нет доступа' });
-      }
-    }
-    
     const result = await pool.query(
-      'DELETE FROM sales_targets WHERE id = $1 RETURNING id',
-      [targetId]
+      'DELETE FROM sales_targets WHERE id = $1 AND user_id = $2 RETURNING id',
+      [targetId, userId]
     );
     
     if (result.rows.length === 0) {
@@ -763,132 +652,3 @@ router.get('/summary', async (req: Request, res: Response) => {
 });
 
 export default router;
-
-// ===================== ДЛЯ РУКОВОДИТЕЛЕЙ =====================
-
-// GET /api/kpi/sales/subordinates — список подчинённых с их KPI
-router.get('/subordinates', async (req: Request, res: Response) => {
-  try {
-    const managerId = (req as any).userId;
-    
-    // Получить роль руководителя
-    const managerRoleResult = await pool.query(
-      'SELECT role_id FROM users WHERE id = $1',
-      [managerId]
-    );
-    const managerRoleId = managerRoleResult.rows[0]?.role_id;
-    if (!managerRoleId) {
-      return res.json([]);
-    }
-    
-    // Получить поддерево ролей
-    const subtreeResult = await pool.query(
-      `WITH RECURSIVE subtree AS (
-         SELECT id FROM role_tree WHERE id = $1
-         UNION
-         SELECT rt.id FROM role_tree rt
-         INNER JOIN subtree s ON rt.parent_id = s.id
-       )
-       SELECT id FROM subtree WHERE id != $1`,
-      [managerRoleId]
-    );
-    const subordinateRoleIds = subtreeResult.rows.map((r: any) => r.id);
-    
-    if (subordinateRoleIds.length === 0) {
-      return res.json([]);
-    }
-    
-    // Получить подчинённых и их активные KPI
-    const result = await pool.query(
-      `SELECT 
-         u.id as user_id, 
-         u.username, 
-         u.display_name,
-         COALESCE(
-           json_agg(
-             json_build_object(
-               'id', st.id,
-               'product_name', st.product_name,
-               'metric_type', st.metric_type,
-               'target_value', st.target_value,
-               'current_value', st.current_value,
-               'progress_percent', ROUND((st.current_value / st.target_value * 100)::numeric, 1),
-               'period_start', st.period_start,
-               'period_end', st.period_end
-             )
-           ) FILTER (WHERE st.id IS NOT NULL),
-           '[]'
-         ) as kpis
-       FROM users u
-       LEFT JOIN sales_targets st ON st.user_id = u.id 
-         AND st.period_start <= CURRENT_DATE 
-         AND st.period_end >= CURRENT_DATE
-       WHERE u.role_id = ANY($1)
-       GROUP BY u.id, u.username, u.display_name
-       ORDER BY u.display_name`,
-      [subordinateRoleIds]
-    );
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Ошибка получения подчинённых:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// POST /api/kpi/sales/targets/assign — назначить KPI подчинённому
-router.post('/targets/assign', async (req: Request, res: Response) => {
-  try {
-    const managerId = (req as any).userId;
-    const {
-      user_id,
-      product_name,
-      metric_type = 'quantity',
-      target_value,
-      current_value = 0,
-      period_start,
-      period_end,
-      description,
-    } = req.body;
-    
-    if (!user_id) {
-      return res.status(400).json({ error: 'Не указан пользователь' });
-    }
-    if (!target_value || target_value <= 0) {
-      return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
-    }
-    if (!product_name) {
-      return res.status(400).json({ error: 'Название товара обязательно' });
-    }
-    
-    // Проверить что user_id — подчинённый менеджера
-    const isManager = await isManagerOf(managerId, user_id);
-    if (!isManager) {
-      return res.status(403).json({ error: 'Вы не являетесь руководителем этого пользователя' });
-    }
-    
-    const result = await pool.query(
-      `INSERT INTO sales_targets 
-         (user_id, product_name, metric_type, target_value, current_value, 
-          period_start, period_end, description, is_personal_monthly_target, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9)
-       RETURNING *`,
-      [
-        user_id,
-        product_name,
-        metric_type,
-        target_value,
-        current_value,
-        period_start || new Date(),
-        period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        description,
-        managerId
-      ]
-    );
-    
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Ошибка назначения KPI:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});

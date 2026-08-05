@@ -329,16 +329,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
-  getCurrentUser: () =>
-    request<{
-      id: number;
-      username: string;
-      email: string;
-      display_name: string;
-      avatar_url: string | null;
-      role_id: number;
-      department_id: number | null;
-    }>('/api/auth/me'),
+  getCurrentUser: () => request<{
+    id: number;
+    username: string;
+    email: string;
+    display_name: string;
+    avatar_url: string | null;
+    role_id: number;
+    role_name?: string;
+    department_id: number | null;
+  }>('/api/auth/me'),
 
   // ==================== ЗАДАЧИ (Tasks) ====================
   getTasks: (params?: {
@@ -597,6 +597,10 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  // Получить личный KPI текущего пользователя
+  getMyKpi: (): Promise<any> =>
+    request<any>('/api/kpi/sales/targets/my-monthly').catch(() => null),
+
   getSalesSummary: (period: 'week' | 'month' | 'quarter' = 'month') =>
     request<SalesSummary>(`/api/kpi/sales/summary?period=${period}`),
 
@@ -716,4 +720,23 @@ export const api = {
 
   getKnowledgeStats: (): Promise<KnowledgeStats> =>
     request<KnowledgeStats>('/api/knowledge/stats'),
+  // Получить список подчинённых с их KPI (для руководителя)
+  getSubordinates: () =>
+    request<any[]>("/api/kpi/sales/subordinates"),
+
+  // Назначить KPI подчинённому
+  assignTarget: (data: {
+    user_id: number;
+    product_name: string;
+    metric_type?: MetricType;
+    target_value: number;
+    current_value?: number;
+    period_start?: string;
+    period_end?: string;
+    description?: string;
+  }) =>
+    request<SalesTarget>("/api/kpi/sales/targets/assign", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

@@ -26,6 +26,7 @@ import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
+import AssignKpiScreen from './src/screens/crm/AssignKpiScreen';
 import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
 import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
 
@@ -160,7 +161,8 @@ function KpiStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
     <KpiStack.Navigator screenOptions={headerStyle}>
-      <KpiStack.Screen name="KpiHome" component={KpiScreen} options={{ title: 'Статистика' }} />
+      <KpiStack.Screen name="KpiHome" component={KpiScreen} options={{ headerShown: false }} />
+      <KpiStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="AddProductKpi" component={AddProductKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
       <KpiStack.Screen

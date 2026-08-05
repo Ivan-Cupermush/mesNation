@@ -1,134 +1,139 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, ActivityIndicator, StatusBar,
+  RefreshControl, StatusBar, Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeContext';
-import { Card } from '../../components/ui/Card';
-import { api, SalesSummary, SalesTarget } from '../../services/api';
+import { api, SalesSummary } from '../../services/api';
 import FloatingActionMenu from '../../components/FloatingActionMenu';
+import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
 
 type Period = 'week' | 'month' | 'quarter';
-
 const PERIODS: { id: Period; label: string }[] = [
-  { id: 'week', label: 'Неделя' },
-  { id: 'month', label: 'Месяц' },
-  { id: 'quarter', label: 'Квартал' },
+  { id: 'week', label: 'Нед' },
+  { id: 'month', label: 'Мес' },
+  { id: 'quarter', label: 'Кв' },
 ];
 
-const formatMoney = (value: number | string): string => {
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  if (isNaN(num)) return '0 ₽';
-  return new Intl.NumberFormat('ru-RU').format(Math.round(num)) + ' ₽';
+const fmt = (v: number | string): string => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  if (isNaN(n)) return '0 ₽';
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 };
+const progressColor = (p: number, c: any) => (p >= 80 ? c.success : p >= 50 ? c.warning : c.danger);
 
-const getProgressColor = (percent: number, colors: any): string => {
-  if (percent >= 80) return '#10B981'; // зелёный
-  if (percent >= 50) return '#F59E0B'; // жёлтый
-  return '#EF4444'; // красный
+const FadeIn: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const o = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(o, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+  }, []);
+  return <Animated.View style={{ opacity: o }}>{children}</Animated.View>;
 };
 
 export default function KpiScreen({ navigation }: any) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [period, setPeriod] = useState<Period>('month');
   const [summary, setSummary] = useState<SalesSummary | null>(null);
+  const [subordinates, setSubordinates] = useState<any[]>([]);
+  const [myKpi, setMyKpi] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const data = await api.getSalesSummary(period);
-      setSummary(data);
+      const [userData, myKpiData, summaryData, subordinatesData] = await Promise.all([
+        api.getCurrentUser().catch(() => null),
+        api.getMyKpi().catch(() => null),
+        api.getSalesSummary(period),
+        api.getSubordinates().catch(() => []),
+      ]);
+      setSummary(summaryData);
+      setMyKpi(myKpiData);
+      setCurrentUser(userData);
+      setSubordinates(subordinatesData);
     } catch (e) {
-      console.error('Ошибка загрузки KPI:', e);
+      console.error('KPI load error:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [period]);
 
-  useFocusEffect(useCallback(() => {
-    loadData();
-  }, [loadData]));
+  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+  const onRefresh = () => { setRefreshing(true); loadData(); };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadData();
-  };
-
-  const calculateForecast = (target: SalesTarget): number => {
-    const start = new Date(target.period_start).getTime();
-    const end = new Date(target.period_end).getTime();
-    const now = Date.now();
-    const totalDays = (end - start) / (1000 * 60 * 60 * 24);
-    const passedDays = (now - start) / (1000 * 60 * 60 * 24);
-
-    if (passedDays <= 0 || totalDays <= 0) return 0;
-    const dailyRate = Number(target.current_value) / passedDays;
-    return Math.round(dailyRate * totalDays);
-  };
-
-  const daysRemaining = (target: SalesTarget): number => {
-    const end = new Date(target.period_end).getTime();
-    const now = Date.now();
-    return Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
-  };
-
-  if (loading) {
-    return (
-      <View style={[styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
-
-  const personalTarget = summary?.personalTarget;
-  const myTargets = summary?.targets || [];
   const fact = summary?.fact;
+  const targets = summary?.targets || [];
+  const avgCheck = fact && Number(fact.total_transactions) > 0
+    ? Number(fact.total_amount) / Number(fact.total_transactions) : 0;
+
+  const chartData: ChartPoint[] = (summary?.topProducts || []).slice(0, 5).map(p => ({
+    label: (p.product_name || '').length > 9 ? (p.product_name as string).slice(0, 9) + '…' : p.product_name,
+    value: Number(p.total_amount) || 0,
+  }));
+
+  const kpis = fact ? [
+    { label: 'Выручка', value: fmt(fact.total_amount) },
+    { label: 'Сделки', value: String(fact.total_transactions) },
+    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—' },
+  ] : [];
+
+  const group = { backgroundColor: colors.elevated, borderColor: colors.border };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
-        backgroundColor={colors.background}
-      />
-
-      {/* Header с отступом под статус-бар */}
-      <View style={[styles.header, { paddingTop: (StatusBar.currentHeight || 24) + 8 }]}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Статистика</Text>
-      </View>
-
+    <View style={[styles.root, { backgroundColor: colors.surface }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.surface} />
+        )}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
-        }
+        contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
       >
-        {/* Переключатель периода */}
-        <View style={styles.periodRow}>
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: (StatusBar.currentHeight || 24) + 12 }]}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Статистика</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Продажи и динамика</Text>
+        </View>
+
+        {/* Мой KPI */}
+        {myKpi && (
+          <View style={[styles.group, group, { marginBottom: 16 }]}>
+            <View style={[styles.kpiHeader]}>
+              <Text style={[styles.kpiTitle, { color: colors.textPrimary }]}>🎯 {myKpi.product_name}</Text>
+              <Text style={[styles.kpiSubtitle, { color: colors.textSecondary }]}>
+                {myKpi.current_value} / {myKpi.target_value} {myKpi.metric_type === 'quantity' ? 'шт' : '₽'}
+              </Text>
+            </View>
+            
+            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+              <View style={[
+                styles.progressFill,
+                { 
+                  width: `${Math.min(100, parseFloat(myKpi.progress_percent || 0))}%`,
+                  backgroundColor: progressColor(parseFloat(myKpi.progress_percent || 0), colors)
+                }
+              ]} />
+            </View>
+            
+            <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+              {parseFloat(myKpi.progress_percent || 0) >= 100 
+                ? '✅ Цель достигнута!'
+                : `Осталось ${(myKpi.target_value - myKpi.current_value).toFixed(0)} ${myKpi.metric_type === 'quantity' ? 'шт' : '₽'}`
+              }
+            </Text>
+          </View>
+        )}
+
+        {/* Period */}
+        <View style={[styles.segment, { backgroundColor: colors.surfaceActive }]}>
           {PERIODS.map(p => {
             const active = period === p.id;
             return (
-              <TouchableOpacity
-                key={p.id}
-                onPress={() => setPeriod(p.id)}
-                style={[
-                  styles.periodChip,
-                  {
-                    backgroundColor: active ? colors.accent : colors.surface,
-                    borderColor: active ? colors.accent : colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: active ? colors.onAccent : colors.textPrimary,
-                    fontWeight: active ? '600' : '400',
-                    fontSize: 13,
-                  }}
-                >
+              <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => setPeriod(p.id)} style={styles.segItem}>
+                {active && <View style={[styles.segActive, { backgroundColor: colors.elevated, shadowColor: colors.shadow }]} />}
+                <Text style={[styles.segText, { color: active ? colors.textPrimary : colors.textSecondary }]}>
                   {p.label}
                 </Text>
               </TouchableOpacity>
@@ -136,267 +141,217 @@ export default function KpiScreen({ navigation }: any) {
           })}
         </View>
 
-        {/* План отдела (если есть) */}
-        {personalTarget && (
-          <Card padding="lg" style={{ marginBottom: 16 }}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-              💰 МОЙ ПЛАН НА МЕСЯЦ
-            </Text>
-            <Text style={[styles.bigNumber, { color: colors.textPrimary }]}>
-              {formatMoney(personalTarget.current_value)}
-            </Text>
-            <Text style={[styles.subNumber, { color: colors.textSecondary }]}>
-              из {formatMoney(personalTarget.target_value)}
-            </Text>
-
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(100, Number(personalTarget.progress_percent || 0))}%`,
-                    backgroundColor: getProgressColor(Number(personalTarget.progress_percent || 0), colors),
-                  },
-                ]}
-              />
-            </View>
-
-            <View style={styles.progressMeta}>
-              <Text style={[styles.progressPercent, { color: colors.textPrimary }]}>
-                {personalTarget.progress_percent}% выполнено
-              </Text>
-              <Text style={[styles.daysLeft, { color: colors.textSecondary }]}>
-                Осталось {daysRemaining(personalTarget)} дн.
-              </Text>
-            </View>
-
-            <View style={[styles.forecastBlock, { backgroundColor: colors.background }]}>
-              <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-                📈 Прогноз к концу месяца:{' '}
-                <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
-                  {formatMoney(calculateForecast(personalTarget))}
-                </Text>
-              </Text>
-            </View>
-          </Card>
-        )}
-
-        {/* Сводка (3 карточки) */}
-        {fact && (
-          <View style={styles.statsGrid}>
-            <View style={[styles.statCard, { backgroundColor: colors.surface }]}>
-              <Text style={styles.statEmoji}>💰</Text>
-              <Text style={[styles.statValue, { color: colors.textPrimary }]}>
-                {formatMoney(fact.total_amount)}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Сумма</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: colors.surface }]}>
-              <Text style={styles.statEmoji}>📦</Text>
-              <Text style={[styles.statValue, { color: colors.textPrimary }]}>
-                {Number(fact.total_quantity).toFixed(0)}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Единиц</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: colors.surface }]}>
-              <Text style={styles.statEmoji}>📋</Text>
-              <Text style={[styles.statValue, { color: colors.textPrimary }]}>
-                {fact.total_transactions}
-              </Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Сделок</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Действия: импорт Excel */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('ImportExcel')}
-          style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Text style={{ fontSize: 20, marginRight: 12 }}>📁</Text>
-          <Text style={[styles.actionText, { color: colors.textPrimary }]}>
-            Импорт продаж из Excel
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 20 }}>›</Text>
-        </TouchableOpacity>
-
-        {/* Мои KPI по товарам */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            🎯 Мои KPI по товарам
-          </Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('AddProductKpi')}
-            style={[styles.addBtn, { backgroundColor: colors.accent }]}
-          >
-            <Text style={{ color: colors.onAccent, fontSize: 20, fontWeight: '300' }}>+</Text>
-          </TouchableOpacity>
-        </View>
-
-        {myTargets.length === 0 ? (
-          <View style={styles.emptyBlock}>
-            <Text style={{ fontSize: 48, marginBottom: 8 }}>🎯</Text>
-            <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-              Пока нет KPI по товарам
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Нажмите + чтобы добавить цель продаж
-            </Text>
-          </View>
+        {loading ? (
+          <Text style={[styles.loading, { color: colors.textMuted }]}>Загрузка…</Text>
         ) : (
-          myTargets.map(target => {
-            const percent = Number(target.progress_percent || 0);
-            const current = Number(target.current_value);
-            const total = Number(target.target_value);
-            const unit = target.metric_type === 'amount' ? '₽'
-                       : target.metric_type === 'contracts' ? 'контр.' : 'шт';
+          <FadeIn>
+            {/* График */}
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ДИНАМИКА</Text>
+            <View style={[styles.group, group]}>
+              <View style={styles.chartHead}>
+                <Text style={[styles.groupTitle, { color: colors.textPrimary }]}>Выручка по товарам</Text>
+              </View>
+              {chartData.length >= 2 ? (
+                <AreaChart data={chartData} />
+              ) : (
+                <Text style={[styles.empty, { color: colors.textMuted }]}>
+                  Нет данных — импортируйте продажи из Excel
+                </Text>
+              )}
+            </View>
 
-            return (
-              <TouchableOpacity
-                key={target.id}
-                onPress={() => navigation.navigate('ProductKpiDetail', { targetId: target.id })}
-                activeOpacity={0.7}
-              >
-                <Card padding="md" style={{ marginBottom: 10 }}>
-                  <View style={styles.targetHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.targetName, { color: colors.textPrimary }]} numberOfLines={1}>
-                        📦 {target.product_name}
+            {/* KPI */}
+            {kpis.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ОБЗОР</Text>
+                <View style={[styles.group, styles.kpiRow, group]}>
+                  {kpis.map((k, i) => (
+                    <View key={i} style={[
+                      styles.kpiCell,
+                      i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border },
+                    ]}>
+                      <Text style={[styles.kpiValue, { color: colors.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
+                        {k.value}
                       </Text>
-                      <Text style={[styles.targetDesc, { color: colors.textSecondary }]}>
-                        {current} / {total} {unit}
+                      <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} numberOfLines={1}>
+                        {k.label}
                       </Text>
                     </View>
-                    <Text style={[styles.targetPercent, {
-                      color: getProgressColor(percent, colors),
-                    }]}>
-                      {percent}%
-                    </Text>
-                  </View>
-                  <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        {
-                          width: `${Math.min(100, percent)}%`,
-                          backgroundColor: getProgressColor(percent, colors),
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.remaining, { color: colors.textSecondary }]}>
-                    {percent >= 100
-                      ? '🔥 Перевыполнение!'
-                      : `Осталось: ${(total - current).toFixed(target.metric_type === 'amount' ? 0 : 0)} ${unit}`}
-                  </Text>
-                </Card>
-              </TouchableOpacity>
-            );
-          })
-        )}
-
-        {/* Топ товаров */}
-        {summary?.topProducts && summary.topProducts.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginTop: 20 }]}>
-              🏆 Топ товаров
-            </Text>
-            <Card padding="md" style={{ marginTop: 8 }}>
-              {summary.topProducts.slice(0, 5).map((p, idx) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.topRow,
-                    idx < summary.topProducts.length - 1 && {
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: colors.border,
-                      paddingBottom: 10,
-                      marginBottom: 10,
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.topName, { color: colors.textPrimary }]} numberOfLines={1}>
-                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {p.product_name}
-                    </Text>
-                    <Text style={[styles.topMeta, { color: colors.textSecondary }]}>
-                      {Number(p.total_quantity).toFixed(0)} шт · {p.transactions_count} сделок
-                    </Text>
-                  </View>
-                  <Text style={[styles.topAmount, { color: colors.accent }]}>
-                    {formatMoney(p.total_amount)}
-                  </Text>
+                  ))}
                 </View>
-              ))}
-            </Card>
-          </>
+              </>
+            )}
+
+            {/* Мои цели */}
+            <View style={styles.secHeadRow}>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 0 }]}>МОИ ЦЕЛИ</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('AddProductKpi')}
+                style={[styles.plus, { backgroundColor: colors.accent }]}>
+                <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '500' }}>+</Text>
+              </TouchableOpacity>
+            </View>
+
+            {targets.length === 0 ? (
+              <View style={[styles.group, group]}>
+                <Text style={[styles.empty, { color: colors.textMuted }]}>Нет целей — нажмите «+»</Text>
+              </View>
+            ) : (
+              <View style={[styles.group, group]}>
+                {targets.map((t, idx) => {
+                  const p = Number(t.progress_percent || 0);
+                  const col = progressColor(p, colors);
+                  return (
+                    <TouchableOpacity key={t.id} activeOpacity={0.6}
+                      onPress={() => navigation.navigate('ProductKpiDetail', { targetId: t.id })}
+                      style={[
+                        styles.targetRow,
+                        idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                      ]}>
+                      <View style={styles.targetHead}>
+                        <Text style={[styles.targetName, { color: colors.textPrimary }]} numberOfLines={1}>
+                          {t.product_name}
+                        </Text>
+                        <Text style={[styles.targetPct, { color: col }]}>{p}%</Text>
+                      </View>
+                      <View style={[styles.bar, { backgroundColor: colors.divider }]}>
+                        <View style={[styles.barFill, { width: `${Math.min(100, p)}%`, backgroundColor: col }]} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Моя команда (для руководителей) */}
+            {subordinates.length > 0 && (
+              <>
+                <View style={styles.secHeadRow}>
+                  <Text style={[styles.sectionLabel, { color: colors.textSecondary, marginBottom: 0 }]}>МОЯ КОМАНДА</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('AssignKpi')}
+                    style={[styles.plus, { backgroundColor: colors.accent }]}>
+                    <Text style={{ color: colors.onAccent, fontSize: 16, fontWeight: '500' }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[styles.group, group]}>
+                  {subordinates.map((user, idx) => (
+                    <TouchableOpacity
+                      key={user.user_id}
+                      onPress={() => navigation.navigate('SubordinateDetail', { userId: user.user_id })}
+                      style={[
+                        styles.targetRow,
+                        idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                      ]}>
+                      <View style={styles.targetHead}>
+                        <Text style={[styles.targetName, { color: colors.textPrimary }]} numberOfLines={1}>
+                          {user.display_name}
+                        </Text>
+                        <Text style={[styles.targetPct, { color: colors.accent }]}>
+                          {user.kpis?.length || 0} KPI
+                        </Text>
+                      </View>
+                      {user.kpis?.length > 0 && (
+                        <View style={{ marginTop: 6 }}>
+                          {user.kpis.slice(0, 2).map((kpi: any, kpiIdx: number) => {
+                            const p = Number(kpi.progress_percent || 0);
+                            const col = progressColor(p, colors);
+                            return (
+                              <View key={kpiIdx} style={{ marginBottom: kpiIdx < user.kpis.length - 1 ? 6 : 0 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                                  <Text style={[{ fontSize: 12, color: colors.textSecondary }]} numberOfLines={1}>
+                                    {kpi.product_name}
+                                  </Text>
+                                  <Text style={[{ fontSize: 12, fontWeight: '600', color: col }]}>
+                                    {p}%
+                                  </Text>
+                                </View>
+                                <View style={[styles.bar, { backgroundColor: colors.divider }]}>
+                                  <View style={[styles.barFill, { width: `${Math.min(100, p)}%`, backgroundColor: col }]} />
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+          </FadeIn>
         )}
 
-        {/* Отступ снизу чтобы FAB не перекрывал контент */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Floating Action Menu */}
-      <FloatingActionMenu
+      {currentUser?.role_name === 'director' && (
+          <FloatingActionMenu
         actions={[
-          {
-            label: 'Редактор дерева прав',
-            icon: '🌳',
-            onPress: () => navigation.navigate('RoleTreeEditor'),
-          },
-          {
-            label: 'Создать пользователя',
-            icon: '👤',
-            onPress: () => navigation.navigate('CreateUserRole'),
-          },
+          { label: 'Назначить KPI', icon: '🎯', onPress: () => navigation.navigate('AssignKpi') },
+          { label: 'Импорт из Excel', icon: '📁', onPress: () => navigation.navigate('ImportExcel') },
+          { label: 'Редактор дерева прав', icon: '🌳', onPress: () => navigation.navigate('RoleTreeEditor') },
+          { label: 'Создать пользователя', icon: '👤', onPress: () => navigation.navigate('CreateUserRole') },
         ]}
       />
+        )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: {
+  root: { flex: 1 },
+  scroll: { paddingHorizontal: 16, paddingBottom: 40 },
+  header: { paddingBottom: 16 },
+  title: { fontSize: 34, fontWeight: '700', letterSpacing: -0.4 },
+  subtitle: { fontSize: 15, marginTop: 3 },
+  loading: { marginTop: 40, textAlign: 'center', fontSize: 14 },
+
+  segment: { flexDirection: 'row', borderRadius: 9, padding: 2, marginBottom: 22 },
+  segItem: { flex: 1, height: 32, alignItems: 'center', justifyContent: 'center' },
+  segActive: {
+    ...StyleSheet.absoluteFillObject, borderRadius: 8,
+    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3, elevation: 2,
+  },
+  segText: { fontSize: 13, fontWeight: '500' },
+
+  sectionLabel: { fontSize: 12.5, fontWeight: '600', letterSpacing: 0.4, marginBottom: 8, marginLeft: 4 },
+  group: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginBottom: 22 },
+
+  chartHead: { paddingHorizontal: 16, paddingTop: 14 },
+  groupTitle: { fontSize: 15, fontWeight: '600' },
+  empty: { paddingVertical: 28, paddingHorizontal: 16, textAlign: 'center', fontSize: 13.5, lineHeight: 19 },
+
+  kpiRow: { flexDirection: 'row' },
+  kpiCell: { flex: 1, paddingVertical: 16, paddingHorizontal: 8, alignItems: 'center' },
+  kpiValue: { fontSize: 22, fontWeight: '600', letterSpacing: -0.3, marginBottom: 3 },
+  kpiLabel: { fontSize: 12 },
+
+  secHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },
+  plus: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+
+  targetRow: { paddingHorizontal: 16, paddingVertical: 13 },
+  targetHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  targetName: { fontSize: 15, fontWeight: '500', flex: 1, marginRight: 10 },
+  targetPct: { fontSize: 14, fontWeight: '600' },
+  bar: { height: 4, borderRadius: 2, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 2 },
+});
+
+// Дополнительные стили для блока KPI
+const kpiStyles = StyleSheet.create({
+  kpiHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  title: { fontSize: 32, fontWeight: '700' },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 40,
-  },
-  periodRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  periodChip: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
     alignItems: 'center',
+    marginBottom: 12,
   },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  bigNumber: {
-    fontSize: 28,
+  kpiTitle: {
+    fontSize: 18,
     fontWeight: '700',
   },
-  subNumber: {
+  kpiSubtitle: {
     fontSize: 14,
-    marginTop: 2,
-    marginBottom: 12,
+    fontWeight: '600',
   },
   progressBar: {
     height: 8,
@@ -408,75 +363,8 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 4,
   },
-  progressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  progressText: {
+    fontSize: 13,
+    textAlign: 'center',
   },
-  progressPercent: { fontSize: 13, fontWeight: '600' },
-  daysLeft: { fontSize: 13 },
-  forecastBlock: {
-    padding: 10,
-    borderRadius: 8,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  statCard: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  statEmoji: { fontSize: 22, marginBottom: 4 },
-  statValue: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  statLabel: { fontSize: 11 },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  actionText: { flex: 1, fontSize: 15, fontWeight: '500' },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  sectionTitle: { fontSize: 17, fontWeight: '600' },
-  addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyBlock: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: '600' },
-  emptySubtitle: { fontSize: 13, marginTop: 4 },
-  targetHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  targetName: { fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  targetDesc: { fontSize: 13 },
-  targetPercent: { fontSize: 20, fontWeight: '700', marginLeft: 8 },
-  remaining: { fontSize: 12, marginTop: 4 },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  topName: { fontSize: 14, fontWeight: '500', marginBottom: 2 },
-  topMeta: { fontSize: 12 },
-  topAmount: { fontSize: 14, fontWeight: '700', marginLeft: 8 },
 });

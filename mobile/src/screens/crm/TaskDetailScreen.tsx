@@ -95,6 +95,7 @@ export default function TaskDetailScreen({ navigation }: any) {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showAssigneesModal, setShowAssigneesModal] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
 
   const loadData = async () => {
@@ -518,8 +519,12 @@ export default function TaskDetailScreen({ navigation }: any) {
               </Text>
             </View>
 
-            {/* Исполнители */}
-            <View style={styles.infoCard}>
+            {/* Исполнители — клик открывает список */}
+            <TouchableOpacity
+              style={styles.infoCard}
+              onPress={() => setShowAssigneesModal(true)}
+              activeOpacity={0.7}
+            >
               <View style={styles.infoIconWrap}>
                 <Users size={18} color="#1F7A52" strokeWidth={2} />
               </View>
@@ -561,8 +566,9 @@ export default function TaskDetailScreen({ navigation }: any) {
                 ) : (
                   <Text style={styles.infoValueMuted}>—</Text>
                 )}
+                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
               </View>
-            </View>
+            </TouchableOpacity>
 
             {/* Наблюдатели */}
             <View style={styles.infoCard}>
@@ -1059,6 +1065,42 @@ export default function TaskDetailScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ===== СПИСОК ИСПОЛНИТЕЛЕЙ (bottom-sheet) ===== */}
+      <Modal visible={showAssigneesModal} transparent animationType="slide">
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowAssigneesModal(false)}
+          style={assigneeStyles.overlay}
+        >
+          <View style={assigneeStyles.sheet}>
+            <View style={assigneeStyles.handle} />
+            <Text style={assigneeStyles.title}>ИСПОЛНИТЕЛИ</Text>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {(task.assignees || []).map((a: any) => (
+                <TouchableOpacity
+                  key={a.id}
+                  style={assigneeStyles.row}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setShowAssigneesModal(false);
+                    navigation.navigate('UserProfile', { userId: a.id });
+                  }}
+                >
+                  <View style={[assigneeStyles.avatar, { backgroundColor: getAvatarColor(a.id) }]}>
+                    <Text style={assigneeStyles.avatarText}>{getInitials(a.display_name)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={assigneeStyles.name}>{a.display_name || a.username}</Text>
+                    <Text style={assigneeStyles.username}>@{a.username}</Text>
+                  </View>
+                  <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
       <Modal visible={showRejectModal} transparent animationType="slide">
@@ -1845,4 +1887,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+});
+
+const assigneeStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
+    paddingBottom: 32,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#ECECE8',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#141414',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F4F4F5',
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  name: { fontSize: 15, fontWeight: '700', color: '#141414' },
+  username: { fontSize: 12, color: '#6F6F73', marginTop: 1 },
 });

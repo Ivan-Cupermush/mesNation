@@ -111,7 +111,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
         children={(props) => <ChatListScreen {...props} onLogout={onLogout} />}
       />
       <ChatStack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
-      <ChatStack.Screen name="CreateChat" component={CreateChatScreen} options={{ title: 'Новый чат' }} />
+      <ChatStack.Screen name="CreateChat" component={CreateChatScreen} options={{ headerShown: false }} />
       <ChatStack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ title: 'Информация о чате' }} />
       <ChatStack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
       <ChatStack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ title: 'Топик' }} />
@@ -119,10 +119,10 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
       <ChatStack.Screen name="MediaList" component={MediaListScreen} options={{ title: 'Медиа' }} />
       <ChatStack.Screen
         name="Profile"
-        options={{ title: 'Профиль' }}
+        options={{ headerShown: false }}
         children={(props) => <ProfileScreen {...props} onLogout={onLogout} />}
       />
-      <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: 'Профиль' }} />
+      <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
     </ChatStack.Navigator>
   );
 }
@@ -135,6 +135,7 @@ function TasksStackNavigator() {
       <TasksStack.Screen name="TasksHome" component={TasksScreen} options={{ headerShown: false }} />
       <TasksStack.Screen name="CreateTask" component={CreateTaskScreen} options={{ headerShown: false }} />
       <TasksStack.Screen name="TaskDetail" component={TaskDetailScreen} options={{ headerShown: false }} />
+      <TasksStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
     </TasksStack.Navigator>
   );
 }

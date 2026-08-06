@@ -13,6 +13,8 @@ import {
   Modal,
   Image,
   Linking,
+  ScrollView,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -31,7 +33,12 @@ import {
   X,
   FileText,
   Image as ImageIcon,
+  BarChart3,
+  Plus,
+  Check,
 } from 'lucide-react-native';
+import PollBubble, { PollGlyph } from '../components/PollBubble';
+import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { getToken, SERVER_URL } from '../utils';
 import { api } from '../services/api';
 import { pick, types, isCancel } from '@react-native-documents/picker';
@@ -93,6 +100,20 @@ export default function ChatScreen({ navigation }: any) {
 
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [availableChats, setAvailableChats] = useState<any[]>([]);
+  const [topicMeta, setTopicMeta] = useState<any>(null);
+
+  // ===== Вложения (меню скрепки) =====
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+
+  // ===== Опросы =====
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [pollAnonymous, setPollAnonymous] = useState(false);
+  const [pollMultiple, setPollMultiple] = useState(false);
+  const [pollQuiz, setPollQuiz] = useState(false);
+  const [pollCorrectIndex, setPollCorrectIndex] = useState<number | null>(null);
+  const [sendingPoll, setSendingPoll] = useState(false);
 
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -112,7 +133,22 @@ export default function ChatScreen({ navigation }: any) {
           if (Array.isArray(del) && currentUserId && del.includes(currentUserId)) return false;
           return true;
         });
-        setMessages(filtered);
+        const enriched = await Promise.all(filtered.map(async (m: any) => {
+          if (m.poll_id && !m.poll) {
+            try {
+              const tok2 = await getToken();
+              const pr = await fetch(`${SERVER_URL}/api/polls/${m.poll_id}/results`, {
+                headers: { Authorization: `Bearer ${tok2}` },
+              });
+              if (pr.ok) {
+                const pd = await pr.json();
+                return { ...m, poll: pd.poll, my_votes: pd.my_votes };
+              }
+            } catch (e) {}
+          }
+          return m;
+        }));
+        setMessages(enriched);
       }
     } catch (e) {}
     setLoading(false);
@@ -155,7 +191,27 @@ export default function ChatScreen({ navigation }: any) {
       if (String(msg.chat_id) !== String(chatId)) return;
       const msgTopic = msg.topic_id ?? null;
       if (msgTopic !== topicId) return;
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        // Если пришло новое сообщение-опрос, обогащаем сразу
+        if (msg.poll_id) {
+          (async () => {
+            try {
+              const tok = await getToken();
+              const pr = await fetch(`${SERVER_URL}/api/polls/${msg.poll_id}/results`, {
+                headers: { Authorization: `Bearer ${tok}` },
+              });
+              if (pr.ok) {
+                const pd = await pr.json();
+                setMessages((p) =>
+                  p.map((x) => x.id === msg.id ? { ...x, poll: pd.poll, my_votes: pd.my_votes } : x),
+                );
+              }
+            } catch (e) {}
+          })();
+        }
+        return [...prev, msg];
+      });
     });
     socket.on('message_deleted', ({ id }: { id: number }) => {
       setMessages((prev) => prev.filter((m) => m.id !== id));
@@ -169,14 +225,12 @@ export default function ChatScreen({ navigation }: any) {
     };
   }, [chatId, topicId, loadPinned]);
 
-  // Автоскролл вниз
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages.length]);
 
-  // Скролл к сообщению (переход из пересылки/закрепа)
   useEffect(() => {
     if (!loading && initialMessageId) {
       const idx = messages.findIndex((m) => m.id === initialMessageId);
@@ -186,7 +240,26 @@ export default function ChatScreen({ navigation }: any) {
     }
   }, [loading, initialMessageId, messages]);
 
-  // ===== Действия =====
+  // ===== Метаданные топика (иконка в шапке) =====
+  useEffect(() => {
+    if (!topicId) return;
+    (async () => {
+      const token = await getToken();
+      if (!token) return;
+      try {
+        const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const topics = await res.json();
+          const found = topics.find((x: any) => x.id === topicId);
+          if (found) setTopicMeta(found);
+        }
+      } catch (e) {}
+    })();
+  }, [chatId, topicId]);
+
+  // ===== Отправка сообщения =====
   const handleSend = async () => {
     const t = text.trim();
     if (!t) return;
@@ -258,6 +331,59 @@ export default function ChatScreen({ navigation }: any) {
       if (!isCancel(err)) Alert.alert('Ошибка', 'Не удалось выбрать файл');
     } finally {
       setUploading(false);
+    }
+  };
+
+  // ===== Отправка опроса =====
+  const sendPoll = async () => {
+    const q = pollQuestion.trim();
+    const cleaned: string[] = [];
+    let correctIdx: number | null = null;
+    pollOptions.forEach((o, i) => {
+      const t = o.trim();
+      if (t) {
+        if (pollQuiz && i === pollCorrectIndex) correctIdx = cleaned.length;
+        cleaned.push(t);
+      }
+    });
+    if (!q) return Alert.alert('Ошибка', 'Введите вопрос');
+    if (cleaned.length < 2) return Alert.alert('Ошибка', 'Нужно минимум 2 варианта ответа');
+    if (pollQuiz && correctIdx === null) return Alert.alert('Ошибка', 'Отметьте правильный ответ');
+
+    setSendingPoll(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${SERVER_URL}/api/polls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          chat_id: parseInt(chatId),
+          topic_id: topicId || null,
+          question: q,
+          options: cleaned,
+          is_anonymous: pollAnonymous,
+          allows_multiple: pollMultiple,
+          is_quiz: pollQuiz,
+          correct_option_index: correctIdx,
+        }),
+      });
+      if (res.ok) {
+        setPollQuestion('');
+        setPollOptions(['', '']);
+        setPollQuiz(false);
+        setPollMultiple(false);
+        setPollAnonymous(false);
+        setPollCorrectIndex(null);
+        setShowPollModal(false);
+        loadMessages();
+      } else {
+        const d = await res.json();
+        Alert.alert('Ошибка', d.error || 'Не удалось создать опрос');
+      }
+    } catch (e) {
+      Alert.alert('Ошибка', 'Сервер недоступен');
+    } finally {
+      setSendingPoll(false);
     }
   };
 
@@ -357,7 +483,7 @@ export default function ChatScreen({ navigation }: any) {
 
   const openInfo = () => {
     if (topicId) {
-      navigation.navigate('TopicInfo', { chatId, topicId, chatName });
+      navigation.navigate('TopicInfo', { chatId, topicId });
     } else {
       navigation.navigate('ChatInfo', { chatId });
     }
@@ -371,7 +497,6 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  // ===== Список с разделителями дат =====
   const listItems = useMemo(() => {
     const out: any[] = [];
     let lastDay = '';
@@ -389,7 +514,6 @@ export default function ChatScreen({ navigation }: any) {
 
   const isMineMsg = (m: any) => m.sender_id === currentUserId;
 
-  // ===== Рендер сообщения =====
   const renderMessage = (m: any) => {
     const mine = isMineMsg(m);
     const senderName = m.sender_name || m.sender_display_name || 'Участник';
@@ -400,7 +524,7 @@ export default function ChatScreen({ navigation }: any) {
         <TouchableOpacity
           activeOpacity={0.8}
           onLongPress={() => setSelectedMessage(m)}
-          style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}
+          style={m.poll ? { maxWidth: '100%' } : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}
         >
           {!mine && (
             <Text style={[styles.senderName, { color: hashColor(senderName) }]}>
@@ -408,7 +532,6 @@ export default function ChatScreen({ navigation }: any) {
             </Text>
           )}
 
-          {/* Цитата ответа */}
           {m.reply_to_message_id && (
             <View style={[styles.quoteBox, mine && styles.quoteBoxMine]}>
               {replied ? (
@@ -416,10 +539,7 @@ export default function ChatScreen({ navigation }: any) {
                   <Text style={[styles.quoteName, mine && styles.quoteNameMine]}>
                     {replied.sender_name || replied.sender_display_name || 'Участник'}
                   </Text>
-                  <Text
-                    style={[styles.quoteText, mine && styles.quoteTextMine]}
-                    numberOfLines={2}
-                  >
+                  <Text style={[styles.quoteText, mine && styles.quoteTextMine]} numberOfLines={2}>
                     {replied.text || '📎 Вложение'}
                   </Text>
                 </>
@@ -445,31 +565,35 @@ export default function ChatScreen({ navigation }: any) {
             </View>
           )}
 
+          {/* ОПРОС */}
+          {m.poll && (
+            <PollBubble
+              poll={m.poll}
+              myVotes={m.my_votes || []}
+              currentUserId={currentUserId || 0}
+              isMine={mine}
+            />
+          )}
+
           {/* Вложение */}
           {m.file_url ? (
             m.thumb_url ? (
               <TouchableOpacity onPress={() => openFile(m)}>
-                <Image
-                  source={{ uri: SERVER_URL + m.thumb_url }}
-                  style={styles.msgImage}
-                />
+                <Image source={{ uri: SERVER_URL + m.thumb_url }} style={styles.msgImage} />
               </TouchableOpacity>
             ) : (
               <TouchableOpacity onPress={() => openFile(m)} style={[styles.fileBox, mine && styles.fileBoxMine]}>
                 <View style={[styles.fileIconWrap, mine && styles.fileIconWrapMine]}>
                   <FileText size={20} color={mine ? '#FFFFFF' : '#1F7A52'} strokeWidth={2} />
                 </View>
-                <Text
-                  style={[styles.fileName, mine && styles.fileNameMine]}
-                  numberOfLines={1}
-                >
+                <Text style={[styles.fileName, mine && styles.fileNameMine]} numberOfLines={1}>
                   {m.file_name || 'Файл'}
                 </Text>
               </TouchableOpacity>
             )
           ) : null}
 
-          {m.text ? (
+          {m.text && !m.poll ? (
             <Text style={[styles.msgText, mine && styles.msgTextMine]}>{m.text}</Text>
           ) : null}
 
@@ -497,6 +621,25 @@ export default function ChatScreen({ navigation }: any) {
 
   const isMineSelected = selectedMessage && selectedMessage.sender_id === currentUserId;
 
+  // ===== Иконка топика или аватар группы =====
+  const renderHeaderAvatar = () => {
+    if (topicMeta) {
+      const Icon = TOPIC_ICONS[topicMeta.icon] || TOPIC_ICONS.hash;
+      const color = topicMeta.icon_color || '#1F7A52';
+      const opacity = topicMeta.icon_opacity ?? 1;
+      return (
+        <View style={[styles.headerAvatar, { backgroundColor: hexToRgba(color, 0.12) }]}>
+          <Icon size={22} color={color} strokeWidth={2} style={{ opacity }} />
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.headerAvatar, { backgroundColor: hashColor(chatName) }]}>
+        <Text style={styles.headerAvatarText}>{initials(chatName)}</Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* ===== HEADER ===== */}
@@ -504,15 +647,19 @@ export default function ChatScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <ChevronLeft size={24} color="#141414" strokeWidth={2} />
         </TouchableOpacity>
-        <View style={[styles.headerAvatar, { backgroundColor: hashColor(chatName) }]}>
-          <Text style={styles.headerAvatarText}>{initials(chatName)}</Text>
-        </View>
-        <TouchableOpacity style={styles.headerCenter} onPress={openInfo} activeOpacity={0.7}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {chatName}
-          </Text>
-          <Text style={styles.headerSubtitle}>{topicId ? 'топик' : 'в сети'}</Text>
+
+        <TouchableOpacity
+          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+          activeOpacity={0.7}
+          onPress={openInfo}
+        >
+          {renderHeaderAvatar()}
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle} numberOfLines={1}>{chatName}</Text>
+            <Text style={styles.headerSubtitle}>{topicId ? 'топик' : 'в сети'}</Text>
+          </View>
         </TouchableOpacity>
+
         <TouchableOpacity onPress={openInfo} style={styles.headerBtn}>
           <MoreVertical size={22} color="#141414" strokeWidth={2} />
         </TouchableOpacity>
@@ -545,7 +692,6 @@ export default function ChatScreen({ navigation }: any) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* ===== СООБЩЕНИЯ ===== */}
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color="#1F7A52" />
@@ -561,7 +707,7 @@ export default function ChatScreen({ navigation }: any) {
           />
         )}
 
-        {/* ===== ПЛАШКА ОТВЕТА / РЕДАКТИРОВАНИЯ ===== */}
+        {/* ===== ПЛАШКА ОТВЕТА ===== */}
         {replyTo && (
           <View style={styles.plate}>
             <CornerUpLeft size={16} color="#1F7A52" strokeWidth={2} />
@@ -586,10 +732,7 @@ export default function ChatScreen({ navigation }: any) {
               </Text>
             </View>
             <TouchableOpacity
-              onPress={() => {
-                setEditingMessage(null);
-                setText('');
-              }}
+              onPress={() => { setEditingMessage(null); setText(''); }}
               style={styles.plateClose}
             >
               <X size={18} color="#6F6F73" strokeWidth={2} />
@@ -600,7 +743,7 @@ export default function ChatScreen({ navigation }: any) {
         {/* ===== ВВОД ===== */}
         <View style={styles.inputBar}>
           <TouchableOpacity
-            onPress={pickAndSendFile}
+            onPress={() => setShowAttachMenu(true)}
             disabled={uploading}
             style={styles.attachBtn}
           >
@@ -629,6 +772,183 @@ export default function ChatScreen({ navigation }: any) {
         </View>
       </KeyboardAvoidingView>
 
+      {/* ===== МЕНЮ СКРЕПКИ ===== */}
+      <Modal visible={showAttachMenu} transparent animationType="fade">
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowAttachMenu(false)}
+          style={styles.sheetOverlay}
+        >
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>ВЛОЖЕНИЯ</Text>
+
+            <TouchableOpacity
+              style={styles.sheetRow}
+              onPress={() => { setShowAttachMenu(false); pickAndSendFile(); }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
+                <Paperclip size={18} color="#1F7A52" strokeWidth={2} />
+              </View>
+              <Text style={styles.sheetRowText}>Файл или фото</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.sheetRow}
+              onPress={() => { setShowAttachMenu(false); setShowPollModal(true); }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
+                <PollGlyph width={16} color="#1F7A52" />
+              </View>
+              <Text style={styles.sheetRowText}>Опрос</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== МОДАЛКА СОЗДАНИЯ ОПРОСА ===== */}
+      <Modal visible={showPollModal} transparent animationType="slide">
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowPollModal(false)}
+          style={styles.sheetOverlay}
+        >
+          <View style={[styles.sheet, { maxHeight: '88%' }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>НОВЫЙ ОПРОС</Text>
+              <TouchableOpacity onPress={() => setShowPollModal(false)}>
+                <X size={22} color="#141414" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
+              <TextInput
+                style={styles.pollQuestionInput}
+                placeholder="Задайте вопрос"
+                placeholderTextColor="#BDBDBD"
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                maxLength={255}
+                autoFocus
+              />
+
+              <Text style={styles.pollLabel}>ВАРИАНТЫ ОТВЕТОВ</Text>
+              {pollOptions.map((opt, i) => (
+                <View key={i} style={styles.pollOptionRow}>
+                  {pollQuiz && (
+                    <TouchableOpacity
+                      onPress={() => setPollCorrectIndex(i)}
+                      style={[styles.quizCircle, pollCorrectIndex === i && styles.quizCircleActive]}
+                    >
+                      {pollCorrectIndex === i && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+                    </TouchableOpacity>
+                  )}
+                  <TextInput
+                    style={styles.pollOptionInput}
+                    placeholder={`Вариант ${i + 1}`}
+                    placeholderTextColor="#BDBDBD"
+                    value={opt}
+                    onChangeText={(t) => {
+                      const arr = [...pollOptions];
+                      arr[i] = t;
+                      setPollOptions(arr);
+                    }}
+                  />
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setPollOptions(pollOptions.filter((_, x) => x !== i));
+                        if (pollCorrectIndex === i) setPollCorrectIndex(null);
+                        else if (pollCorrectIndex !== null && i < pollCorrectIndex) {
+                          setPollCorrectIndex(pollCorrectIndex - 1);
+                        }
+                      }}
+                      style={{ padding: 6 }}
+                    >
+                      <X size={16} color="#BDBDBD" strokeWidth={2} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+
+              {pollOptions.length < 10 && (
+                <TouchableOpacity
+                  style={styles.addOptionBtn}
+                  onPress={() => setPollOptions([...pollOptions, ''])}
+                  activeOpacity={0.7}
+                >
+                  <Plus size={16} color="#1F7A52" strokeWidth={2.5} />
+                  <Text style={styles.addOptionText}>Добавить вариант</Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.pollSettings}>
+                <View style={styles.pollSettingRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pollSettingText}>Анонимное голосование</Text>
+                    <Text style={styles.pollSettingHint}>Участники не увидят кто за что голосовал</Text>
+                  </View>
+                  <Switch
+                    value={pollAnonymous}
+                    onValueChange={setPollAnonymous}
+                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+                <View style={styles.pollSettingRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pollSettingText}>Несколько ответов</Text>
+                    <Text style={styles.pollSettingHint}>Можно выбрать несколько вариантов</Text>
+                  </View>
+                  <Switch
+                    value={pollMultiple}
+                    onValueChange={setPollMultiple}
+                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+                <View style={styles.pollSettingRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pollSettingText}>Викторина</Text>
+                    <Text style={styles.pollSettingHint}>
+                      {pollQuiz ? 'Отметьте правильный ответ слева от варианта' : 'Есть один правильный ответ'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={pollQuiz}
+                    onValueChange={(v) => {
+                      setPollQuiz(v);
+                      if (!v) setPollCorrectIndex(null);
+                    }}
+                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={sendPoll}
+              disabled={sendingPoll}
+              style={[styles.pollSendBtn, { backgroundColor: sendingPoll ? '#ECECE8' : '#1F7A52' }]}
+              activeOpacity={0.85}
+            >
+              {sendingPoll ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <PollGlyph width={16} color="#FFFFFF" />
+                  <Text style={styles.pollSendText}>Создать опрос</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ===== КОНТЕКСТНОЕ МЕНЮ ===== */}
       <Modal visible={!!selectedMessage} transparent animationType="fade">
         <TouchableOpacity
@@ -641,7 +961,9 @@ export default function ChatScreen({ navigation }: any) {
             <Text style={styles.sheetTitle}>ДЕЙСТВИЯ</Text>
 
             <TouchableOpacity style={styles.sheetRow} onPress={startReply} activeOpacity={0.7}>
-              <CornerUpLeft size={20} color="#141414" strokeWidth={2} />
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#DBEAFE' }]}>
+                <CornerUpLeft size={18} color="#3B82F6" strokeWidth={2} />
+              </View>
               <Text style={styles.sheetRowText}>Ответить</Text>
             </TouchableOpacity>
 
@@ -650,19 +972,24 @@ export default function ChatScreen({ navigation }: any) {
               onPress={() => {
                 loadAvailableChats();
                 setShowForwardModal(true);
+                setSelectedMessage(null);
               }}
               activeOpacity={0.7}
             >
-              <Forward size={20} color="#141414" strokeWidth={2} />
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#FEF3C7' }]}>
+                <Forward size={18} color="#B45309" strokeWidth={2} />
+              </View>
               <Text style={styles.sheetRowText}>Переслать</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.sheetRow} onPress={togglePin} activeOpacity={0.7}>
-              {selectedMessage?.pinned ? (
-                <PinOff size={20} color="#141414" strokeWidth={2} />
-              ) : (
-                <Pin size={20} color="#141414" strokeWidth={2} />
-              )}
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
+                {selectedMessage?.pinned ? (
+                  <PinOff size={18} color="#1F7A52" strokeWidth={2} />
+                ) : (
+                  <Pin size={18} color="#1F7A52" strokeWidth={2} />
+                )}
+              </View>
               <Text style={styles.sheetRowText}>
                 {selectedMessage?.pinned ? 'Открепить' : 'Закрепить'}
               </Text>
@@ -670,7 +997,9 @@ export default function ChatScreen({ navigation }: any) {
 
             {isMineSelected && (
               <TouchableOpacity style={styles.sheetRow} onPress={startEdit} activeOpacity={0.7}>
-                <Pencil size={20} color="#141414" strokeWidth={2} />
+                <View style={[styles.sheetRowIcon, { backgroundColor: '#F3F4F6' }]}>
+                  <Pencil size={18} color="#6F6F73" strokeWidth={2} />
+                </View>
                 <Text style={styles.sheetRowText}>Изменить</Text>
               </TouchableOpacity>
             )}
@@ -686,7 +1015,9 @@ export default function ChatScreen({ navigation }: any) {
               }}
               activeOpacity={0.7}
             >
-              <Trash2 size={20} color="#DC2626" strokeWidth={2} />
+              <View style={[styles.sheetRowIcon, { backgroundColor: '#FEE2E2' }]}>
+                <Trash2 size={18} color="#DC2626" strokeWidth={2} />
+              </View>
               <Text style={[styles.sheetRowText, { color: '#DC2626' }]}>Удалить у меня</Text>
             </TouchableOpacity>
 
@@ -702,7 +1033,9 @@ export default function ChatScreen({ navigation }: any) {
                 }}
                 activeOpacity={0.7}
               >
-                <Trash2 size={20} color="#7F1D1D" strokeWidth={2} />
+                <View style={[styles.sheetRowIcon, { backgroundColor: '#7F1D1D' }]}>
+                  <Trash2 size={18} color="#FFFFFF" strokeWidth={2} />
+                </View>
                 <Text style={[styles.sheetRowText, { color: '#7F1D1D' }]}>Удалить у всех</Text>
               </TouchableOpacity>
             )}
@@ -714,10 +1047,7 @@ export default function ChatScreen({ navigation }: any) {
       <Modal visible={showForwardModal} transparent animationType="fade">
         <TouchableOpacity
           activeOpacity={1}
-          onPress={() => {
-            setShowForwardModal(false);
-            setSelectedMessage(null);
-          }}
+          onPress={() => { setShowForwardModal(false); setSelectedMessage(null); }}
           style={styles.sheetOverlay}
         >
           <View style={styles.sheet}>
@@ -736,9 +1066,7 @@ export default function ChatScreen({ navigation }: any) {
                   <View style={[styles.forwardAvatar, { backgroundColor: hashColor(item.name) }]}>
                     <Text style={styles.forwardAvatarText}>{initials(item.name)}</Text>
                   </View>
-                  <Text style={styles.sheetRowText} numberOfLines={1}>
-                    {item.name}
-                  </Text>
+                  <Text style={styles.sheetRowText} numberOfLines={1}>{item.name}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -958,6 +1286,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 12,
   },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   sheetTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 22,
@@ -974,6 +1308,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F4F4F5',
   },
+  sheetRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sheetRowText: { fontSize: 15, fontWeight: '600', color: '#141414', flex: 1 },
   forwardAvatar: {
     width: 36,
@@ -983,4 +1324,105 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   forwardAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
+
+  // ===== ОПРОС =====
+  pollQuestionInput: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#141414',
+    backgroundColor: '#FAFAF8',
+    borderWidth: 1,
+    borderColor: '#ECECE8',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  pollLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6F6F73',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  pollOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  pollOptionInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#141414',
+    backgroundColor: '#FAFAF8',
+    borderWidth: 1,
+    borderColor: '#ECECE8',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  quizCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#BDBDBD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quizCircleActive: {
+    backgroundColor: '#1F7A52',
+    borderColor: '#1F7A52',
+  },
+  addOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  addOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1F7A52',
+  },
+  pollSettings: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#ECECE8',
+    gap: 4,
+  },
+  pollSettingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    gap: 12,
+  },
+  pollSettingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#141414',
+  },
+  pollSettingHint: {
+    fontSize: 11,
+    color: '#6F6F73',
+    marginTop: 2,
+  },
+  pollSendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 52,
+    borderRadius: 18,
+    marginTop: 16,
+  },
+  pollSendText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });

@@ -48,3 +48,9 @@ server-all.txt
 mobile-screens.txt
 mobile-config.txt
 all-mobile-ui.txt
+
+# Случайно скачанные пакеты (нельзя коммитить!)
+mobile/lucide-react-native
+mobile/react
+mobile/react-native-safe-area-context
+utils

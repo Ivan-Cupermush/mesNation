@@ -393,4 +393,48 @@ router.delete('/:id/admins/:userId', async (req: AuthRequest, res: Response) => 
   }
 });
 
+
+// ========== АВАТАР ГРУППЫ (премиум-редизайн) ==========
+import multerChatAvatar from 'multer';
+import fsChatAvatar from 'fs';
+import pathChatAvatar from 'path';
+
+const chatAvatarDir = pathChatAvatar.join(__dirname, '../../uploads/avatars');
+if (!fsChatAvatar.existsSync(chatAvatarDir)) {
+  fsChatAvatar.mkdirSync(chatAvatarDir, { recursive: true });
+}
+
+const chatAvatarUpload = multerChatAvatar({
+  storage: multerChatAvatar.diskStorage({
+    destination: (req: any, file: any, cb: any) => cb(null, chatAvatarDir),
+    filename: (req: any, file: any, cb: any) => {
+      const ext = file.originalname.split('.').pop() || 'jpg';
+      cb(null, `chat_${req.params.id}_${Date.now()}.${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+// POST /api/chats/:id/avatar — смена аватара группы (только создатель)
+router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  try {
+    const chatId = parseInt(req.params.id as string);
+    const userId = req.userId;
+    if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    if (chatResult.rows[0].created_by !== userId) {
+      return res.status(403).json({ error: 'Только создатель может менять аватар группы' });
+    }
+
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    await pool.query('UPDATE chats SET avatar_url = $1 WHERE id = $2', [avatarUrl, chatId]);
+    res.json({ success: true, avatar_url: avatarUrl });
+  } catch (err) {
+    console.error('Ошибка аватара группы:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 export default router;

@@ -17,6 +17,7 @@ import notesRouter from './routes/notes';
 import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
+import pollsRouter from './routes/polls';  // ← ДОБАВЛЕНО
 import { startDeadlineChecker } from './services/deadlineChecker';
 
 dotenv.config();
@@ -347,6 +348,7 @@ app.use('/api/notes', authenticate, notesRouter);
 app.use('/api/kpi', kpiImportRouter);
 app.use('/api/kpi/sales', authenticate, kpiSalesRouter);
 app.use('/api/knowledge', authenticate, knowledgeRouter);
+app.use('/api/polls', pollsRouter);  // ← ДОБАВЛЕНО
 
 // ========== Сообщения ==========
 app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
@@ -564,6 +566,34 @@ app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Res
   }
 });
 
+// ========== PATCH /api/topics/:id — обновление топика (название + иконка) ==========
+app.patch('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const topicId = parseInt(req.params.id as string);
+    const { title, icon, icon_color, icon_opacity } = req.body;
+    const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
+    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
+    const topic = topicResult.rows[0];
+    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [topic.chat_id]);
+    if (chatResult.rows[0].created_by !== req.userId) {
+      return res.status(403).json({ error: 'Только создатель супергруппы может изменять топик' });
+    }
+    const result = await pool.query(
+      `UPDATE topics SET
+        title = COALESCE($1, title),
+        icon = COALESCE($2, icon),
+        icon_color = COALESCE($3, icon_color),
+        icon_opacity = COALESCE($4, icon_opacity)
+      WHERE id = $5 RETURNING *`,
+      [title, icon, icon_color, icon_opacity, topicId]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Ошибка обновления топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const topicId = parseInt(req.params.id as string);
@@ -662,6 +692,70 @@ io.on('connection', (socket) => {
       }
     }
   });
+});
+
+// ========== МЕДИА ТОПИКА: статистика и вкладки (фото/файлы/ссылки/опросы) ==========
+app.get('/api/chats/:chatId/topics/:topicId/stats', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { chatId, topicId } = req.params;
+    const base = 'SELECT COUNT(*)::int AS c FROM messages WHERE chat_id = $1 AND topic_id = $2 AND (deleted_for_all IS NULL OR deleted_for_all = false)';
+    const media = await pool.query(base + ' AND thumb_url IS NOT NULL', [chatId, topicId]);
+    const files = await pool.query(base + ' AND file_url IS NOT NULL AND thumb_url IS NULL', [chatId, topicId]);
+    const links = await pool.query(base + " AND text ILIKE '%http%'", [chatId, topicId]);
+    const polls = await pool.query(base + ' AND poll_id IS NOT NULL', [chatId, topicId]);
+    res.json({
+      media: media.rows[0].c,
+      files: files.rows[0].c,
+      links: links.rows[0].c,
+      polls: polls.rows[0].c,
+      total_images: media.rows[0].c,
+      total_files: files.rows[0].c + media.rows[0].c,
+    });
+  } catch (err) {
+    console.error('Ошибка статистики топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.get('/api/chats/:chatId/topics/:topicId/media/:type', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { chatId, topicId, type } = req.params;
+    let q = 'SELECT * FROM messages WHERE chat_id = $1 AND topic_id = $2 AND (deleted_for_all IS NULL OR deleted_for_all = false)';
+    if (type === 'media') q += ' AND thumb_url IS NOT NULL';
+    else if (type === 'files') q += ' AND file_url IS NOT NULL AND thumb_url IS NULL';
+    else if (type === 'links') q += " AND text ILIKE '%http%'";
+    else if (type === 'polls') q += ' AND poll_id IS NOT NULL';
+    else return res.status(400).json({ error: 'Неизвестный тип' });
+    q += ' ORDER BY created_at DESC LIMIT 100';
+    let rows = (await pool.query(q, [chatId, topicId])).rows;
+
+    if (type === 'polls') {
+      rows = await Promise.all(rows.map(async (m: any) => {
+        if (!m.poll_id) return m;
+        const pollRes = await pool.query('SELECT * FROM polls WHERE id = $1', [m.poll_id]);
+        if (pollRes.rows.length === 0) return m;
+        const poll = pollRes.rows[0];
+        const optsRes = await pool.query('SELECT * FROM poll_options WHERE poll_id = $1 ORDER BY option_index', [m.poll_id]);
+        const votesRes = await pool.query('SELECT option_id, COUNT(*)::int AS count FROM poll_votes WHERE poll_id = $1 GROUP BY option_id', [m.poll_id]);
+        const vm: Record<number, number> = {};
+        votesRes.rows.forEach((v: any) => { vm[v.option_id] = v.count; });
+        const options = optsRes.rows.map((o: any) => ({ ...o, vote_count: vm[o.id] || 0 }));
+        const total = options.reduce((s: number, o: any) => s + o.vote_count, 0);
+        const myRes = await pool.query('SELECT option_id FROM poll_votes WHERE poll_id = $1 AND user_id = $2', [m.poll_id, req.userId]);
+        return {
+          ...m,
+          poll: { ...poll, options, total_votes: total },
+          my_votes: myRes.rows.map((r: any) => r.option_id),
+          question: poll.question,
+          message_id: m.id,
+        };
+      }));
+    }
+    res.json(rows);
+  } catch (err) {
+    console.error('Ошибка медиа топика:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
 });
 
 // ========== СТАРТ СЕРВЕРА ==========

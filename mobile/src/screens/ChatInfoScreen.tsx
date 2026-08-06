@@ -1,117 +1,172 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList,
-  Alert, ActivityIndicator, Switch, Modal, ScrollView,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform,
+  ActivityIndicator, Alert, TextInput, Modal, Switch, Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRoute, RouteProp } from '@react-navigation/native';
+import {
+  ChevronLeft, Camera, Pencil, Check, X, Users, Shield, FileText,
+  Image as ImageIcon, Trash2, UserPlus, Crown, ChevronRight, Hash,
+} from 'lucide-react-native';
 import { getToken, SERVER_URL } from '../utils';
-import { getStyles } from '../styles/appStyles';
-import { useTheme } from '../theme/ThemeContext';
+import { pick } from '@react-native-documents/picker';
 
-export default function ChatInfoScreen({ route, navigation }: any) {
-  const { chatId } = route.params;
+type ChatInfoRouteProp = RouteProp<{ params: { chatId: string } }, 'params'>;
+
+const PERMS = [
+  { key: 'change_info', label: 'Изменение профиля группы' },
+  { key: 'delete_messages', label: 'Удаление сообщений' },
+  { key: 'ban_users', label: 'Блокировка пользователей' },
+  { key: 'add_users', label: 'Добавление участников' },
+  { key: 'pin_messages', label: 'Закрепление сообщений' },
+  { key: 'add_admins', label: 'Добавление администраторов' },
+];
+
+const AVATAR_COLORS = ['#1F7A52','#3B82F6','#8B5CF6','#EC4899','#F59E0B','#0EA5E9','#14B8A6','#EF4444'];
+const hashColor = (s: string) => {
+  const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
+};
+const initials = (name: string) => (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
+export default function ChatInfoScreen({ navigation }: any) {
+  const route = useRoute<ChatInfoRouteProp>();
+  const chatId = route.params.chatId;
+
   const [chat, setChat] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [topics, setTopics] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [meId, setMeId] = useState<number | null>(null);
+
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-  const [showSupergroupDialog, setShowSupergroupDialog] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [adminPermissions, setAdminPermissions] = useState<string[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
-  const [topics, setTopics] = useState<any[]>([]);
+
+  const [showSupergroupDialog, setShowSupergroupDialog] = useState(false);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
   const [mergeMessages, setMergeMessages] = useState(true);
-  const [stats, setStats] = useState<{ total_files: number; total_images: number } | null>(null);
-  const [admins, setAdmins] = useState<any[]>([]);
-  const { theme } = useTheme();
-  const styles = getStyles(theme);
 
-  useEffect(() => { loadChatInfo(); }, []);
-
-  const loadChatInfo = async () => {
-    const tok = await getToken();
-    if (!tok) return;
+  const loadChatInfo = useCallback(async () => {
+    const token = await getToken();
+    if (!token) { setLoading(false); return; }
+    const h = { headers: { Authorization: `Bearer ${token}` } };
     try {
-      const meRes = await fetch(`${SERVER_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${tok}` } });
-      const me = await meRes.json();
-      if (me.id) setCurrentUserId(me.id);
+      const meRes = await fetch(`${SERVER_URL}/api/auth/me`, h);
+      if (meRes.ok) setMeId((await meRes.json()).id);
 
-      const res = await fetch(`${SERVER_URL}/api/chats`, { headers: { Authorization: `Bearer ${tok}` } });
-      const chats = await res.json();
-      const found = chats.find((c: any) => c.id == chatId);
+      // Чат ищем через СПИСОК (GET /api/chats/:id на сервере нет)
+      const listRes = await fetch(`${SERVER_URL}/api/chats`, h);
+      let found: any = null;
+      if (listRes.ok) {
+        const chats = await listRes.json();
+        found = chats.find((x: any) => String(x.id) === String(chatId)) || null;
+      }
       if (found) {
         setChat(found);
         setNewName(found.name || '');
-        setMembers(found.members || []);
+        if (Array.isArray(found.members) && found.members.length) setMembers(found.members);
+      } else {
+        const chatRes = await fetch(`${SERVER_URL}/api/chats/${chatId}`, h);
+        if (chatRes.ok) setChat(await chatRes.json());
       }
 
-      // Статистика
-      const statsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/stats`, {
-        headers: { Authorization: `Bearer ${tok}` },
-      });
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
-      }
-
-      // Администраторы
-      const adminsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins`, {
-        headers: { Authorization: `Bearer ${tok}` },
-      });
-      if (adminsRes.ok) {
-        const adminsData = await adminsRes.json();
-        setAdmins(adminsData);
-      }
-    } catch (e) {}
+      try {
+        const mRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/members`, h);
+        if (mRes.ok) {
+          const d = await mRes.json();
+          setMembers(Array.isArray(d) ? d : d.members || []);
+        }
+      } catch (e) {}
+      try {
+        const aRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins`, h);
+        if (aRes.ok) {
+          const d = await aRes.json();
+          setAdmins(Array.isArray(d) ? d : d.admins || []);
+        }
+      } catch (e) {}
+      try {
+        const sRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/stats`, h);
+        if (sRes.ok) setStats(await sRes.json());
+      } catch (e) {}
+    } catch (e) {
+      Alert.alert('Ошибка', 'Не удалось загрузить информацию');
+    }
     setLoading(false);
-  };
+  }, [chatId]);
 
+  useEffect(() => { loadChatInfo(); }, [loadChatInfo]);
+
+  const isCreator = chat?.created_by === meId;
+  const myAdmin = admins.find((a: any) => a.id === meId);
+  const canManageAdmins = isCreator || myAdmin?.permissions?.includes('add_admins');
+
+  const roleOf = (id: number) =>
+    id === chat?.created_by ? 'creator' : admins.some((a: any) => a.id === id) ? 'admin' : 'member';
+
+  // ===== Название =====
   const handleRename = async () => {
     if (!newName.trim()) return;
     const tok = await getToken();
     const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-      body: JSON.stringify({ name: newName }),
+      body: JSON.stringify({ name: newName.trim() }),
     });
-    if (res.ok) {
-      Alert.alert('Успешно', 'Название изменено');
-      setEditingName(false);
-      loadChatInfo();
-    } else {
-      const data = await res.json();
-      Alert.alert('Ошибка', data.error || 'Не удалось изменить название');
-    }
+    if (res.ok) { Alert.alert('Готово', 'Название изменено'); setEditingName(false); loadChatInfo(); }
+    else { const d = await res.json(); Alert.alert('Ошибка', d.error || 'Не удалось изменить название'); }
   };
 
+  // ===== Аватар группы =====
+  const handleChangeAvatar = async () => {
+    try {
+      const result = await pick({ type: ['image/*'], allowMultiSelection: false, copyTo: 'cachesDirectory' });
+      const file = result[0];
+      if (!file?.uri) return;
+      setUploadingAvatar(true);
+      const tok = await getToken();
+      const fd = new FormData();
+      fd.append('avatar', { uri: file.uri, name: file.name || 'avatar.jpg', type: file.type || 'image/jpeg' } as any);
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tok}` },
+        body: fd,
+      });
+      if (res.ok) { setAvatarFailed(false); loadChatInfo(); }
+      else { const d = await res.json(); Alert.alert('Ошибка', d.error || 'Не удалось загрузить аватар'); }
+    } catch (e: any) {
+      if (!isCancelSafe(e)) Alert.alert('Ошибка', 'Не удалось выбрать файл');
+    } finally { setUploadingAvatar(false); }
+  };
+  const isCancelSafe = (e: any) => e?.code === 'DOCUMENT_PICKER_CANCELED' || e?.name === 'AbortError';
+
+  // ===== Супергруппа =====
   const handleToggleSupergroup = async () => {
     const newValue = !chat.is_supergroup;
+    const tok = await getToken();
     if (newValue) {
-      const tok = await getToken();
       const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
         body: JSON.stringify({ is_supergroup: true }),
       });
       if (res.ok) {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'TopicList', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } }],
-        });
-      } else {
-        const data = await res.json();
-        Alert.alert('Ошибка', data.error || 'Не удалось включить супергруппу');
-      }
+        navigation.reset({ index: 0, routes: [{ name: 'TopicList', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } }] });
+      } else { const d = await res.json(); Alert.alert('Ошибка', d.error || 'Не удалось включить супергруппу'); }
     } else {
-      const tok = await getToken();
-      const topicsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
-        headers: { Authorization: `Bearer ${tok}` },
-      });
-      const topicsData = await topicsRes.json();
-      setTopics(topicsData);
+      const topicsRes = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, { headers: { Authorization: `Bearer ${tok}` } });
+      if (topicsRes.ok) setTopics(await topicsRes.json());
       setSelectedTopicId(null);
+      setMergeMessages(true);
       setShowSupergroupDialog(true);
     }
   };
@@ -125,416 +180,515 @@ export default function ChatInfoScreen({ route, navigation }: any) {
       body: JSON.stringify({ is_supergroup: false, keep_topic_id: selectedTopicId, merge: mergeMessages }),
     });
     if (res.ok) {
-      setSelectedTopicId(null);
-      navigation.reset({
-        index: 1,
-        routes: [
-          { name: 'ChatList' },
-          { name: 'Chat', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } },
-        ],
-      });
-    } else {
-      const data = await res.json();
-      Alert.alert('Ошибка', data.error || 'Не удалось отключить супергруппу');
-    }
+      navigation.reset({ index: 1, routes: [{ name: 'ChatList' }, { name: 'Chat', params: { chatId: chatId.toString(), chatName: chat?.name || 'Чат' } }] });
+    } else { const d = await res.json(); Alert.alert('Ошибка', d.error || 'Не удалось отключить супергруппу'); }
   };
 
-  const handleRemoveMember = async (userId: number) => {
-    const tok = await getToken();
-    const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members/${userId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${tok}` },
-    });
-    if (res.ok) {
-      loadChatInfo();
-    } else {
-      Alert.alert('Ошибка', 'Не удалось удалить участника');
-    }
+  // ===== Участники =====
+  const handleRemoveMember = (userId: number) => {
+    Alert.alert('Удалить участника?', 'Он потеряет доступ к чату', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить', style: 'destructive',
+        onPress: async () => {
+          const tok = await getToken();
+          const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members/${userId}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${tok}` },
+          });
+          if (res.ok) loadChatInfo();
+          else Alert.alert('Ошибка', 'Не удалось удалить участника');
+        },
+      },
+    ]);
   };
 
+  // ===== Админы =====
   const openAdminModal = () => {
-    const adminIds = admins.map(a => a.id);
-    const candidates = members.filter(m => m.id !== chat?.created_by && !adminIds.includes(m.id));
-    setAvailableUsers(candidates);
+    const adminIds = admins.map((a: any) => a.id);
+    setAvailableUsers(members.filter((m: any) => m.id !== chat?.created_by && !adminIds.includes(m.id)));
     setSelectedUserId(null);
     setAdminPermissions(['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages']);
     setShowAdminModal(true);
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Удалить чат?',
-      'Чат будет удалён для всех участников. Это действие необратимо.',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Удалить',
-          style: 'destructive',
-          onPress: async () => {
-            const tok = await getToken();
-            const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${tok}` },
-            });
-            const data = await res.json();
-            if (res.ok) {
-              Alert.alert('Успешно', 'Чат удалён');
-              navigation.goBack();
-            } else {
-              Alert.alert('Ошибка', data.error || 'Не удалось удалить чат');
-            }
-          },
-        },
-      ]
+  const saveAdmin = async () => {
+    if (!selectedUserId) { Alert.alert('Ошибка', 'Выберите участника'); return; }
+    const tok = await getToken();
+    const existing = admins.find((a: any) => a.id === selectedUserId);
+    const res = await fetch(
+      `${SERVER_URL}/api/chats/${chatId}/admins${existing ? `/${selectedUserId}` : ''}`,
+      {
+        method: existing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+        body: JSON.stringify(existing ? { permissions: adminPermissions } : { user_id: selectedUserId, permissions: adminPermissions }),
+      },
     );
+    if (res.ok) { setShowAdminModal(false); loadChatInfo(); }
+    else Alert.alert('Ошибка', 'Не удалось сохранить');
   };
 
-  const handleLeave = () => {
-    Alert.alert(
-      'Выйти из чата?',
-      'Вы покинете чат и больше не сможете читать сообщения.',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Выйти',
-          style: 'destructive',
-          onPress: async () => {
-            const tok = await getToken();
-            const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${tok}` },
-            });
-            const data = await res.json();
-            if (res.ok) {
-              Alert.alert('Успешно', 'Вы вышли из чата');
-              navigation.goBack();
-            } else {
-              Alert.alert('Ошибка', data.error || 'Не удалось выйти из чата');
-            }
-          },
+  const removeAdmin = (adminId: number) => {
+    Alert.alert('Снять администратора?', 'Права будут отозваны', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Снять', style: 'destructive',
+        onPress: async () => {
+          const tok = await getToken();
+          const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins/${adminId}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${tok}` },
+          });
+          if (res.ok) loadChatInfo();
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
+  const handleDeleteChat = () => {
+    Alert.alert('Удалить чат?', 'Все сообщения будут удалены безвозвратно', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить', style: 'destructive',
+        onPress: async () => {
+          const tok = await getToken();
+          const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${tok}` },
+          });
+          if (res.ok) navigation.popToTop();
+          else Alert.alert('Ошибка', 'Не удалось удалить чат');
+        },
+      },
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!chat) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+            <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>ПРОФИЛЬ ГРУППЫ</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.loadingWrap}>
+          <Text style={{ fontSize: 15, color: '#6F6F73', fontWeight: '600' }}>Чат не найден</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const name = chat?.name || 'Чат';
 
   return (
-    <View style={[styles.container, { padding: 16 }]}>
-      <ScrollView>
-        <View style={{ marginBottom: 20 }}>
-          <Text style={styles.label}>Название чата</Text>
-          {editingName ? (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newName} onChangeText={setNewName} placeholder="Новое название" placeholderTextColor="#999" />
-              <TouchableOpacity style={styles.createButton} onPress={handleRename}>
-                <Text style={styles.createButtonText}>Сохранить</Text>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* ===== HEADER ===== */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>ПРОФИЛЬ ГРУППЫ</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* ===== HERO ===== */}
+        <View style={styles.heroCard}>
+          <View style={styles.avatarWrap}>
+            {chat?.avatar_url && !avatarFailed ? (
+              <Image source={{ uri: SERVER_URL + chat.avatar_url }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
+            ) : (
+              <View style={[styles.avatarImage, { backgroundColor: hashColor(name) }]}>
+                <Text style={styles.avatarInitials}>{initials(name)}</Text>
+              </View>
+            )}
+            {isCreator && (
+              <TouchableOpacity onPress={handleChangeAvatar} disabled={uploadingAvatar} style={styles.avatarEditBtn}>
+                {uploadingAvatar ? <ActivityIndicator size={12} color="#FFFFFF" /> : <Camera size={16} color="#FFFFFF" strokeWidth={2.5} />}
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setEditingName(false)}>
-                <Text style={{ color: '#999' }}>Отмена</Text>
+            )}
+          </View>
+
+          {editingName ? (
+            <View style={styles.editNameRow}>
+              <TextInput style={styles.editNameInput} value={newName} onChangeText={setNewName} autoFocus />
+              <TouchableOpacity onPress={handleRename} style={styles.editNameBtn}>
+                <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setEditingName(false)} style={styles.editNameCancel}>
+                <X size={18} color="#6F6F73" strokeWidth={2} />
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: theme === 'dark' ? '#fff' : '#1a1a1a' }}>{chat?.name || 'Без названия'}</Text>
-              {chat?.created_by === currentUserId && (
-                <TouchableOpacity onPress={() => setEditingName(true)}>
-                  <Text style={{ color: '#007bff' }}>Изменить</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.heroName} numberOfLines={1}>{name}</Text>
+              {isCreator && (
+                <TouchableOpacity onPress={() => { setNewName(name); setEditingName(true); }} style={styles.nameEditBtn}>
+                  <Pencil size={16} color="#1F7A52" strokeWidth={2} />
                 </TouchableOpacity>
               )}
+            </View>
+          )}
+
+          <Text style={styles.heroSubtitle}>
+            {chat?.type === 'group' ? (chat?.is_supergroup ? 'Супергруппа' : 'Группа') : 'Личный чат'} · {members.length} участников
+          </Text>
+
+          {chat?.type === 'group' && isCreator && (
+            <View style={styles.supergroupRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.supergroupTitle}>Супергруппа</Text>
+                <Text style={styles.supergroupHint}>Топики, администраторы и права</Text>
+              </View>
+              <Switch
+                value={!!chat?.is_supergroup}
+                onValueChange={handleToggleSupergroup}
+                trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
+                thumbColor="#FFFFFF"
+              />
             </View>
           )}
         </View>
 
-        {chat?.type === 'group' && chat?.created_by === currentUserId && (
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <Text style={styles.label}>Супергруппа</Text>
-            <Switch value={chat?.is_supergroup} onValueChange={handleToggleSupergroup} />
-          </View>
-        )}
-
-        <Text style={styles.label}>Тип: {chat?.type === 'group' ? 'Группа' : 'Приватный'}</Text>
+        {/* ===== МЕДИА ===== */}
         {stats && (
-          <View style={{ marginVertical: 10, padding: 10, backgroundColor: theme === 'dark' ? '#2c2c2e' : '#f8f8f8', borderRadius: 8 }}>
-            <TouchableOpacity onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'files' })}>
-              <Text style={[styles.label, { marginBottom: 5 }]}>Файлы: {stats.total_files}</Text>
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.mediaRow} onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'files' })} activeOpacity={0.7}>
+              <View style={[styles.mediaIcon, { backgroundColor: '#ECFDF5' }]}><FileText size={18} color="#1F7A52" strokeWidth={2} /></View>
+              <Text style={styles.mediaLabel}>Файлы</Text>
+              <Text style={styles.mediaCount}>{stats.total_files || 0}</Text>
+              <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'images' })}>
-              <Text style={[styles.label, { marginBottom: 5 }]}>Медиа: {stats.total_images}</Text>
+            <TouchableOpacity style={styles.mediaRow} onPress={() => navigation.navigate('MediaList', { chatId: chatId.toString(), type: 'images' })} activeOpacity={0.7}>
+              <View style={[styles.mediaIcon, { backgroundColor: '#EDE9FE' }]}><ImageIcon size={18} color="#8B5CF6" strokeWidth={2} /></View>
+              <Text style={styles.mediaLabel}>Медиа</Text>
+              <Text style={styles.mediaCount}>{stats.total_images || 0}</Text>
+              <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
             </TouchableOpacity>
           </View>
         )}
 
-        <Text style={[styles.label, { marginTop: 20 }]}>Участники ({members.length})</Text>
-        <FlatList
-          data={members}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <View style={[styles.userItem, { justifyContent: 'space-between' }]}>
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
-                onPress={() => navigation.navigate('UserProfile', {
-                  userId: item.id,
-                  username: item.username,
-                  displayName: item.display_name || item.username,
-                  avatarUrl: item.avatar_url || '',
-                  role: item.role || 'member',
-                })}
-              >
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarText}>{(item.username || 'U')[0].toUpperCase()}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.userName}>{item.display_name || item.username}</Text>
-                  <Text style={{ color: '#999', fontSize: 12 }}>@{item.username}</Text>
-                  <Text style={{ fontSize: 11, color: item.role === 'creator' ? '#007bff' : item.role === 'admin' ? '#28a745' : '#999' }}>
-                    {item.role === 'creator' ? 'Владелец' : item.role === 'admin' ? 'Админ' : 'Участник'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              {chat?.created_by === currentUserId && item.id !== currentUserId && (
-                <TouchableOpacity onPress={() => handleRemoveMember(item.id)}>
-                  <Text style={{ color: 'red' }}>Удалить</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-          contentContainerStyle={{ paddingBottom: 20 }}
-          scrollEnabled={false}
-        />
+        {/* ===== УЧАСТНИКИ ===== */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardIconWrap}><Users size={18} color="#1F7A52" strokeWidth={2} /></View>
+            <Text style={styles.cardTitle}>Участники</Text>
+            <View style={styles.countBadge}><Text style={styles.countBadgeText}>{members.length}</Text></View>
+          </View>
 
-        {/* Администраторы */}
-        <Text style={[styles.label, { marginTop: 20 }]}>Администраторы ({admins.length})</Text>
-        {admins.map((admin: any) => (
-          <View key={admin.id} style={{ marginBottom: 10 }}>
-            <View style={styles.userItem}>
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>{(admin.username || 'A')[0].toUpperCase()}</Text>
+          {isCreator && (
+            <TouchableOpacity style={styles.addBtn} onPress={() => navigation.navigate('AddMembers', { chatId })} activeOpacity={0.7}>
+              <UserPlus size={18} color="#1F7A52" strokeWidth={2} />
+              <Text style={styles.addBtnText}>Добавить участников</Text>
+            </TouchableOpacity>
+          )}
+
+          {members.map((m: any) => {
+            const role = roleOf(m.id);
+            return (
+              <View key={m.id} style={styles.memberRow}>
+                <TouchableOpacity
+                  style={styles.memberMain}
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate('UserProfile', { userId: m.id })}
+                >
+                  <View style={[styles.memberAvatar, { backgroundColor: hashColor(m.display_name || m.username) }]}>
+                    <Text style={styles.memberAvatarText}>{initials(m.display_name || m.username)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.memberNameRow}>
+                      <Text style={styles.memberName} numberOfLines={1}>{m.display_name || m.username}</Text>
+                      {role === 'creator' && (
+                        <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
+                          <Crown size={10} color="#1F7A52" strokeWidth={2.5} />
+                          <Text style={[styles.roleBadgeText, { color: '#1F7A52' }]}>Владелец</Text>
+                        </View>
+                      )}
+                      {role === 'admin' && (
+                        <View style={[styles.roleBadge, { backgroundColor: '#EDE9FE' }]}>
+                          <Shield size={10} color="#7C3AED" strokeWidth={2.5} />
+                          <Text style={[styles.roleBadgeText, { color: '#7C3AED' }]}>Админ</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.memberUsername}>@{m.username}</Text>
+                  </View>
+                  <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                </TouchableOpacity>
+                {isCreator && m.id !== meId && (
+                  <TouchableOpacity onPress={() => handleRemoveMember(m.id)} style={styles.memberDeleteBtn}>
+                    <Trash2 size={16} color="#DC2626" strokeWidth={2} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
+        {/* ===== АДМИНИСТРАТОРЫ ===== */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardIconWrap}><Shield size={18} color="#1F7A52" strokeWidth={2} /></View>
+            <Text style={styles.cardTitle}>Администраторы</Text>
+            <View style={styles.countBadge}><Text style={styles.countBadgeText}>{admins.length}</Text></View>
+          </View>
+
+          {admins.length === 0 && <Text style={styles.emptyText}>Администраторы не назначены</Text>}
+
+          {admins.map((a: any) => (
+            <View key={a.id} style={styles.adminRow}>
+              <View style={[styles.memberAvatar, { backgroundColor: hashColor(a.display_name || a.username) }]}>
+                <Text style={styles.memberAvatarText}>{initials(a.display_name || a.username)}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.userName}>{admin.display_name || admin.username}</Text>
-                <Text style={{ color: '#999', fontSize: 12 }}>@{admin.username}</Text>
-                <Text style={{ fontSize: 10, color: '#666' }}>
-                  Права: {admin.permissions ? admin.permissions.join(', ') : 'все'}
-                </Text>
+                <Text style={styles.memberName} numberOfLines={1}>{a.display_name || a.username}</Text>
+                <Text style={styles.adminPerms}>{a.permissions?.length || 0} прав</Text>
               </View>
-              {(chat?.created_by === currentUserId || admins.find((a: any) => a.id === currentUserId)?.permissions?.includes('add_admins')) && (
-                <View style={{ flexDirection: 'row', gap: 5 }}>
-                  <TouchableOpacity onPress={() => {
-                    setSelectedUserId(admin.id);
-                    setAdminPermissions(admin.permissions || []);
-                    setShowAdminModal(true);
-                  }}>
-                    <Text style={{ color: '#007bff', fontSize: 14 }}>Права</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {
-                    Alert.alert('Снять администратора?', '', [
-                      { text: 'Отмена', style: 'cancel' },
-                      { text: 'Снять', style: 'destructive', onPress: async () => {
-                        const tok = await getToken();
-                        await fetch(`${SERVER_URL}/api/chats/${chatId}/admins/${admin.id}`, {
-                          method: 'DELETE',
-                          headers: { Authorization: `Bearer ${tok}` },
-                        });
-                        loadChatInfo();
-                      }},
-                    ]);
-                  }}>
-                    <Text style={{ color: 'red', fontSize: 14 }}>Снять</Text>
-                  </TouchableOpacity>
-                </View>
+              {canManageAdmins && (
+                <TouchableOpacity onPress={() => removeAdmin(a.id)} style={styles.memberDeleteBtn}>
+                  <X size={16} color="#DC2626" strokeWidth={2} />
+                </TouchableOpacity>
               )}
             </View>
-          </View>
-        ))}
-        {(chat?.created_by === currentUserId || admins.find((a: any) => a.id === currentUserId)?.permissions?.includes('add_admins')) && (
-          <TouchableOpacity style={styles.createButton} onPress={openAdminModal}>
-            <Text style={styles.createButtonText}>Назначить администратора</Text>
-          </TouchableOpacity>
-        )}
+          ))}
 
-        <View style={{ marginTop: 20, gap: 10 }}>
-          {chat?.type === 'group' && chat?.created_by === currentUserId && (
-            <TouchableOpacity style={styles.createButton} onPress={() => navigation.navigate('AddMembers', { chatId })}>
-              <Text style={styles.createButtonText}>Добавить участников</Text>
-            </TouchableOpacity>
-          )}
-          {chat?.created_by === currentUserId ? (
-            <View style={{ gap: 10 }}>
-              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#dc3545' }]} onPress={handleDelete}>
-                <Text style={[styles.logoutText, { color: '#fff' }]}>Удалить чат</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#6c757d' }]} onPress={handleLeave}>
-                <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity style={[styles.logoutButton, { backgroundColor: '#ff4444' }]} onPress={handleLeave}>
-              <Text style={[styles.logoutText, { color: '#fff' }]}>Выйти из чата</Text>
+          {canManageAdmins && (
+            <TouchableOpacity style={styles.addBtn} onPress={openAdminModal} activeOpacity={0.7}>
+              <Shield size={18} color="#1F7A52" strokeWidth={2} />
+              <Text style={styles.addBtnText}>Назначить администратора</Text>
             </TouchableOpacity>
           )}
         </View>
+
+        {/* ===== ОПАСНАЯ ЗОНА ===== */}
+        {isCreator && (
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.dangerRow} onPress={handleDeleteChat} activeOpacity={0.7}>
+              <View style={[styles.cardIconWrap, { backgroundColor: '#FEE2E2' }]}><Trash2 size={18} color="#DC2626" strokeWidth={2} /></View>
+              <Text style={styles.dangerText}>Удалить чат</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Модальное окно назначения/редактирования администратора */}
-      <Modal visible={showAdminModal} transparent animationType="fade">
-        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setShowAdminModal(false)}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '70%' }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: '#1a1a1a' }}>
-              {selectedUserId && admins.find(a => a.id === selectedUserId) ? 'Изменить права' : 'Назначить администратора'}
-            </Text>
-            {!selectedUserId && (
-              <>
-                <Text style={{ fontSize: 14, color: '#666', marginBottom: 10 }}>Выберите участника:</Text>
-                <ScrollView style={{ maxHeight: 150, marginBottom: 10 }}>
-                  {availableUsers.map((u: any) => (
-                    <TouchableOpacity
-                      key={u.id}
-                      style={{ paddingVertical: 10, paddingHorizontal: 15, backgroundColor: selectedUserId === u.id ? '#e3f2fd' : 'transparent', borderRadius: 8 }}
-                      onPress={() => setSelectedUserId(u.id)}
-                    >
-                      <Text style={{ fontSize: 16, fontWeight: selectedUserId === u.id ? '600' : '400' }}>
-                        {u.display_name || u.username} (@{u.username})
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </>
-            )}
-            <Text style={{ fontSize: 14, fontWeight: '600', marginBottom: 10 }}>Права:</Text>
-            {[
-              { key: 'change_info', label: 'Изменение профиля группы' },
-              { key: 'delete_messages', label: 'Удаление сообщений' },
-              { key: 'ban_users', label: 'Блокировка пользователей' },
-              { key: 'add_users', label: 'Добавление участников' },
-              { key: 'pin_messages', label: 'Закрепление сообщений' },
-              { key: 'add_admins', label: 'Добавление администраторов' },
-            ].map(perm => (
-              <TouchableOpacity
-                key={perm.key}
-                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}
-                onPress={() => {
-                  if (adminPermissions.includes(perm.key)) {
-                    setAdminPermissions(adminPermissions.filter(p => p !== perm.key));
-                  } else {
-                    setAdminPermissions([...adminPermissions, perm.key]);
-                  }
-                }}
-              >
-                <View style={{
-                  width: 20, height: 20,
-                  borderWidth: 1, borderColor: '#ccc',
-                  borderRadius: 4,
-                  justifyContent: 'center', alignItems: 'center',
-                  marginRight: 8,
-                  backgroundColor: adminPermissions.includes(perm.key) ? '#007bff' : 'transparent',
-                }}>
-                  {adminPermissions.includes(perm.key) && <Text style={{ color: '#fff', fontSize: 14 }}>✓</Text>}
-                </View>
-                <Text style={{ fontSize: 14 }}>{perm.label}</Text>
-              </TouchableOpacity>
-            ))}
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 }}>
-              <TouchableOpacity onPress={() => setShowAdminModal(false)} style={{ padding: 10 }}>
-                <Text style={{ color: '#999' }}>Отмена</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ backgroundColor: '#007bff', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}
-                onPress={async () => {
-                  if (!selectedUserId) {
-                    Alert.alert('Ошибка', 'Выберите участника');
-                    return;
-                  }
-                  const tok = await getToken();
-                  let res;
-                  const existingAdmin = admins.find((a: any) => a.id === selectedUserId);
-                  if (existingAdmin) {
-                    res = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins/${selectedUserId}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-                      body: JSON.stringify({ permissions: adminPermissions }),
-                    });
-                  } else {
-                    res = await fetch(`${SERVER_URL}/api/chats/${chatId}/admins`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-                      body: JSON.stringify({ user_id: selectedUserId, permissions: adminPermissions }),
-                    });
-                  }
-                  if (res.ok) {
-                    setShowAdminModal(false);
-                    loadChatInfo();
-                  } else {
-                    Alert.alert('Ошибка', 'Не удалось сохранить');
-                  }
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Сохранить</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* ===== МОДАЛКА АДМИНА ===== */}
+      <Modal visible={showAdminModal} transparent animationType="slide">
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowAdminModal(false)} style={styles.sheetOverlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>АДМИНИСТРАТОР</Text>
 
-      {/* Модальное окно отключения супергруппы */}
-      <Modal visible={showSupergroupDialog} transparent animationType="fade">
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }}
-          onPress={() => setShowSupergroupDialog(false)}
-        >
-          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: '#1a1a1a' }}>Выключить супергруппу?</Text>
-            <Text style={{ fontSize: 14, color: '#666', marginBottom: 15 }}>
-              При отключении супергруппы все топики, кроме выбранного, будут безвозвратно удалены. Это действие нельзя отменить.
-            </Text>
-            <Text style={{ fontSize: 15, fontWeight: '600', marginBottom: 8 }}>Оставить топик:</Text>
-            <ScrollView style={{ maxHeight: 200 }}>
-              <TouchableOpacity
-                style={{
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  borderRadius: 8,
-                  marginBottom: 6,
-                  backgroundColor: selectedTopicId === null ? '#e3f2fd' : '#f5f5f5',
-                }}
-                onPress={() => setSelectedTopicId(null)}
-              >
-                <Text style={{ fontSize: 16, fontWeight: selectedTopicId === null ? '700' : '400' }}>Общий чат (без топиков)</Text>
-              </TouchableOpacity>
-              {topics.map((topic) => (
+            <Text style={styles.sheetLabel}>Участник</Text>
+            <ScrollView style={{ maxHeight: 160 }}>
+              {availableUsers.map((u: any) => (
                 <TouchableOpacity
-                  key={topic.id}
-                  style={{
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 8,
-                    marginBottom: 6,
-                    backgroundColor: selectedTopicId === topic.id ? '#e3f2fd' : '#f5f5f5',
-                  }}
-                  onPress={() => setSelectedTopicId(topic.id)}
+                  key={u.id}
+                  style={[styles.sheetUserRow, selectedUserId === u.id && styles.sheetUserRowActive]}
+                  onPress={() => setSelectedUserId(u.id)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 16, fontWeight: selectedTopicId === topic.id ? '700' : '400' }}>{topic.title}</Text>
+                  <View style={[styles.memberAvatar, { backgroundColor: hashColor(u.display_name || u.username) }]}>
+                    <Text style={styles.memberAvatarText}>{initials(u.display_name || u.username)}</Text>
+                  </View>
+                  <Text style={styles.sheetUserName}>{u.display_name || u.username}</Text>
+                  {selectedUserId === u.id && <Check size={18} color="#1F7A52" strokeWidth={2.5} />}
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
-              <Text style={{ fontSize: 14 }}>Объединить сообщения</Text>
-              <Switch value={mergeMessages} onValueChange={setMergeMessages} />
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 }}>
-              <TouchableOpacity onPress={() => setShowSupergroupDialog(false)} style={{ padding: 10 }}>
-                <Text style={{ color: '#999', fontSize: 16 }}>Отмена</Text>
-              </TouchableOpacity>
+
+            <Text style={styles.sheetLabel}>Права</Text>
+            {PERMS.map((p) => {
+              const on = adminPermissions.includes(p.key);
+              return (
+                <TouchableOpacity
+                  key={p.key}
+                  style={styles.permRow}
+                  onPress={() => setAdminPermissions(on ? adminPermissions.filter((x) => x !== p.key) : [...adminPermissions, p.key])}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.permLabel}>{p.label}</Text>
+                  <View style={[styles.permCheck, on && styles.permCheckOn]}>
+                    {on && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+
+            <TouchableOpacity style={styles.saveBtn} onPress={saveAdmin} activeOpacity={0.85}>
+              <Text style={styles.saveBtnText}>Сохранить</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ===== ДИАЛОГ ОТКЛЮЧЕНИЯ СУПЕРГРУППЫ ===== */}
+      <Modal visible={showSupergroupDialog} transparent animationType="fade">
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowSupergroupDialog(false)} style={styles.sheetOverlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>ВЫКЛЮЧИТЬ СУПЕРГРУППУ?</Text>
+            <Text style={styles.sheetHint}>
+              Все топики, кроме выбранного, будут удалены безвозвратно.
+            </Text>
+
+            <Text style={styles.sheetLabel}>Оставить топик</Text>
+            <ScrollView style={{ maxHeight: 200 }}>
               <TouchableOpacity
-                style={{ backgroundColor: '#ff4444', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}
-                onPress={confirmDisableSupergroup}
+                style={[styles.topicPickRow, selectedTopicId === null && styles.topicPickRowActive]}
+                onPress={() => setSelectedTopicId(null)}
               >
-                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Отключить</Text>
+                <Hash size={16} color={selectedTopicId === null ? '#1F7A52' : '#6F6F73'} strokeWidth={2} />
+                <Text style={styles.topicPickText}>Общий чат (без топиков)</Text>
+              </TouchableOpacity>
+              {topics.map((t) => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[styles.topicPickRow, selectedTopicId === t.id && styles.topicPickRowActive]}
+                  onPress={() => setSelectedTopicId(t.id)}
+                >
+                  <Hash size={16} color={selectedTopicId === t.id ? '#1F7A52' : '#6F6F73'} strokeWidth={2} />
+                  <Text style={styles.topicPickText}>{t.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={styles.mergeRow}>
+              <Text style={styles.permLabel}>Объединить сообщения</Text>
+              <Switch value={mergeMessages} onValueChange={setMergeMessages} trackColor={{ false: '#ECECE8', true: '#1F7A52' }} thumbColor="#FFFFFF" />
+            </View>
+
+            <View style={styles.dialogButtons}>
+              <TouchableOpacity style={styles.dialogCancel} onPress={() => setShowSupergroupDialog(false)}>
+                <Text style={styles.dialogCancelText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.dialogDanger} onPress={confirmDisableSupergroup}>
+                <Text style={styles.dialogDangerText}>Отключить</Text>
               </TouchableOpacity>
             </View>
           </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ECECE8',
+  },
+  headerBackBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  headerTitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
+    fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1,
+  },
+
+  scrollContent: { padding: 20, gap: 20 },
+
+  heroCard: {
+    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 24, alignItems: 'center', gap: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+  },
+  avatarWrap: { position: 'relative', marginBottom: 4 },
+  avatarImage: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontSize: 30, fontWeight: '700', color: '#FFFFFF' },
+  avatarEditBtn: {
+    position: 'absolute', right: -2, bottom: -2, width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#FFFFFF',
+  },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroName: { fontSize: 20, fontWeight: '700', color: '#141414' },
+  nameEditBtn: { padding: 4 },
+  editNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' },
+  editNameInput: {
+    flex: 1, fontSize: 16, fontWeight: '600', color: '#141414',
+    backgroundColor: '#FAFAF8', borderWidth: 1, borderColor: '#ECECE8', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  editNameBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
+  editNameCancel: { padding: 6 },
+  heroSubtitle: { fontSize: 13, color: '#6F6F73', fontWeight: '500' },
+  supergroupRow: { flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%', marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#ECECE8' },
+  supergroupTitle: { fontSize: 15, fontWeight: '600', color: '#141414' },
+  supergroupHint: { fontSize: 12, color: '#6F6F73', marginTop: 2 },
+
+  card: {
+    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 20, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardIconWrap: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 17, fontWeight: '700', color: '#141414', flex: 1 },
+  countBadge: { backgroundColor: '#1F7A52', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999 },
+  countBadgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+
+  mediaRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  mediaIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  mediaLabel: { flex: 1, fontSize: 15, fontWeight: '600', color: '#141414' },
+  mediaCount: { fontSize: 14, fontWeight: '700', color: '#6F6F73' },
+
+  addBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 12, borderRadius: 14, backgroundColor: '#ECFDF5',
+    borderWidth: 1.5, borderColor: '#D1FAE5', borderStyle: 'dashed',
+  },
+  addBtnText: { fontSize: 14, fontWeight: '600', color: '#1F7A52' },
+
+  memberRow: { flexDirection: 'row', alignItems: 'center' },
+  memberMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  memberAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  memberAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  memberNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  memberName: { fontSize: 15, fontWeight: '700', color: '#141414' },
+  memberUsername: { fontSize: 12, color: '#6F6F73', marginTop: 1 },
+  roleBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  roleBadgeText: { fontSize: 10, fontWeight: '700' },
+  memberDeleteBtn: { padding: 8 },
+
+  adminRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  adminPerms: { fontSize: 12, color: '#7C3AED', fontWeight: '600', marginTop: 1 },
+
+  dangerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dangerText: { fontSize: 15, fontWeight: '600', color: '#DC2626' },
+  emptyText: { fontSize: 13, color: '#BDBDBD', fontWeight: '500' },
+
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32, gap: 12 },
+  sheetHandle: { width: 40, height: 4, backgroundColor: '#ECECE8', borderRadius: 2, alignSelf: 'center' },
+  sheetTitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
+    fontSize: 24, fontWeight: '900', color: '#141414', letterSpacing: 1,
+  },
+  sheetHint: { fontSize: 13, color: '#6F6F73', lineHeight: 18 },
+  sheetLabel: { fontSize: 12, fontWeight: '600', color: '#6F6F73', textTransform: 'uppercase', letterSpacing: 0.5 },
+  sheetUserRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12 },
+  sheetUserRowActive: { backgroundColor: '#ECFDF5' },
+  sheetUserName: { flex: 1, fontSize: 15, fontWeight: '600', color: '#141414' },
+  permRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F4F4F5' },
+  permLabel: { fontSize: 14, fontWeight: '500', color: '#141414', flex: 1 },
+  permCheck: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: '#BDBDBD', alignItems: 'center', justifyContent: 'center' },
+  permCheckOn: { backgroundColor: '#1F7A52', borderColor: '#1F7A52' },
+  saveBtn: { height: 52, borderRadius: 18, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+
+  topicPickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#FAFAF8', marginBottom: 6 },
+  topicPickRowActive: { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#1F7A52' },
+  topicPickText: { fontSize: 14, fontWeight: '600', color: '#141414' },
+  mergeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dialogButtons: { flexDirection: 'row', gap: 10 },
+  dialogCancel: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  dialogCancelText: { fontSize: 15, fontWeight: '600', color: '#141414' },
+  dialogDanger: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#7F1D1D', alignItems: 'center' },
+  dialogDangerText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+});

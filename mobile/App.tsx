@@ -119,11 +119,11 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
       />
       <ChatStack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
       <ChatStack.Screen name="CreateChat" component={CreateChatScreen} options={{ headerShown: false }} />
-      <ChatStack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ title: 'Информация о чате' }} />
-      <ChatStack.Screen name="TopicList" component={TopicListScreen} options={{ title: 'Топики' }} />
-      <ChatStack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ title: 'Топик' }} />
-      <ChatStack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: 'Добавить участников' }} />
-      <ChatStack.Screen name="MediaList" component={MediaListScreen} options={{ title: 'Медиа' }} />
+      <ChatStack.Screen name="ChatInfo" component={ChatInfoScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="TopicList" component={TopicListScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="TopicInfo" component={TopicInfoScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="AddMembers" component={AddMembersScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="MediaList" component={MediaListScreen} options={{ headerShown: false }} />
       <ChatStack.Screen
         name="Profile"
         options={{ headerShown: false }}

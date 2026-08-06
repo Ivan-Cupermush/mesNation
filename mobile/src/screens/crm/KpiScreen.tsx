@@ -197,7 +197,7 @@ export default function KpiScreen({ navigation }: any) {
                 <TouchableOpacity
                   key={idx}
                   style={styles.subordinateRow}
-                  onPress={() => navigation.navigate('EmployeeStats', { userId: sub.id, userName: sub.display_name || sub.username })}
+                  onPress={() => navigation.navigate('EmployeeStats', { userId: parseInt(String(sub.user_id)) || 0, userName: sub.display_name || sub.username })}
                   activeOpacity={0.7}
                 >
                   <View style={styles.subordinateAvatar}>

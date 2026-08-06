@@ -748,3 +748,5 @@ export const api = {
       body: JSON.stringify(data),
     }),
 };
+
+  // Импорт KPI из Excel

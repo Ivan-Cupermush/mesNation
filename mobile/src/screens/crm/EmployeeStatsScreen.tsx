@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Platform,
   ActivityIndicator,
+TouchableOpacity
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,6 +20,7 @@ import {
   DollarSign,
   ShoppingCart,
   TrendingUp,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { api } from '../../services/api';
 
@@ -35,7 +37,7 @@ const fmt = (v: number | string): string => {
   return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 };
 
-export default function EmployeeStatsScreen({ route }: any) {
+export default function EmployeeStatsScreen({ route, navigation }: any) {
   const { userId, userName } = route.params;
   const [period, setPeriod] = useState<Period>('month');
   const [data, setData] = useState<any>(null);
@@ -43,6 +45,7 @@ export default function EmployeeStatsScreen({ route }: any) {
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
+    console.log("EmployeeStatsScreen loading:", { userId, period });
     try {
       const stats = await api.getEmployeeStats(userId, period);
       setData(stats);
@@ -60,6 +63,7 @@ export default function EmployeeStatsScreen({ route }: any) {
   if (loading && !data) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
+
         <ActivityIndicator size="large" color="#1F7A52" />
       </SafeAreaView>
     );
@@ -77,7 +81,15 @@ export default function EmployeeStatsScreen({ route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
+            <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
+          <ArrowLeft size={24} color="#111827" />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: '#111827' }]} numberOfLines={1}>
+          {userName || 'Сотрудник'}
+        </Text>
+      </View>
+<ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1F7A52" />}
@@ -345,4 +357,19 @@ const styles = StyleSheet.create({
   taskStatusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 12 },
   taskTitle: { fontSize: 15, fontWeight: '600', color: '#141414', marginBottom: 2 },
   taskMeta: { fontSize: 12, color: '#6F6F73', fontWeight: '500' },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  backBtn: {
+    padding: 8,
+    marginRight: 4,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+  },
 });

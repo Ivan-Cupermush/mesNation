@@ -14,6 +14,7 @@ import chatsRouter from './routes/chats';
 import roleTreeRouter from './routes/roleTree';
 import tasksRouter from './routes/tasks';
 import notesRouter from './routes/notes';
+import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
 import { startDeadlineChecker } from './services/deadlineChecker';
@@ -343,6 +344,7 @@ app.use('/api/chats', authenticate, chatsRouter);
 app.use('/api/role-tree', authenticate, roleTreeRouter);
 app.use('/api/tasks', authenticate, tasksRouter);
 app.use('/api/notes', authenticate, notesRouter);
+app.use('/api/kpi', kpiImportRouter);
 app.use('/api/kpi/sales', authenticate, kpiSalesRouter);
 app.use('/api/knowledge', authenticate, knowledgeRouter);
 
@@ -673,6 +675,10 @@ httpServer.listen(PORT, () => {
 app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const userId = parseInt(req.params.userId);
+    console.log("EmployeeStats request:", { userId, raw: req.params.userId, query: req.query });
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: "Некорректный ID сотрудника" });
+    }
     const period = (req.query.period as string) || 'month';
     
     const managerCheck = await pool.query(
@@ -688,7 +694,7 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
     }
     
     const managerRole = managerCheck.rows[0].role_name;
-    const isDirector = managerRole === 'director';
+    const isDirector = managerRole === 'director' || managerRole === 'admin';
     const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('начальник') || managerRole?.includes('руководитель');
     
     if (!isDirector && !isManager) {
@@ -705,16 +711,15 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
         [userId]
       ),
       pool.query(
-        `SELECT st.*, p.name as product_name
+        `SELECT st.*
          FROM sales_targets st
-         LEFT JOIN products p ON st.product_id = p.id
          WHERE st.user_id = $1
          AND st.period_start <= CURRENT_DATE
          AND st.period_end >= CURRENT_DATE
          ORDER BY st.created_at DESC
          LIMIT 1`,
         [userId]
-      ),
+      ).catch(() => ({ rows: [] })),
       pool.query(`
         SELECT id, title, status, priority, deadline
         FROM tasks
@@ -725,8 +730,7 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
       pool.query(
         `SELECT 
            COALESCE(SUM(total_amount), 0) as total_amount,
-           COUNT(*) as total_transactions,
-           COUNT(DISTINCT product_id) as unique_products
+           COUNT(*) as total_transactions
          FROM sales_transactions
          WHERE user_id = $1
          AND created_at >= CASE 
@@ -736,7 +740,7 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
            ELSE CURRENT_DATE - INTERVAL '1 month'
          END`,
         [userId, period]
-      ),
+      ).catch(() => ({ rows: [{ total_amount: 0, total_transactions: 0 }] })),
     ]);
     
     if (userResult.rows.length === 0) {

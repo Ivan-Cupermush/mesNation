@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from './src/services/api';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -25,6 +26,7 @@ import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import EmployeeStatsScreen from './src/screens/crm/EmployeeStatsScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
 import AssignKpiScreen from './src/screens/crm/AssignKpiScreen';
@@ -54,6 +56,7 @@ type ChatStackParamList = {
 };
 
 type TasksStackParamList = {
+  UserProfile: { userId: number };
   TasksHome: undefined;
   CreateTask: undefined;
   TaskDetail: { taskId: number };
@@ -66,17 +69,18 @@ type NotesStackParamList = {
 
 type KpiStackParamList = {
   KpiHome: undefined;
+  AssignKpi: undefined;
   AddProductKpi: undefined;
-  ProductKpiDetail: { targetId: number };
   ImportExcel: undefined;
   RoleTreeEditor: undefined;
   CreateUserRole: undefined;
+  EmployeeStats: { userId: number; userName: string };
 };
-
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
 
 type MainTabsParamList = {
+  SettingsTab: undefined;
   TasksTab: undefined;
   NotesTab: undefined;
   KpiTab: undefined;
@@ -90,6 +94,7 @@ const NotesStack = createNativeStackNavigator<NotesStackParamList>();
 const KpiStack = createNativeStackNavigator<KpiStackParamList>();
 const KnowledgeStack = createNativeStackNavigator<KnowledgeStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const SettingsStack = createNativeStackNavigator<any>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 
 // ========== Обёртка для Stack-ов с общим стилем ==========
@@ -196,7 +201,7 @@ function KnowledgeStackNavigator() {
 }
 
 // ========== Иконка вкладки ==========
-import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen } from 'lucide-react-native';
+import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen , Settings } from 'lucide-react-native';
 
 function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   const { colors } = useTheme();
@@ -208,8 +213,30 @@ function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
 }
 
 // ========== Главный Tab-навигатор ==========
+
+// ========== Settings Stack ==========
+function SettingsStackNavigator() {
+  const headerStyle = useHeaderStyle();
+  return (
+    <SettingsStack.Navigator screenOptions={headerStyle}>
+      <SettingsStack.Screen name="SettingsHome" component={SettingsScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
+      <SettingsStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ title: 'Дерево прав', headerShown: false }} />
+      <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
+    </SettingsStack.Navigator>
+  );
+}
+
 function MainTabs({ onLogout }: { onLogout: () => void }) {
   const { colors } = useTheme();
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    api.getCurrentUser()
+      .then(setCurrentUser)
+      .catch(console.error);
+  }, []);
   return (
     <Tab.Navigator
       screenOptions={{
@@ -267,6 +294,16 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
           tabBarIcon: ({ focused }) => <TabIcon icon={BookOpen} focused={focused} />,
         }}
       />
+      {currentUser && (currentUser.role_name === 'director' || currentUser.role_name === 'admin' || (currentUser.role_name || '').toLowerCase().includes('руководитель')) && (
+        <Tab.Screen
+          name="SettingsTab"
+          component={SettingsStackNavigator}
+          options={{
+            title: 'Настройки',
+            tabBarIcon: ({ focused }) => <TabIcon icon={Settings} focused={focused} />,
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }

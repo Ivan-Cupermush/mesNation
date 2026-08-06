@@ -165,7 +165,15 @@ export default function SettingsScreen({ navigation }: any) {
         </TouchableOpacity>
 
         <View style={{ height: 80 }} />
-      </ScrollView>
+            <TouchableOpacity
+        style={styles.menuItem}
+        onPress={() => navigation.navigate('KpiImport')}
+      >
+        <FileSpreadsheet size={20} color="#1F7A52" />
+        <Text style={styles.menuItemText}>Импорт KPI из Excel</Text>
+        <ChevronRight size={20} color="#9ca3af" />
+      </TouchableOpacity>
+</ScrollView>
     </SafeAreaView>
   );
 }

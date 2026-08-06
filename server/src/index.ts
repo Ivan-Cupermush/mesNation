@@ -669,3 +669,108 @@ httpServer.listen(PORT, () => {
   // Запускаем периодическую проверку дедлайнов (каждый час)
   startDeadlineChecker(60 * 60 * 1000);
 });
+// ==================== СТАТИСТИКА КОНКРЕТНОГО СОТРУДНИКА ====================
+app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const period = (req.query.period as string) || 'month';
+    
+    const managerCheck = await pool.query(
+      `SELECT rt.name as role_name 
+       FROM users u 
+       LEFT JOIN role_tree rt ON u.role_id = rt.id 
+       WHERE u.id = $1`,
+      [req.userId]
+    );
+    
+    if (managerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    
+    const managerRole = managerCheck.rows[0].role_name;
+    const isDirector = managerRole === 'director';
+    const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('начальник') || managerRole?.includes('руководитель');
+    
+    if (!isDirector && !isManager) {
+      return res.status(403).json({ error: 'Нет прав для просмотра статистики других сотрудников' });
+    }
+    
+    const [userResult, kpiResult, tasksResult, summaryResult] = await Promise.all([
+      pool.query(
+        `SELECT u.id, u.username, u.display_name, u.email, u.avatar_url,
+                rt.name as role_name, rt.id as role_id
+         FROM users u
+         LEFT JOIN role_tree rt ON u.role_id = rt.id
+         WHERE u.id = $1`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT st.*, p.name as product_name
+         FROM sales_targets st
+         LEFT JOIN products p ON st.product_id = p.id
+         WHERE st.user_id = $1
+         AND st.period_start <= CURRENT_DATE
+         AND st.period_end >= CURRENT_DATE
+         ORDER BY st.created_at DESC
+         LIMIT 1`,
+        [userId]
+      ),
+      pool.query(`
+        SELECT id, title, status, priority, deadline
+        FROM tasks
+        WHERE assignee_id = $1 AND status != 'archived'
+        ORDER BY deadline ASC
+        LIMIT 10
+      `, [userId]).catch(() => ({ rows: [] })),
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(total_amount), 0) as total_amount,
+           COUNT(*) as total_transactions,
+           COUNT(DISTINCT product_id) as unique_products
+         FROM sales_transactions
+         WHERE user_id = $1
+         AND created_at >= CASE 
+           WHEN $2 = 'week' THEN CURRENT_DATE - INTERVAL '7 days'
+           WHEN $2 = 'month' THEN CURRENT_DATE - INTERVAL '1 month'
+           WHEN $2 = 'quarter' THEN CURRENT_DATE - INTERVAL '3 months'
+           ELSE CURRENT_DATE - INTERVAL '1 month'
+         END`,
+        [userId, period]
+      ),
+    ]);
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Сотрудник не найден' });
+    }
+    
+    const user = userResult.rows[0];
+    const kpi = kpiResult.rows[0] || null;
+    const tasks = tasksResult.rows || [];
+    const summary = summaryResult.rows[0];
+    
+    let kpiProgress = null;
+    if (kpi) {
+      const current = kpi.current_value || 0;
+      const target = kpi.target_value || 1;
+      kpiProgress = Math.min(100, Math.round((current / target) * 100));
+    }
+    
+    const taskStats = {
+      total: tasks.length,
+      completed: tasks.filter((t: any) => t.status === 'done').length,
+      in_progress: tasks.filter((t: any) => t.status === 'in_progress').length,
+      overdue: tasks.filter((t: any) => t.status === 'overdue').length,
+    };
+    
+    res.json({
+      user,
+      kpi: kpi ? { ...kpi, progress: kpiProgress } : null,
+      tasks,
+      taskStats,
+      summary,
+    });
+  } catch (err) {
+    console.error('Ошибка получения статистики сотрудника:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});

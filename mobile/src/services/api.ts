@@ -721,6 +721,14 @@ export const api = {
   getKnowledgeStats: (): Promise<KnowledgeStats> =>
     request<KnowledgeStats>('/api/knowledge/stats'),
   // Получить список подчинённых с их KPI (для руководителя)
+  // Выход из системы
+  logout: (): Promise<void> =>
+    request<void>('/api/auth/logout', { method: 'POST' }).catch(() => {}),
+
+  // Получить статистику конкретного сотрудника
+  getEmployeeStats: (userId: number, period: string = 'month') =>
+    request<any>(`/api/kpi/sales/employee/${userId}/stats?period=${period}`),
+
   getSubordinates: () =>
     request<any[]>("/api/kpi/sales/subordinates"),
 

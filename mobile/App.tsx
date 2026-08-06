@@ -25,6 +25,7 @@ import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
+import EmployeeStatsScreen from './src/screens/crm/EmployeeStatsScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
 import AssignKpiScreen from './src/screens/crm/AssignKpiScreen';
 import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
@@ -174,6 +175,11 @@ function KpiStackNavigator() {
         name="CreateUserRole"
         component={CreateUserRoleScreen}
         options={{ title: 'Новый пользователь', headerShown: false }}
+      />
+      <KpiStack.Screen
+        name="EmployeeStats"
+        component={EmployeeStatsScreen}
+        options={{ title: 'Статистика сотрудника', headerShown: false }}
       />
     </KpiStack.Navigator>
   );

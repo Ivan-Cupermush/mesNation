@@ -769,106 +769,75 @@ httpServer.listen(PORT, () => {
 app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const userId = parseInt(req.params.userId);
-    console.log("EmployeeStats request:", { userId, raw: req.params.userId, query: req.query });
-    if (isNaN(userId)) {
-      return res.status(400).json({ error: "Некорректный ID сотрудника" });
-    }
+    if (isNaN(userId)) return res.status(400).json({ error: 'Некорректный ID сотрудника' });
     const period = (req.query.period as string) || 'month';
-    
+
     const managerCheck = await pool.query(
-      `SELECT rt.name as role_name 
-       FROM users u 
-       LEFT JOIN role_tree rt ON u.role_id = rt.id 
-       WHERE u.id = $1`,
+      'SELECT rt.name as role_name FROM users u LEFT JOIN role_tree rt ON u.role_id = rt.id WHERE u.id = $1',
       [req.userId]
     );
-    
-    if (managerCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Пользователь не найден' });
-    }
-    
+    if (managerCheck.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
     const managerRole = managerCheck.rows[0].role_name;
     const isDirector = managerRole === 'director' || managerRole === 'admin';
-    const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('начальник') || managerRole?.includes('руководитель');
-    
-    if (!isDirector && !isManager) {
-      return res.status(403).json({ error: 'Нет прав для просмотра статистики других сотрудников' });
-    }
-    
-    const [userResult, kpiResult, tasksResult, summaryResult] = await Promise.all([
+    const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('руководитель') || managerRole?.includes('начальник');
+    if (!isDirector && !isManager) return res.status(403).json({ error: 'Нет прав' });
+
+    const dateFilter = period === 'week' ? "CURRENT_DATE - INTERVAL '7 days'"
+      : period === 'quarter' ? "CURRENT_DATE - INTERVAL '3 months'"
+      : "CURRENT_DATE - INTERVAL '1 month'";
+
+    const [userResult, kpisResult, tasksResult, summaryResult, txResult] = await Promise.all([
       pool.query(
-        `SELECT u.id, u.username, u.display_name, u.email, u.avatar_url,
-                rt.name as role_name, rt.id as role_id
-         FROM users u
-         LEFT JOIN role_tree rt ON u.role_id = rt.id
-         WHERE u.id = $1`,
+        'SELECT u.id, u.username, u.display_name, u.email, u.avatar_url, rt.name as role_name, rt.id as role_id FROM users u LEFT JOIN role_tree rt ON u.role_id = rt.id WHERE u.id = $1',
         [userId]
       ),
       pool.query(
-        `SELECT st.*
-         FROM sales_targets st
-         WHERE st.user_id = $1
-         AND st.period_start <= CURRENT_DATE
-         AND st.period_end >= CURRENT_DATE
-         ORDER BY st.created_at DESC
-         LIMIT 1`,
+        "SELECT st.*, ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1) as progress_percent FROM sales_targets st WHERE st.user_id = $1 AND st.period_start <= CURRENT_DATE AND st.period_end >= CURRENT_DATE ORDER BY st.created_at DESC",
         [userId]
       ).catch(() => ({ rows: [] })),
-      pool.query(`
-        SELECT id, title, status, priority, deadline
-        FROM tasks
-        WHERE assignee_id = $1 AND status != 'archived'
-        ORDER BY deadline ASC
-        LIMIT 10
-      `, [userId]).catch(() => ({ rows: [] })),
       pool.query(
-        `SELECT 
-           COALESCE(SUM(total_amount), 0) as total_amount,
-           COUNT(*) as total_transactions
-         FROM sales_transactions
-         WHERE user_id = $1
-         AND created_at >= CASE 
-           WHEN $2 = 'week' THEN CURRENT_DATE - INTERVAL '7 days'
-           WHEN $2 = 'month' THEN CURRENT_DATE - INTERVAL '1 month'
-           WHEN $2 = 'quarter' THEN CURRENT_DATE - INTERVAL '3 months'
-           ELSE CURRENT_DATE - INTERVAL '1 month'
-         END`,
-        [userId, period]
-      ).catch(() => ({ rows: [{ total_amount: 0, total_transactions: 0 }] })),
+        "SELECT id, title, status, priority, deadline FROM tasks WHERE assignee_id = $1 AND status != 'archived' ORDER BY deadline ASC LIMIT 10",
+        [userId]
+      ).catch(() => ({ rows: [] })),
+      pool.query(
+        "SELECT COALESCE(SUM(amount), 0) as total_amount, COALESCE(SUM(quantity), 0) as total_quantity, COUNT(*)::int as total_transactions FROM sales_transactions WHERE user_id = $1 AND transaction_date >= " + dateFilter,
+        [userId]
+      ).catch(() => ({ rows: [{ total_amount: 0, total_quantity: 0, total_transactions: 0 }] })),
+      pool.query(
+        "SELECT id, product_name, quantity, amount, transaction_date, client_name, notes FROM sales_transactions WHERE user_id = $1 AND transaction_date >= " + dateFilter + " ORDER BY transaction_date DESC, id DESC LIMIT 200",
+        [userId]
+      ).catch(() => ({ rows: [] })),
     ]);
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Сотрудник не найден' });
-    }
-    
+
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'Сотрудник не найден' });
+
     const user = userResult.rows[0];
-    const kpi = kpiResult.rows[0] || null;
+    const kpis = (kpisResult.rows || []).map((k) => ({
+      ...k,
+      progress: Math.min(100, Math.round(((k.current_value || 0) / Math.max(k.target_value || 1, 1)) * 100))
+    }));
     const tasks = tasksResult.rows || [];
-    const summary = summaryResult.rows[0];
-    
-    let kpiProgress = null;
-    if (kpi) {
-      const current = kpi.current_value || 0;
-      const target = kpi.target_value || 1;
-      kpiProgress = Math.min(100, Math.round((current / target) * 100));
-    }
-    
+    const summary = summaryResult.rows[0] || { total_amount: 0, total_quantity: 0, total_transactions: 0 };
+    const transactions = txResult.rows || [];
+
     const taskStats = {
       total: tasks.length,
-      completed: tasks.filter((t: any) => t.status === 'done').length,
-      in_progress: tasks.filter((t: any) => t.status === 'in_progress').length,
-      overdue: tasks.filter((t: any) => t.status === 'overdue').length,
+      completed: tasks.filter((t) => t.status === 'done').length,
+      in_progress: tasks.filter((t) => t.status === 'in_progress').length,
+      overdue: tasks.filter((t) => t.status === 'overdue').length,
     };
-    
+
     res.json({
       user,
-      kpi: kpi ? { ...kpi, progress: kpiProgress } : null,
+      kpi: kpis[0] || null,
+      kpis,
       tasks,
       taskStats,
       summary,
+      transactions,
     });
   } catch (err) {
-    console.error('Ошибка получения статистики сотрудника:', err);
+    console.error('Ошибка статистики сотрудника:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

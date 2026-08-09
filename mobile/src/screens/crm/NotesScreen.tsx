@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Calendar, Star, Plus, FileText } from 'lucide-react-native';
+import { Calendar, Star, Plus, FileText, BookOpen } from 'lucide-react-native';
 import { CalendarView } from '../../components/CalendarView';
 import { api, Note, DayWithNotes } from '../../services/api';
 
@@ -101,11 +101,9 @@ export default function NotesScreen({ navigation }: any) {
         activeOpacity={0.7}
       >
         <View style={styles.noteHeader}>
-          {item.is_favorite && (
-            <View style={styles.favoriteBadge}>
-              <Star size={14} color="#F59E0B" fill="#F59E0B" />
-            </View>
-          )}
+          <View style={styles.noteIconWrap}>
+            <BookOpen size={20} color="#1F7A52" strokeWidth={2.2} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.noteTitle} numberOfLines={1}>
               {item.title || 'Без названия'}
@@ -114,9 +112,11 @@ export default function NotesScreen({ navigation }: any) {
               {formatDate(new Date(item.note_date))}
             </Text>
           </View>
-          <View style={styles.noteIcon}>
-            <FileText size={20} color="#6F6F73" />
-          </View>
+          {item.is_favorite && (
+            <View style={styles.favoriteBadge}>
+              <Star size={16} color="#F59E0B" fill="#F59E0B" strokeWidth={2.2} />
+            </View>
+          )}
         </View>
         <Text style={styles.notePreview} numberOfLines={3}>
           {preview}
@@ -132,13 +132,14 @@ export default function NotesScreen({ navigation }: any) {
       {/* Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Заметки</Text>
+          <Text style={styles.title}>ЗАМЕТКИ</Text>
           <Text style={styles.subtitle}>
             {formatDate(selectedDate)}
           </Text>
         </View>
         <TouchableOpacity
           onPress={() => setFilter(filter === 'all' ? 'favorite' : 'all')}
+          activeOpacity={0.85}
           style={[
             styles.filterBtn,
             filter === 'favorite' && styles.filterBtnActive,
@@ -146,8 +147,9 @@ export default function NotesScreen({ navigation }: any) {
         >
           <Star
             size={20}
-            color={filter === 'favorite' ? '#FFFFFF' : '#6F6F73'}
-            fill={filter === 'favorite' ? '#FFFFFF' : 'none'}
+            color={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
+            fill={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
+            strokeWidth={2.2}
           />
         </TouchableOpacity>
       </View>
@@ -167,9 +169,11 @@ export default function NotesScreen({ navigation }: any) {
       <View style={styles.listContainer}>
         <View style={styles.listHeader}>
           <Text style={styles.listTitle}>
-            {filter === 'favorite' ? 'Избранные заметки' : `Заметки за ${formatDate(selectedDate)}`}
+            {filter === 'favorite' ? 'Избранные заметки' : `Записи за день`}
           </Text>
-          <Text style={styles.listCount}>{notes.length}</Text>
+          <View style={styles.listCountBadge}>
+            <Text style={styles.listCountText}>{notes.length}</Text>
+          </View>
         </View>
 
         {loading ? (
@@ -178,11 +182,13 @@ export default function NotesScreen({ navigation }: any) {
           </View>
         ) : notes.length === 0 ? (
           <View style={styles.emptyState}>
-            <FileText size={48} color="#D1D5DB" />
+            <View style={styles.emptyIconWrap}>
+              <FileText size={32} color="#9CA3AF" strokeWidth={1.8} />
+            </View>
             <Text style={styles.emptyTitle}>Нет заметок</Text>
             <Text style={styles.emptySubtitle}>
               {filter === 'favorite'
-                ? 'Добавьте заметки в избранное'
+                ? 'Добавьте заметки в избранное, нажав на звёздочку'
                 : 'Создайте первую заметку для этой даты'}
             </Text>
           </View>
@@ -201,26 +207,25 @@ export default function NotesScreen({ navigation }: any) {
       <TouchableOpacity
         style={styles.fab}
         onPress={handleCreateNote}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
       >
-        <Plus size={28} color="#FFFFFF" />
+        <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAF8',
-  },
+  container: { flex: 1, backgroundColor: '#FAFAF8' },
+
+  // ===== HEADER =====
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
@@ -231,79 +236,83 @@ const styles = StyleSheet.create({
     lineHeight: 44,
   },
   subtitle: {
-    fontSize: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
+    fontSize: 18,
+    fontStyle: 'italic',
     color: '#6F6F73',
     marginTop: 4,
-    fontWeight: '500',
   },
   filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 24,
+    elevation: 4,
   },
   filterBtnActive: {
-    backgroundColor: '#1F7A52',
+    backgroundColor: '#F59E0B',
   },
+
+  // ===== CALENDAR =====
   calendarContainer: {
     paddingHorizontal: 24,
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  listContainer: {
-    flex: 1,
-  },
+
+  // ===== LIST =====
+  listContainer: { flex: 1 },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   listTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#141414',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  listCount: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F7A52',
+  listCountBadge: {
     backgroundColor: '#D1FAE5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  listCountText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1F7A52',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
+
+  // ===== STATES =====
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1, justifyContent: 'center', alignItems: 'center',
     paddingHorizontal: 48,
   },
+  emptyIconWrap: {
+    width: 72, height: 72, borderRadius: 20, backgroundColor: '#F3F4F6',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 8,
+  },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#141414',
-    marginTop: 16,
+    fontSize: 18, fontWeight: '700', color: '#141414', marginTop: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: '#6F6F73',
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
+    fontSize: 14, color: '#6F6F73', marginTop: 8,
+    textAlign: 'center', lineHeight: 20, fontWeight: '500',
   },
+
+  // ===== NOTE CARDS =====
   listContent: {
     paddingHorizontal: 24,
     paddingBottom: 120,
@@ -324,34 +333,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  favoriteBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FEF3C7',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+  noteIconWrap: {
+    width: 44, height: 44, borderRadius: 14, backgroundColor: '#D1FAE5',
+    justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
   noteTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#141414',
-    marginBottom: 4,
+    marginBottom: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   noteDate: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6F6F73',
     fontWeight: '500',
   },
-  noteIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
+  favoriteBadge: {
+    width: 36, height: 36, borderRadius: 12, backgroundColor: '#FEF3C7',
+    justifyContent: 'center', alignItems: 'center', marginLeft: 12,
   },
   notePreview: {
     fontSize: 14,
@@ -359,13 +359,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '500',
   },
+
+  // ===== FAB =====
   fab: {
     position: 'absolute',
     right: 24,
     bottom: 24,
     width: 56,
     height: 56,
-    borderRadius: 18,
+    borderRadius: 28,
     backgroundColor: '#1F7A52',
     justifyContent: 'center',
     alignItems: 'center',

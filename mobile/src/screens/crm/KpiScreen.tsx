@@ -1,13 +1,13 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   RefreshControl, StatusBar, Animated, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
-  CheckCircle2, Clock, AlertCircle, Plus,
+  CheckCircle2, Clock, AlertCircle, Plus, Search,
 } from 'lucide-react-native';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
@@ -45,6 +45,7 @@ export default function KpiScreen({ navigation }: any) {
   const [tasks, setTasks] = useState<any[] | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -101,6 +102,10 @@ export default function KpiScreen({ navigation }: any) {
     });
     return { done, inWork, overdue };
   }, [tasks]);
+
+  const filteredSubs = subordinates.filter((s: any) =>
+    (s.display_name || s.username || '').toLowerCase().includes(searchQuery.toLowerCase().trim())
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -265,9 +270,27 @@ export default function KpiScreen({ navigation }: any) {
             <View style={styles.card}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                 <Users size={20} color="#1F7A52" />
-                <Text style={[styles.cardTitle, { marginLeft: 10 }]}>Команда</Text>
+                <Text style={[styles.cardTitle, { marginLeft: 10 }]}>Команда ({filteredSubs.length})</Text>
               </View>
-              {subordinates.map((sub: any, idx: number) => (
+              <View style={styles.searchBar}>
+                <Search size={18} color="#6F6F73" strokeWidth={2} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Поиск по имени..."
+                  placeholderTextColor="#BDBDBD"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1F7A52' }}>Сброс</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {filteredSubs.length === 0 && (
+                <Text style={styles.searchEmpty}>Никого не нашли</Text>
+              )}
+              {filteredSubs.map((sub: any, idx: number) => (
                 <TouchableOpacity
                   key={String(sub.user_id || idx)}
                   style={styles.subRow}
@@ -310,7 +333,7 @@ const styles = StyleSheet.create({
   header: { marginBottom: 20, paddingTop: 8 },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 56, fontWeight: '900', color: '#141414', letterSpacing: -1, lineHeight: 60,
+    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
   },
   subtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
@@ -405,6 +428,16 @@ const styles = StyleSheet.create({
     fontSize: 13, fontWeight: '700', color: '#1F7A52', backgroundColor: '#D1FAE5',
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden',
   },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB',
+    borderRadius: 14, paddingHorizontal: 12, height: 44, marginBottom: 8,
+    borderWidth: 1, borderColor: '#F3F4F6',
+  },
+  searchInput: {
+    flex: 1, marginLeft: 8, fontSize: 14, color: '#141414', fontWeight: '500',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
+  searchEmpty: { fontSize: 13, color: '#6F6F73', textAlign: 'center', paddingVertical: 12 },
 
   // ===== FAB =====
   fab: {

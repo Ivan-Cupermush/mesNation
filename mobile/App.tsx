@@ -152,7 +152,7 @@ function NotesStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
     <NotesStack.Navigator screenOptions={headerStyle}>
-      <NotesStack.Screen name="NotesHome" component={NotesScreen} options={{ title: 'Заметки' }} />
+      <NotesStack.Screen name="NotesHome" component={NotesScreen} options={{ headerShown: false }} />
       <NotesStack.Screen
         name="NoteEditor"
         component={NoteEditorScreen}
@@ -195,7 +195,7 @@ function KnowledgeStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
     <KnowledgeStack.Navigator screenOptions={headerStyle}>
-      <KnowledgeStack.Screen name="KnowledgeHome" component={KnowledgeScreen} options={{ title: 'База знаний' }} />
+      <KnowledgeStack.Screen name="KnowledgeHome" component={KnowledgeScreen} options={{ headerShown: false }} />
     </KnowledgeStack.Navigator>
   );
 }

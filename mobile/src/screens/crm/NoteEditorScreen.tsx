@@ -12,8 +12,11 @@ import {
   ActivityIndicator,
   StatusBar,
 } from 'react-native';
-import { useTheme } from '../../theme/ThemeContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, Note } from '../../services/api';
+import {
+  ArrowLeft, Star, Check, PenLine, Calendar,
+} from 'lucide-react-native';
 
 // Форматируем дату в локальное YYYY-MM-DD
 const formatLocalDate = (date: Date): string => {
@@ -24,7 +27,6 @@ const formatLocalDate = (date: Date): string => {
 };
 
 export default function NoteEditorScreen({ route, navigation }: any) {
-  const { colors } = useTheme();
   const { noteId, noteDate } = route.params || {};
   
   const [note, setNote] = useState<Note | null>(null);
@@ -156,211 +158,215 @@ export default function NoteEditorScreen({ route, navigation }: any) {
 
   if (loading) {
     return (
-      <View style={[styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1F7A52" />
+      </SafeAreaView>
     );
   }
 
   const isEditing = !!note;
-  const saveButtonText = saving 
-    ? 'Сохраняю...' 
-    : (isEditing ? 'Сохранить' : 'Добавить');
   const saveButtonEnabled = !saving && (title.trim().length > 0 || content.trim().length > 0);
+  const currentNoteDate = note 
+    ? formatDate(note.note_date) 
+    : formatDate(noteDate || formatLocalDate(new Date()));
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar 
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'} 
-        backgroundColor={colors.background}
-      />
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
       
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <View 
-          style={[
-            styles.header, 
-            { 
-              borderBottomColor: colors.border,
-              paddingTop: (StatusBar.currentHeight || 24) + 8,
-            }
-          ]}
-        >
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Text style={[styles.backButtonText, { color: colors.accent }]}>
-              ← Назад
-            </Text>
+        {/* Header row */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.85}>
+            <ArrowLeft size={22} color="#141414" strokeWidth={2.2} />
           </TouchableOpacity>
           
           <View style={styles.headerCenter}>
             {isEditing && hasChanges() && (
-              <View style={[styles.unsavedDot, { backgroundColor: colors.accent }]} />
+              <View style={styles.unsavedDot} />
             )}
           </View>
 
           <TouchableOpacity
             onPress={toggleFavorite}
-            style={styles.favoriteButton}
+            activeOpacity={0.85}
+            style={[styles.iconBtn, isFavorite && styles.iconBtnActiveFav]}
           >
-            <Text style={{ fontSize: 24 }}>
-              {isFavorite ? '🚩' : '⚑'}
-            </Text>
+            <Star
+              size={20}
+              color={isFavorite ? '#FFFFFF' : '#F59E0B'}
+              fill={isFavorite ? '#FFFFFF' : '#F59E0B'}
+              strokeWidth={2.2}
+            />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.saveButtonWrapper}>
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={!saveButtonEnabled}
-            style={[
-              styles.saveButton,
-              {
-                backgroundColor: saveButtonEnabled ? colors.accent : colors.surface,
-                borderColor: colors.border,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.saveButtonText,
-                { color: saveButtonEnabled ? colors.onAccent : colors.textMuted },
-              ]}
-            >
-              {saveButtonText}
-            </Text>
-          </TouchableOpacity>
+        {/* Big premium title */}
+        <View style={styles.heroHeader}>
+          <Text style={styles.bigTitle}>
+            {isEditing ? 'РЕДАКТИРОВАНИЕ' : 'НОВАЯ ЗАМЕТКА'}
+          </Text>
+          <View style={styles.dateRow}>
+            <Calendar size={14} color="#6F6F73" strokeWidth={2.2} />
+            <Text style={styles.bigSubtitle}>{currentNoteDate}</Text>
+          </View>
         </View>
 
+        {/* Content */}
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.dateText, { color: colors.textSecondary }]}>
-            {note 
-              ? formatDate(note.note_date) 
-              : formatDate(noteDate || formatLocalDate(new Date()))}
-          </Text>
-
           <TextInput
             ref={titleInputRef}
-            style={[styles.titleInput, { color: colors.textPrimary }]}
+            style={styles.titleInput}
             value={title}
             onChangeText={setTitle}
-            placeholder="Заголовок"
-            placeholderTextColor={colors.textMuted}
+            placeholder="Заголовок заметки"
+            placeholderTextColor="#BDBDBD"
             multiline={false}
             returnKeyType="next"
           />
 
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.divider} />
 
-          <TextInput
-            style={[styles.contentInput, { color: colors.textPrimary }]}
-            value={content}
-            onChangeText={setContent}
-            placeholder="Напишите свои мысли..."
-            placeholderTextColor={colors.textMuted}
-            multiline
-            textAlignVertical="top"
-            scrollEnabled={false}
-          />
+          <View style={styles.contentRow}>
+            <PenLine size={18} color="#BDBDBD" strokeWidth={2} style={{ marginTop: 4 }} />
+            <TextInput
+              style={styles.contentInput}
+              value={content}
+              onChangeText={setContent}
+              placeholder="Напишите свои мысли..."
+              placeholderTextColor="#BDBDBD"
+              multiline
+              textAlignVertical="top"
+              scrollEnabled={false}
+            />
+          </View>
         </ScrollView>
+
+        {/* Floating Save button */}
+        <TouchableOpacity
+          onPress={handleSave}
+          disabled={!saveButtonEnabled}
+          activeOpacity={0.85}
+          style={[
+            styles.fab,
+            !saveButtonEnabled && styles.fabDisabled,
+          ]}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Check size={22} color="#FFFFFF" strokeWidth={2.8} />
+              <Text style={styles.fabText}>
+                {isEditing ? 'Сохранить' : 'Создать'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAFAF8' },
+
+  // ===== HEADER ROW =====
+  headerRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 12,
   },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  backBtn: {
+    width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFFFFF',
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backButton: {
-    padding: 8,
-    minWidth: 70,
-  },
-  backButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
+  headerCenter: { flex: 1, alignItems: 'center' },
   unsavedDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10, height: 10, borderRadius: 5, backgroundColor: '#1F7A52',
   },
-  favoriteButton: {
-    padding: 8,
-    minWidth: 44,
-    alignItems: 'center',
+  iconBtn: {
+    width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFFFFF',
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
-  saveButtonWrapper: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
+  iconBtnActiveFav: { backgroundColor: '#F59E0B' },
+
+  // ===== HERO HEADER =====
+  heroHeader: { paddingHorizontal: 24, marginBottom: 20, paddingTop: 8 },
+  bigTitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
+    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
   },
-  saveButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  bigSubtitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
+    fontSize: 18, fontStyle: 'italic', color: '#6F6F73',
   },
-  saveButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 100,
-  },
-  dateText: {
-    fontSize: 13,
-    marginBottom: 16,
-  },
+
+  // ===== CONTENT =====
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 24, paddingBottom: 120 },
   titleInput: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 12,
+    fontSize: 32,
+    fontWeight: '800',
+    marginBottom: 16,
     padding: 0,
+    color: '#141414',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   divider: {
-    height: StyleSheet.hairlineWidth,
-    marginBottom: 16,
+    height: 1,
+    backgroundColor: '#ECECE8',
+    marginBottom: 20,
   },
+  contentRow: { flexDirection: 'row' },
   contentInput: {
+    flex: 1,
     fontSize: 17,
-    lineHeight: 24,
-    minHeight: 200,
+    lineHeight: 26,
+    minHeight: 300,
     padding: 0,
+    paddingLeft: 12,
+    color: '#141414',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif',
+    fontWeight: '500',
+  },
+
+  // ===== FAB (Save button) =====
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 22,
+    backgroundColor: '#1F7A52',
+    shadowColor: '#1F7A52',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  fabDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0.1 },
+  fabText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 });

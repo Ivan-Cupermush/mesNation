@@ -170,7 +170,7 @@ function KpiStackNavigator() {
       <KpiStack.Screen name="KpiHome" component={KpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="AddProductKpi" component={AddProductKpiScreen} options={{ headerShown: false }} />
-      <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
+      <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ headerShown: false }} />
       <KpiStack.Screen
         name="RoleTreeEditor"
         component={RoleTreeEditorScreen}
@@ -221,7 +221,7 @@ function SettingsStackNavigator() {
     <SettingsStack.Navigator screenOptions={headerStyle}>
       <SettingsStack.Screen name="SettingsHome" component={SettingsScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
-      <SettingsStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ title: 'Импорт Excel' }} />
+      <SettingsStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ title: 'Дерево прав', headerShown: false }} />
       <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
     </SettingsStack.Navigator>

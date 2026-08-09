@@ -156,7 +156,7 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
 });
 
 // POST /api/kpi/sales/targets — создать СЕБЕ товарный KPI (любой юзер)
-router.post('/targets', async (req: Request, res: Response) => {
+router.post('/targets_disabled', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const {
@@ -205,7 +205,7 @@ router.post('/targets', async (req: Request, res: Response) => {
 // POST /api/kpi/sales/targets/personal-monthly — назначить личный план подчинённому
 // С проверкой иерархии через role_tree
 router.post(
-  '/targets/personal-monthly',
+  '/targets/personal-monthly_disabled',
   requireManagerOf((req) => req.body.user_id),
   async (req: Request, res: Response) => {
     try {
@@ -837,7 +837,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
 });
 
 // POST /api/kpi/sales/targets/assign — назначить KPI подчинённому
-router.post('/targets/assign', async (req: Request, res: Response) => {
+router.post('/targets/assign_disabled', async (req: Request, res: Response) => {
   try {
     const managerId = (req as any).userId;
     const {
@@ -894,3 +894,315 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
 });
 
 
+
+// ===================== ОБНОВЛЕНИЕ KPI ИЗ ОТЧЕТА ПРОДАЖ =====================
+router.post('/import-report', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+
+    const workbook = xlsx.readFile(file.path);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+    const parseNum = (v: any): number => {
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+    const lastNum = (cells: string[]) => parseNum(cells[cells.length - 1]);
+
+    let periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    let periodEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
+    
+    for (const r of rows) {
+      const rowStr = (r as any[]).map((c) => String(c ?? '').trim()).join(' ');
+      if (rowStr.toLowerCase().includes('период:')) {
+        const match = rowStr.match(/(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})/);
+        if (match) {
+          const [_, startStr, endStr] = match;
+          const [d1, m1, y1] = startStr.split('.');
+          const [d2, m2, y2] = endStr.split('.');
+          periodStart = new Date(parseInt(y1), parseInt(m1) - 1, parseInt(d1));
+          periodEnd = new Date(parseInt(y2), parseInt(m2) - 1, parseInt(d2), 23, 59, 59);
+        }
+        break;
+      }
+    }
+
+    const managerNames = new Set<string>();
+    let flag = false;
+    for (const r of rows) {
+      const cells = (r as any[]).map((c) => String(c ?? '').trim());
+      const first = cells[0] || '';
+      if (first.includes('По менеджерам')) { flag = true; continue; }
+      if (flag && first !== '') { managerNames.add(first); continue; }
+      if (first === '') flag = false;
+    }
+
+    const perManager: Record<string, { total: number; ep: number }> = {};
+    let currentManager: string | null = null;
+    
+    for (const r of rows) {
+      const cells = (r as any[]).map((c) => String(c ?? '').trim());
+      const first = cells[0] || '';
+      
+      if (first !== '') {
+        if (managerNames.has(first)) {
+          currentManager = first;
+          if (!perManager[first]) perManager[first] = { total: 0, ep: 0 };
+          perManager[first].total += lastNum(cells);
+        }
+        continue;
+      }
+      
+      if (currentManager && cells.some((c) => c.toLowerCase().includes('естьповод') || c.toLowerCase().includes('есть повод'))) {
+        perManager[currentManager].ep += lastNum(cells);
+      }
+    }
+
+    const results: any[] = [];
+    for (const name of Object.keys(perManager)) {
+      const total = Math.round(perManager[name].total * 100) / 100;
+      const ep = Math.round(perManager[name].ep * 100) / 100;
+      const noEp = Math.round((total - ep) * 100) / 100;
+
+      const cleanName = name.trim();
+      const userRes = await pool.query(
+        `SELECT id, display_name, username FROM users 
+         WHERE TRIM(display_name) = $1 OR TRIM(username) = $1 
+         OR display_name ILIKE '%' || $1 || '%' 
+         LIMIT 1`,
+        [cleanName]
+      );
+
+      if (userRes.rows.length === 0) {
+        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Пользователь не найден' });
+        continue;
+      }
+
+      const uid = userRes.rows[0].id;
+
+      const r1 = await pool.query(
+        `UPDATE sales_targets 
+         SET current_value = $1, updated_at = NOW() 
+         WHERE user_id = $2 
+           AND (product_name ILIKE '%без ЕП%' OR product_name ILIKE '%без еп%')
+           AND period_start <= $3 AND period_end >= $3`,
+        [noEp, uid, periodStart]
+      );
+
+      const r2 = await pool.query(
+        `UPDATE sales_targets 
+         SET current_value = $1, updated_at = NOW() 
+         WHERE user_id = $2 
+           AND (product_name ILIKE '%есть подод%' OR product_name ILIKE '%естьповод%')
+           AND period_start <= $3 AND period_end >= $3`,
+        [ep, uid, periodStart]
+      );
+
+      const updatedCount = (r1.rowCount || 0) + (r2.rowCount || 0);
+      
+      results.push({ 
+        manager: name, 
+        user: userRes.rows[0].display_name || userRes.rows[0].username,
+        total, ep, noEp, 
+        updated: updatedCount > 0,
+        targetsUpdated: updatedCount
+      });
+    }
+
+    try { fs.unlinkSync(file.path); } catch (e) {}
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Ошибка импорта отчёта:', error);
+    res.status(500).json({ error: 'Ошибка обработки отчёта' });
+  }
+});
+
+
+router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+
+    const workbook = xlsx.readFile(file.path);
+    const cellStr = (v: any) => String(v === undefined || v === null ? '' : v).trim();
+    const parseNum = (v: any): number => {
+      const s = cellStr(v);
+      if (!s) return 0;
+      if (/^да$/i.test(s)) return 1;
+      const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    const results: any[] = [];
+
+    for (const sheetName of workbook.SheetNames) {
+      const rows: any[][] = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+      if (!rows.length) continue;
+
+      let employee = '';
+      for (const r of rows.slice(0, 3)) {
+        const v = cellStr(r[0]);
+        if (v && !/\d{1,2}\/\d{2}/.test(v) && !/факт/i.test(v)) { employee = v; break; }
+      }
+      if (!employee) continue;
+
+      const kpis: Record<string, { target: number; current: number }> = {};
+      let cur = '';
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i] as any[];
+        const c0 = cellStr(r[0]);
+        const c1 = cellStr(r[1]).toLowerCase();
+        if (c0) {
+          if (/^итого/i.test(c0)) { cur = ''; continue; }
+          cur = c0;
+          if (!kpis[cur]) kpis[cur] = { target: 0, current: 0 };
+        }
+        if (!cur) continue;
+        if (c1.includes('план')) {
+          kpis[cur].target = parseNum(r[2]);
+        } else if (c1.includes('факт')) {
+          if (!kpis[cur].target) kpis[cur].target = parseNum(r[2]);
+          kpis[cur].current = parseNum(r[3]);
+        } else if (!c1 && (cellStr(r[2]) || cellStr(r[3]))) {
+          kpis[cur].target = parseNum(r[2]);
+          kpis[cur].current = parseNum(r[3]);
+        }
+      }
+
+      const userRes = await pool.query(
+        "SELECT id, display_name, username FROM users WHERE display_name ILIKE '%' || $1 || '%' OR username ILIKE $1 LIMIT 1",
+        [employee]
+      );
+      if (!userRes.rows.length) { results.push({ employee, error: 'сотрудник не найден' }); continue; }
+      const uid = userRes.rows[0].id;
+
+      let created = 0, updated = 0;
+      for (const name of Object.keys(kpis)) {
+        const t = kpis[name];
+        const metric = /руб/i.test(name) ? 'amount' : 'quantity';
+        const ex = await pool.query("SELECT id FROM sales_targets WHERE user_id = $1 AND product_name = $2 LIMIT 1", [uid, name]);
+        if (ex.rows.length) {
+          await pool.query("UPDATE sales_targets SET target_value = $1, current_value = $2, updated_at = NOW() WHERE id = $3", [t.target, t.current, ex.rows[0].id]);
+          updated++;
+        } else {
+          await pool.query(
+            "INSERT INTO sales_targets (user_id, product_name, metric_type, target_value, current_value, period_start, period_end, is_personal_monthly_target) VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', FALSE)",
+            [uid, name, metric, t.target, t.current]
+          );
+          created++;
+        }
+      }
+      results.push({ employee, user: userRes.rows[0].display_name || userRes.rows[0].username, created, updated, kpis: Object.keys(kpis).length });
+    }
+
+    try { fs.unlinkSync(file.path); } catch (e) {}
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Ошибка импорта плана KPI:', error);
+    res.status(500).json({ error: 'Ошибка обработки файла плана' });
+  }
+});
+
+router.post('/import-report', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+
+    const workbook = xlsx.readFile(file.path);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+    const parseNum = (v: any): number => {
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    const results: any[] = [];
+    let currentManager = '';
+    let managerTotal = 0;
+    let epTotal = 0;
+    let parsingManagers = false;
+
+    for (const r of rows) {
+      const cells = (r as any[]).map((c) => String(c ?? '').trim());
+      const first = cells[0] || '';
+      const lastVal = parseNum(cells[cells.length - 1]);
+
+      if (first.toLowerCase().includes('по менеджерам')) {
+        parsingManagers = true;
+        continue;
+      }
+      if (first.toLowerCase().includes('итого')) {
+        break;
+      }
+
+      if (parsingManagers) {
+        if (first !== '') {
+          if (currentManager) {
+            results.push({ manager: currentManager, total: managerTotal, ep: epTotal });
+          }
+          currentManager = first;
+          managerTotal = lastVal;
+          epTotal = 0;
+        } else {
+          const rowStr = cells.join(' ').toLowerCase();
+          if (rowStr.includes('естьповод') || rowStr.includes('есть повод')) {
+            epTotal += lastVal;
+          }
+        }
+      }
+    }
+    if (currentManager) {
+      results.push({ manager: currentManager, total: managerTotal, ep: epTotal });
+    }
+
+    const updatedResults = [];
+    for (const resItem of results) {
+      const noEp = Math.round((resItem.total - resItem.ep) * 100) / 100;
+      const ep = Math.round(resItem.ep * 100) / 100;
+      
+      const userRes = await pool.query(
+        `SELECT id, display_name, username FROM users 
+         WHERE TRIM(display_name) = $1 OR TRIM(username) = $1 
+         OR display_name ILIKE '%' || $1 || '%' LIMIT 1`,
+        [resItem.manager]
+      );
+
+      if (userRes.rows.length === 0) {
+        updatedResults.push({ manager: resItem.manager, status: 'not_found' });
+        continue;
+      }
+
+      const uid = userRes.rows[0].id;
+      await pool.query(
+        `UPDATE sales_targets SET current_value = $1, updated_at = NOW() 
+         WHERE user_id = $2 AND (product_name ILIKE '%без еп%' OR product_name ILIKE '%без еп%')`,
+        [noEp, uid]
+      );
+      await pool.query(
+        `UPDATE sales_targets SET current_value = $1, updated_at = NOW() 
+         WHERE user_id = $2 AND (product_name ILIKE '%есть подод%' OR product_name ILIKE '%естьповод%')`,
+        [ep, uid]
+      );
+
+      updatedResults.push({ 
+        manager: resItem.manager, 
+        db_name: userRes.rows[0].display_name, 
+        total: resItem.total, 
+        noEp, 
+        ep, 
+        status: 'updated' 
+      });
+    }
+
+    try { fs.unlinkSync(file.path); } catch (e) {}
+    res.json({ success: true, results: updatedResults });
+  } catch (error) {
+    console.error('Ошибка импорта отчёта:', error);
+    res.status(500).json({ error: 'Ошибка обработки файла' });
+  }
+});

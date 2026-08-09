@@ -747,6 +747,40 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  importKpiReport: async (fileUri: string, fileName: string, fileType: string) => {
+    const token = await getToken();
+    if (!token) throw new Error('Нет токена');
+    const formData = new FormData();
+    formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
+    const res = await fetch(`${SERVER_URL}/api/kpi/sales/import-report`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+      body: formData,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({} as any));
+      throw new Error((e as any).error || 'Ошибка импорта отчёта');
+    }
+    return res.json();
+  },
+
+  importReport: async (fileUri: string, fileName: string, fileType: string) => {
+    const token = await getToken();
+    if (!token) throw new Error('Нет токена');
+    const formData = new FormData();
+    formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
+    const res = await fetch(`${SERVER_URL}/api/kpi/sales/import-report`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+      body: formData,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({} as any));
+      throw new Error((e as any).error || 'Ошибка импорта отчёта');
+    }
+    return res.json();
+  },
 };
 
   // Импорт KPI из Excel

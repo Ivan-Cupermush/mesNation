@@ -6,8 +6,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  Target, Users, DollarSign, ShoppingCart, Receipt,
-  CheckCircle2, Clock, AlertCircle,
+  Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
+  CheckCircle2, Clock, AlertCircle, Plus,
 } from 'lucide-react-native';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
@@ -82,9 +82,9 @@ export default function KpiScreen({ navigation }: any) {
   }));
 
   const kpis = fact ? [
-    { label: 'Выручка', value: fmt(fact.total_amount), icon: DollarSign, color: '#1F7A52' },
-    { label: 'Сделки', value: String(fact.total_transactions), icon: ShoppingCart, color: '#3B82F6' },
-    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—', icon: Receipt, color: '#F59E0B' },
+    { label: 'Выручка', value: fmt(fact.total_amount), icon: Wallet, color: '#1F7A52', bg: '#D1FAE5' },
+    { label: 'Сделки', value: String(fact.total_transactions), icon: TrendingUp, color: '#3B82F6', bg: '#DBEAFE' },
+    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—', icon: CreditCard, color: '#F59E0B', bg: '#FEF3C7' },
   ] : [];
 
   const taskStats = useMemo(() => {
@@ -112,7 +112,7 @@ export default function KpiScreen({ navigation }: any) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Статистика</Text>
+          <Text style={styles.title}>СТАТИСТИКА</Text>
           <Text style={styles.subtitle}>
             {currentUser ? `${currentUser.display_name || currentUser.username}` : 'Продажи и динамика'}
           </Text>
@@ -137,7 +137,7 @@ export default function KpiScreen({ navigation }: any) {
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={[styles.cardIcon, { backgroundColor: '#D1FAE5' }]}>
-                  <Target size={22} color="#1F7A52" />
+                  <Trophy size={22} color="#1F7A52" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>Общий план на месяц</Text>
@@ -160,7 +160,7 @@ export default function KpiScreen({ navigation }: any) {
               <View key={String(t.id)} style={[styles.card, { marginBottom: 12 }]}>
                 <View style={styles.cardHeader}>
                   <View style={[styles.cardIcon, { backgroundColor: '#E0E7FF' }]}>
-                    <Target size={22} color="#3B82F6" />
+                    <Medal size={22} color="#3B82F6" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardTitle}>{t.product_name}</Text>
@@ -187,8 +187,8 @@ export default function KpiScreen({ navigation }: any) {
                 const Icon = k.icon;
                 return (
                   <View key={idx} style={styles.statCard}>
-                    <View style={[styles.statIcon, { backgroundColor: k.color }]}>
-                      <Icon size={22} color="#fff" />
+                    <View style={[styles.statIcon, { backgroundColor: k.bg }]}>
+                      <Icon size={22} color={k.color} strokeWidth={2.2} />
                     </View>
                     <Text style={styles.statValue}>{k.value}</Text>
                     <Text style={styles.statLabel}>{k.label}</Text>
@@ -287,68 +287,140 @@ export default function KpiScreen({ navigation }: any) {
           </FadeIn>
         )}
 
-        <View style={{ height: 80 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* FAB — добавить / обновить KPI */}
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.85}
+        onPress={() => navigation.navigate('ImportExcel')}
+      >
+        <Plus size={26} color="#fff" strokeWidth={2.5} />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FAFAF8' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8 },
-  header: { marginBottom: 16 },
+  scrollContent: { paddingHorizontal: 24, paddingTop: 8 },
+
+  // ===== HEADER (премиум) =====
+  header: { marginBottom: 20, paddingTop: 8 },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 38, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 42,
+    fontSize: 56, fontWeight: '900', color: '#141414', letterSpacing: -1, lineHeight: 60,
   },
-  subtitle: { fontSize: 15, color: '#6F6F73', marginTop: 2, fontWeight: '500' },
+  subtitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
+    fontSize: 18, fontStyle: 'italic', color: '#6F6F73', marginTop: 4,
+  },
+
+  // ===== PERIOD SWITCH =====
   periodSwitch: {
-    flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 4, marginBottom: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+    flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 18, padding: 4, marginBottom: 20,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
-  periodBtn: { flex: 1, height: 38, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  periodBtn: { flex: 1, height: 40, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
   periodBtnActive: { backgroundColor: '#1F7A52' },
-  periodText: { fontSize: 13, fontWeight: '600', color: '#6F6F73' },
-  periodTextActive: { color: '#fff' },
-  sectionTitle: { fontSize: 19, fontWeight: '700', color: '#141414', marginBottom: 10, marginTop: 4 },
-  card: {
-    backgroundColor: '#fff', borderRadius: 20, padding: 18, marginBottom: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+  periodText: {
+    fontSize: 14, fontWeight: '600', color: '#6F6F73',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  cardIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  cardTitle: { fontSize: 17, fontWeight: '700', color: '#141414' },
+  periodTextActive: { color: '#FFFFFF' },
+
+  sectionTitle: {
+    fontSize: 20, fontWeight: '800', color: '#141414', marginBottom: 12, marginTop: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
+
+  // ===== CARD =====
+  card: {
+    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 20, marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  cardIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  cardTitle: {
+    fontSize: 17, fontWeight: '700', color: '#141414',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   cardSubtitle: { fontSize: 12, color: '#6F6F73', fontWeight: '500', marginTop: 2 },
   percentBadge: {
     fontSize: 13, fontWeight: '800', color: '#1F7A52', backgroundColor: '#D1FAE5',
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, overflow: 'hidden',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden',
   },
   progressBarBg: { height: 8, backgroundColor: '#F3F4F6', borderRadius: 4, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: '#1F7A52', borderRadius: 4 },
   progressText: { fontSize: 12, color: '#6F6F73', fontWeight: '600', marginTop: 8, textAlign: 'right' },
-  statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+
+  // ===== STATS GRID =====
+  statsGrid: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   statCard: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 20, padding: 14, alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
-  statIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  statValue: { fontSize: 18, fontWeight: '700', color: '#141414', marginBottom: 2 },
+  statIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  statValue: {
+    fontSize: 18, fontWeight: '800', color: '#141414', marginBottom: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   statLabel: { fontSize: 11, color: '#6F6F73', fontWeight: '600' },
-  tasksRow: { flexDirection: 'row', marginTop: 12 },
-  taskCell: { flex: 1, alignItems: 'center', backgroundColor: '#F9FAFB', borderRadius: 14, paddingVertical: 12 },
-  taskValue: { fontSize: 20, fontWeight: '800', color: '#141414', marginTop: 6 },
+
+  // ===== TASKS =====
+  tasksRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
+  taskCell: { flex: 1, alignItems: 'center', backgroundColor: '#F9FAFB', borderRadius: 16, paddingVertical: 14 },
+  taskValue: {
+    fontSize: 22, fontWeight: '800', color: '#141414', marginTop: 6,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   taskLabel: { fontSize: 11, color: '#6F6F73', fontWeight: '600', marginTop: 2 },
-  txRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 12 },
+
+  // ===== TRANSACTIONS =====
+  txRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14 },
   txRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  txIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#D1FAE5', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  txProduct: { fontSize: 14, fontWeight: '700', color: '#141414', marginBottom: 2 },
+  txIconWrap: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D1FAE5', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  txProduct: {
+    fontSize: 14, fontWeight: '700', color: '#141414', marginBottom: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   txMeta: { fontSize: 11, color: '#6F6F73', fontWeight: '500' },
-  txAmount: { fontSize: 14, fontWeight: '700', color: '#1F7A52' },
+  txAmount: {
+    fontSize: 14, fontWeight: '700', color: '#1F7A52',
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   txQty: { fontSize: 10, color: '#6F6F73', fontWeight: '500', marginTop: 2 },
-  subRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  subAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#1F7A52', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+
+  // ===== SUBORDINATES =====
+  subRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  subAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1F7A52', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   subAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  subName: { fontSize: 14, fontWeight: '600', color: '#141414', marginBottom: 2 },
+  subName: {
+    fontSize: 14, fontWeight: '700', color: '#141414', marginBottom: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
   subRole: { fontSize: 11, color: '#6F6F73', fontWeight: '500' },
-  subKpi: { fontSize: 13, fontWeight: '700', color: '#1F7A52', backgroundColor: '#D1FAE5', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden' },
+  subKpi: {
+    fontSize: 13, fontWeight: '700', color: '#1F7A52', backgroundColor: '#D1FAE5',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden',
+  },
+
+  // ===== FAB =====
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1F7A52',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#1F7A52',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
 });

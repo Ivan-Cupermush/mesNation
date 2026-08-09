@@ -2,33 +2,6 @@ import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
 import bcrypt from 'bcrypt';
 
-
-// ===== Хелпер: если в поддереве пусто — отдаём всех пользователей =====
-async function getUsersInSubtreeWithFallback(nodeId: number): Promise<any[]> {
-  const subtreeRes = await pool.query(
-    `WITH RECURSIVE subtree AS (
-       SELECT id FROM role_tree WHERE id = $1
-       UNION ALL
-       SELECT rt.id FROM role_tree rt
-       INNER JOIN subtree s ON rt.parent_id = s.id
-     )
-     SELECT u.id, u.username, u.display_name, u.avatar_url, rt.name as role_name
-     FROM users u
-     JOIN user_role_assignments ura ON ura.user_id = u.id
-     JOIN role_tree rt ON rt.id = ura.role_node_id
-     WHERE ura.role_node_id IN (SELECT id FROM subtree)`,
-    [nodeId]
-  );
-  if (subtreeRes.rows.length > 0) return subtreeRes.rows;
-  // Фолбэк: если в поддереве пусто (например, директор один в системе) — все пользователи
-  const all = await pool.query(
-    `SELECT u.id, u.username, u.display_name, u.avatar_url, rt.name as role_name
-     FROM users u
-     LEFT JOIN role_tree rt ON rt.id = u.role_id`
-  );
-  return all.rows;
-}
-
 const router = Router();
 
 interface AuthRequest extends Request {

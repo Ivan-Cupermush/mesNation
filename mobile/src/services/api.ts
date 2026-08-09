@@ -329,16 +329,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
-  getCurrentUser: () => request<{
-    id: number;
-    username: string;
-    email: string;
-    display_name: string;
-    avatar_url: string | null;
-    role_id: number;
-    role_name?: string;
-    department_id: number | null;
-  }>('/api/auth/me'),
+  getCurrentUser: () =>
+    request<{
+      id: number;
+      username: string;
+      email: string;
+      display_name: string;
+      avatar_url: string | null;
+      role_id: number;
+      role_name?: string;
+      department_id: number | null;
+    }>('/api/auth/me'),
 
   // ==================== ЗАДАЧИ (Tasks) ====================
   getTasks: (params?: {
@@ -465,13 +466,38 @@ export const api = {
   /**
    * Получает всех пользователей из поддерева текущего юзера.
    * Используется в CreateTaskScreen для выбора исполнителей/наблюдателей.
+   * 
+   * Фолбэк: если в поддереве пусто (директор один в системе) — 
+   * берём всех пользователей системы через /api/users
    */
   getSubtreeUsers: async (): Promise<UserInSubtree[]> => {
     try {
       const me = await api.getCurrentUser();
       if (!me.role_id) return [];
-      const users = await api.getUsersInSubtree(me.role_id);
-      // Исключаем самого себя (создатель не может быть исполнителем у самого себя в большинстве случаев)
+      
+      // Пробуем получить поддерево
+      const users = await api.getUsersInSubtree(me.role_id).catch(() => []);
+      
+      // Фолбэк: если поддерево пустое — берём всех пользователей
+      if (!users || users.length === 0) {
+        try {
+          const allUsers = await request<any[]>('/api/users');
+          const mapped: UserInSubtree[] = (allUsers || []).map((u: any) => ({
+            id: u.id,
+            username: u.username,
+            display_name: u.display_name || u.username,
+            avatar_url: u.avatar_url || null,
+            role_name: 'Сотрудник',
+          }));
+          // Исключаем себя
+          return mapped.filter((u) => u.id !== me.id);
+        } catch (fallbackErr) {
+          console.log('getSubtreeUsers fallback error:', fallbackErr);
+          return [];
+        }
+      }
+      
+      // Исключаем самого себя
       return users.filter((u) => u.id !== me.id);
     } catch (e) {
       console.log('getSubtreeUsers error:', e);
@@ -720,17 +746,12 @@ export const api = {
 
   getKnowledgeStats: (): Promise<KnowledgeStats> =>
     request<KnowledgeStats>('/api/knowledge/stats'),
-  // Получить список подчинённых с их KPI (для руководителя)
-  // Выход из системы
-  logout: (): Promise<void> =>
-    request<void>('/api/auth/logout', { method: 'POST' }).catch(() => {}),
 
   // Получить статистику конкретного сотрудника
   getEmployeeStats: (userId: number, period: string = 'month') =>
     request<any>(`/api/kpi/sales/employee/${userId}/stats?period=${period}`),
 
-  getSubordinates: () =>
-    request<any[]>("/api/kpi/sales/subordinates"),
+  getSubordinates: () => request<any[]>('/api/kpi/sales/subordinates'),
 
   // Назначить KPI подчинённому
   assignTarget: (data: {
@@ -743,8 +764,8 @@ export const api = {
     period_end?: string;
     description?: string;
   }) =>
-    request<SalesTarget>("/api/kpi/sales/targets/assign", {
-      method: "POST",
+    request<SalesTarget>('/api/kpi/sales/targets/assign', {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 
@@ -781,6 +802,8 @@ export const api = {
     }
     return res.json();
   },
-};
 
-  // Импорт KPI из Excel
+  // Выход из системы
+  logout: (): Promise<void> =>
+    request<void>('/api/auth/logout', { method: 'POST' }).catch(() => {}),
+};

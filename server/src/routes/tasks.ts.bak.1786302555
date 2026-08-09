@@ -70,8 +70,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     // 🆕 По умолчанию не показываем архив (кроме когда явно просят)
     if (include_archived === 'true') {
-      // include_archived=true → показываем ВСЁ (включая архив)
-      // НЕ добавляем фильтр по статусу
+      whereClause += ` AND t.status_new = 'archived'`;
     } else {
       whereClause += ` AND t.status_new != 'archived'`;
     }
@@ -94,14 +93,31 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       params.push(userId);
       paramIdx++;
     } else {
-      // Базовое право доступа: создатель ИЛИ исполнитель ИЛИ наблюдатель
+      const subtree = await getUserSubtree(userId);
+      const ancestors = await getUserAncestors(userId);
+      
       whereClause += ` AND (
-        t.creator_id = $${paramIdx}
-        OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx + 1})
-        OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 2})
+        t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})
+        OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 1})
+        OR t.creator_id IN (
+          SELECT u.id FROM users u
+          JOIN user_role_assignments ura ON ura.user_id = u.id
+          WHERE ura.role_node_id = ANY($${paramIdx + 2})
+        )
+        OR (
+          t.creator_id IN (
+            SELECT u.id FROM users u
+            JOIN user_role_assignments ura ON ura.user_id = u.id
+            WHERE ura.role_node_id = ANY($${paramIdx + 3})
+          )
+          AND (
+            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = $${paramIdx})
+            OR t.id IN (SELECT task_id FROM task_watchers WHERE user_id = $${paramIdx + 1})
+          )
+        )
       )`;
-      params.push(userId, userId, userId);
-      paramIdx += 3;
+      params.push(userId, userId, subtree, ancestors);
+      paramIdx += 4;
     }
     
     if (status) {
@@ -396,7 +412,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       // 🆕 Для "overdue" работают те же переходы (механика не блокируется)
       'overdue→in_progress':    { role: 'assignee', action: 'Взять в работу' },
       'overdue→on_review':      { role: 'assignee', action: 'Отправить на проверку' },
-      'overdue→archived':      { role: 'creator',  action: 'Архивировать' },
     };
 
     const transitionKey = `${currentStatus}→${to_status}`;

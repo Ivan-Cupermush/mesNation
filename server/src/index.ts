@@ -316,16 +316,42 @@ app.post('/api/auth/avatar', authenticate, upload.single('avatar'), async (req: 
 });
 
 app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const { display_name } = req.body;
-    if (!display_name) return res.status(400).json({ error: 'Имя обязательно' });
-    await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.userId]);
-    res.json({ display_name });
-  } catch (err) {
-    console.error('Ошибка обновления профиля:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
+    try {
+      const { display_name, email } = req.body;
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIdx = 1;
+
+      if (display_name !== undefined) {
+        if (!display_name.trim()) return res.status(400).json({ error: 'Имя не может быть пустым' });
+        updates.push(`display_name = $${paramIdx++}`);
+        values.push(display_name.trim());
+      }
+
+      if (email !== undefined) {
+        if (email.trim() && !email.includes('@')) return res.status(400).json({ error: 'Некорректный email' });
+        // Проверка уникальности email
+        if (email.trim()) {
+          const existing = await pool.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email.trim().toLowerCase(), req.userId]);
+          if (existing.rows.length > 0) return res.status(409).json({ error: 'Этот email уже используется' });
+        }
+        updates.push(`email = $${paramIdx++}`);
+        values.push(email.trim().toLowerCase() || null);
+      }
+
+      if (updates.length === 0) return res.status(400).json({ error: 'Нет данных для обновления' });
+
+      values.push(req.userId);
+      const result = await pool.query(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIdx} RETURNING id, username, email, display_name, avatar_url`,
+        values
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error('Ошибка обновления профиля:', err);
+      res.status(500).json({ error: 'Ошибка сервера' });
+    }
+  });
 
 app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res: Response) => {
   try {

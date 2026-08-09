@@ -70,8 +70,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     // 🆕 По умолчанию не показываем архив (кроме когда явно просят)
     if (include_archived === 'true') {
-      // include_archived=true → показываем ВСЁ (включая архив)
-      // НЕ добавляем фильтр по статусу
+      whereClause += ` AND t.status_new = 'archived'`;
     } else {
       whereClause += ` AND t.status_new != 'archived'`;
     }
@@ -396,7 +395,6 @@ router.post('/:id/transition', async (req: AuthRequest, res: Response) => {
       // 🆕 Для "overdue" работают те же переходы (механика не блокируется)
       'overdue→in_progress':    { role: 'assignee', action: 'Взять в работу' },
       'overdue→on_review':      { role: 'assignee', action: 'Отправить на проверку' },
-      'overdue→archived':      { role: 'creator',  action: 'Архивировать' },
     };
 
     const transitionKey = `${currentStatus}→${to_status}`;

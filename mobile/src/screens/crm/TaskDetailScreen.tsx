@@ -425,6 +425,9 @@ export default function TaskDetailScreen({ navigation }: any) {
   const importanceConf = IMPORTANCE_CONFIG[task.importance || 'yellow'];
   const deadline = task.executor_deadline || task.hard_deadline;
 
+  // Показываем архив для создателя когда done ИЛИ overdue
+  const canArchive = isCreator && (task.status_new === 'done' || task.status_new === 'overdue');
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
@@ -598,7 +601,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           )}
 
           {/* ===== БЛОК ДЕЙСТВИЙ ===== */}
-          {task.status_new !== 'archived' && task.status_new !== 'done' && (
+          {task.status_new !== 'archived' && task.status_new !== 'done' && task.status_new !== 'overdue' && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>ДЕЙСТВИЯ</Text>
 
@@ -679,18 +682,28 @@ export default function TaskDetailScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* Архивирование */}
-          {isCreator && task.status_new === 'done' && (
+          {/* ===== АРХИВИРОВАНИЕ: для создателя, когда done ИЛИ overdue ===== */}
+          {canArchive && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>АРХИВ</Text>
               <TouchableOpacity
                 onPress={handleArchive}
                 disabled={transitioning}
-                style={styles.actionBtnGhost}
+                style={styles.archiveCard}
                 activeOpacity={0.7}
               >
-                <Archive size={18} color="#6F6F73" strokeWidth={2} />
-                <Text style={styles.actionBtnGhostText}>Архивировать задачу</Text>
+                <View style={styles.archiveIconWrap}>
+                  <Archive size={20} color="#6F6F73" strokeWidth={2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.archiveTitle}>Архивировать задачу</Text>
+                  <Text style={styles.archiveSubtitle}>
+                    {task.status_new === 'overdue'
+                      ? 'Просроченная задача будет перемещена в архив'
+                      : 'Завершённая задача будет перемещена в архив'}
+                  </Text>
+                </View>
+                <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
               </TouchableOpacity>
             </View>
           )}
@@ -1502,6 +1515,37 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     flex: 1,
+  },
+
+  // ===== ARCHIVE CARD =====
+  archiveCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#FFFFFF',
+    padding: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ECECE8',
+  },
+  archiveIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  archiveTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#141414',
+    marginBottom: 2,
+  },
+  archiveSubtitle: {
+    fontSize: 12,
+    color: '#6F6F73',
+    fontWeight: '500',
   },
 
   // ===== FILES =====

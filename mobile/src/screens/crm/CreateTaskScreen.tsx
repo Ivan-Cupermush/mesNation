@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,36 +13,29 @@ import {
   FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePickerModal from '../../components/DateTimePickerModal';
 import {
   ChevronLeft,
   Check,
   Type,
-  AlignLeft,
   Flag,
   CalendarDays,
   Clock,
   Users,
   Eye,
-  Target,
   Paperclip,
   Plus,
-  Trash2,
   X,
   ChevronRight,
 } from 'lucide-react-native';
-import api from '../../services/api';
+import { api } from '../../services/api';
+import { getToken, SERVER_URL } from '../../utils';
 
 interface User {
   id: number;
   username: string;
   display_name: string;
   avatar_url?: string;
-}
-
-interface Checkpoint {
-  title: string;
-  deadline: string;
 }
 
 export default function CreateTaskScreen({ navigation }: any) {
@@ -53,20 +46,13 @@ export default function CreateTaskScreen({ navigation }: any) {
   const [reviewerDeadline, setReviewerDeadline] = useState<Date | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<User[]>([]);
   const [selectedWatchers, setSelectedWatchers] = useState<User[]>([]);
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Модальные окна
   const [showAssigneesModal, setShowAssigneesModal] = useState(false);
   const [showWatchersModal, setShowWatchersModal] = useState(false);
-  const [showCheckpointModal, setShowCheckpointModal] = useState(false);
   const [showExecutorDatePicker, setShowExecutorDatePicker] = useState(false);
   const [showReviewerDatePicker, setShowReviewerDatePicker] = useState(false);
-  const [checkpointTitle, setCheckpointTitle] = useState('');
-  const [checkpointDate, setCheckpointDate] = useState<Date>(new Date());
-  const [showCheckpointDate, setShowCheckpointDate] = useState(false);
 
-  // Список пользователей (из дерева прав)
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
   useEffect(() => {
@@ -75,8 +61,19 @@ export default function CreateTaskScreen({ navigation }: any) {
 
   const loadUsers = async () => {
     try {
-      const users = await api.getSubtreeUsers();
-      setAvailableUsers(users);
+      let users = await api.getSubtreeUsers().catch(() => []);
+      if (!users || users.length === 0) {
+        const tok = await getToken();
+        const res = await fetch(`${SERVER_URL}/api/users`, {
+          headers: { Authorization: `Bearer ${tok}` },
+        });
+        if (res.ok) {
+          const all = await res.json();
+          const me = await api.getCurrentUser().catch(() => null);
+          users = (all || []).filter((u: any) => u.id !== me?.id);
+        }
+      }
+      setAvailableUsers(users || []);
     } catch (e) {
       console.log('Ошибка загрузки пользователей:', e);
     }
@@ -116,12 +113,6 @@ export default function CreateTaskScreen({ navigation }: any) {
       }
       if (executorDeadline) payload.executor_deadline = executorDeadline.toISOString();
       if (reviewerDeadline) payload.reviewer_deadline = reviewerDeadline.toISOString();
-      if (checkpoints.length > 0) {
-        payload.checkpoints = checkpoints.map((cp) => ({
-          title: cp.title,
-          deadline: new Date(cp.deadline).toISOString(),
-        }));
-      }
 
       await api.createTask(payload);
       Alert.alert('Успех', 'Задача создана', [
@@ -144,24 +135,6 @@ export default function CreateTaskScreen({ navigation }: any) {
     } else {
       setList([...list, user]);
     }
-  };
-
-  const addCheckpoint = () => {
-    if (!checkpointTitle.trim()) {
-      Alert.alert('Ошибка', 'Введите название контрольной точки');
-      return;
-    }
-    setCheckpoints([
-      ...checkpoints,
-      { title: checkpointTitle.trim(), deadline: checkpointDate.toISOString() },
-    ]);
-    setCheckpointTitle('');
-    setCheckpointDate(new Date());
-    setShowCheckpointModal(false);
-  };
-
-  const removeCheckpoint = (idx: number) => {
-    setCheckpoints(checkpoints.filter((_, i) => i !== idx));
   };
 
   const renderUsersModal = (
@@ -189,10 +162,7 @@ export default function CreateTaskScreen({ navigation }: any) {
               return (
                 <TouchableOpacity
                   onPress={() => toggleUser(item, selected, setSelected)}
-                  style={[
-                    styles.userRow,
-                    isSelected && styles.userRowSelected,
-                  ]}
+                  style={[styles.userRow, isSelected && styles.userRowSelected]}
                   activeOpacity={0.7}
                 >
                   <View
@@ -352,7 +322,6 @@ export default function CreateTaskScreen({ navigation }: any) {
             <Text style={styles.cardTitle}>Сроки</Text>
           </View>
 
-          {/* Дедлайн выполнения */}
           <Text style={styles.fieldLabel}>Дедлайн выполнения</Text>
           <TouchableOpacity
             onPress={() => setShowExecutorDatePicker(true)}
@@ -380,7 +349,6 @@ export default function CreateTaskScreen({ navigation }: any) {
 
           <View style={styles.divider} />
 
-          {/* Дедлайн проверки */}
           <Text style={styles.fieldLabel}>Дедлайн проверки</Text>
           <TouchableOpacity
             onPress={() => setShowReviewerDatePicker(true)}
@@ -419,7 +387,6 @@ export default function CreateTaskScreen({ navigation }: any) {
             <Text style={styles.cardTitle}>Участники</Text>
           </View>
 
-          {/* Исполнители */}
           <TouchableOpacity
             onPress={() => setShowAssigneesModal(true)}
             style={styles.participantsRow}
@@ -465,7 +432,6 @@ export default function CreateTaskScreen({ navigation }: any) {
 
           <View style={styles.divider} />
 
-          {/* Наблюдатели */}
           <TouchableOpacity
             onPress={() => setShowWatchersModal(true)}
             style={styles.participantsRow}
@@ -488,57 +454,7 @@ export default function CreateTaskScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* ===== КАРТОЧКА 5: Контрольные точки ===== */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconWrap}>
-              <Target size={18} color="#1F7A52" strokeWidth={2} />
-            </View>
-            <Text style={styles.cardTitle}>Контрольные точки</Text>
-            {checkpoints.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{checkpoints.length}</Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.fieldHint}>
-            Промежуточные этапы с собственными дедлайнами
-          </Text>
-
-          {checkpoints.length > 0 && (
-            <View style={styles.checkpointsList}>
-              {checkpoints.map((cp, idx) => (
-                <View key={idx} style={styles.checkpointItem}>
-                  <View style={styles.checkpointLine} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkpointTitle}>{cp.title}</Text>
-                    <Text style={styles.checkpointDate}>
-                      {formatDate(new Date(cp.deadline))}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => removeCheckpoint(idx)}
-                    style={styles.checkpointRemoveBtn}
-                  >
-                    <Trash2 size={16} color="#DC2626" strokeWidth={2} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <TouchableOpacity
-            onPress={() => setShowCheckpointModal(true)}
-            style={styles.addBtn}
-            activeOpacity={0.7}
-          >
-            <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
-            <Text style={styles.addBtnText}>Добавить контрольную точку</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ===== КАРТОЧКА 6: Файлы ===== */}
+        {/* ===== КАРТОЧКА 5: Файлы ===== */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
@@ -575,84 +491,24 @@ export default function CreateTaskScreen({ navigation }: any) {
         'Наблюдатели',
       )}
 
-      {/* Модалка добавления контрольной точки */}
-      <Modal visible={showCheckpointModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: 400 }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Контрольная точка</Text>
-              <TouchableOpacity
-                onPress={() => setShowCheckpointModal(false)}
-                style={styles.modalCloseBtn}
-              >
-                <X size={22} color="#141414" strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ padding: 20, gap: 16 }}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Название этапа"
-                placeholderTextColor="#BDBDBD"
-                value={checkpointTitle}
-                onChangeText={setCheckpointTitle}
-                autoFocus
-              />
-              <TouchableOpacity
-                onPress={() => setShowCheckpointDate(true)}
-                style={styles.dateRow}
-              >
-                <CalendarDays size={18} color="#6F6F73" strokeWidth={2} />
-                <Text style={styles.dateText}>{formatDate(checkpointDate)}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={addCheckpoint}
-                style={styles.modalPrimaryBtn}
-              >
-                <Text style={styles.modalPrimaryBtnText}>Добавить</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* DatePicker для дедлайна выполнения */}
-      {showExecutorDatePicker && (
-        <DateTimePicker
-          value={executorDeadline || new Date()}
-          mode="datetime"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(e, d) => {
-            setShowExecutorDatePicker(false);
-            if (d) setExecutorDeadline(d);
-          }}
-          minimumDate={new Date()}
-        />
-      )}
-      {showReviewerDatePicker && (
-        <DateTimePicker
-          value={reviewerDeadline || new Date()}
-          mode="datetime"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(e, d) => {
-            setShowReviewerDatePicker(false);
-            if (d) setReviewerDeadline(d);
-          }}
-          minimumDate={new Date()}
-        />
-      )}
-      {showCheckpointDate && (
-        <DateTimePicker
-          value={checkpointDate}
-          mode="datetime"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(e, d) => {
-            setShowCheckpointDate(false);
-            if (d) setCheckpointDate(d);
-          }}
-          minimumDate={new Date()}
-        />
-      )}
+      {/* Кастомный пикер: дедлайн выполнения */}
+      <DateTimePickerModal
+        visible={showExecutorDatePicker}
+        initialDate={executorDeadline}
+        minDate={new Date()}
+        title="Дедлайн выполнения"
+        onClose={() => setShowExecutorDatePicker(false)}
+        onSave={(d) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
+      />
+      {/* Кастомный пикер: дедлайн проверки */}
+      <DateTimePickerModal
+        visible={showReviewerDatePicker}
+        initialDate={reviewerDeadline}
+        minDate={new Date()}
+        title="Дедлайн проверки"
+        onClose={() => setShowReviewerDatePicker(false)}
+        onSave={(d) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
+      />
     </SafeAreaView>
   );
 }
@@ -662,8 +518,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FAFAF8',
   },
-
-  // ===== HEADER =====
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -702,14 +556,10 @@ const styles = StyleSheet.create({
   headerCreateBtnDisabled: {
     backgroundColor: '#BDBDBD',
   },
-
-  // ===== SCROLL =====
   scrollContent: {
     padding: 20,
     gap: 20,
   },
-
-  // ===== CARD =====
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
@@ -741,19 +591,6 @@ const styles = StyleSheet.create({
     color: '#141414',
     flex: 1,
   },
-  badge: {
-    backgroundColor: '#1F7A52',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // ===== FIELDS =====
   fieldLabel: {
     fontSize: 12,
     fontWeight: '600',
@@ -781,8 +618,6 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 80,
   },
-
-  // ===== PRIORITY =====
   priorityRow: {
     flexDirection: 'row',
     gap: 10,
@@ -807,8 +642,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-
-  // ===== DATE ROW =====
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -824,8 +657,6 @@ const styles = StyleSheet.create({
   dateTextPlaceholder: {
     color: '#BDBDBD',
   },
-
-  // ===== PARTICIPANTS =====
   participantsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -881,39 +712,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6F6F73',
   },
-
-  // ===== CHECKPOINTS =====
-  checkpointsList: {
-    gap: 8,
-  },
-  checkpointItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  checkpointLine: {
-    width: 2,
-    height: 32,
-    backgroundColor: '#1F7A52',
-    borderRadius: 1,
-  },
-  checkpointTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#141414',
-  },
-  checkpointDate: {
-    fontSize: 12,
-    color: '#6F6F73',
-    marginTop: 2,
-  },
-  checkpointRemoveBtn: {
-    padding: 6,
-  },
-
-  // ===== ADD BTN =====
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -931,8 +729,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F7A52',
   },
-
-  // ===== MODAL =====
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -977,19 +773,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  modalPrimaryBtn: {
-    backgroundColor: '#1F7A52',
-    paddingVertical: 14,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  modalPrimaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  // ===== USER ROW =====
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',

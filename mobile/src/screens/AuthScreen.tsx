@@ -108,7 +108,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
           <Text style={{ fontSize: 100 }}>🚀</Text>
           <Text style={[styles.welcomeTitle, { color: colors.textPrimary }]}>
             Добро пожаловать в{'\n'}
-            <Text style={{ color: colors.accent }}>mesNation</Text>
+            <Text style={{ color: colors.accent }}>Offix</Text>
           </Text>
           <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>
             Корпоративный мессенджер нового поколения{'\n'}

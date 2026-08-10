@@ -114,7 +114,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
     <ChatStack.Navigator screenOptions={headerStyle}>
       <ChatStack.Screen
         name="ChatList"
-        options={{ title: 'mesNation', headerShown: false }}
+        options={{ title: 'Offix', headerShown: false }}
         children={(props) => <ChatListScreen {...props} onLogout={onLogout} />}
       />
       <ChatStack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
@@ -350,7 +350,8 @@ function RootNavigator() {
     return (
       <View style={styles.splash}>
         <ActivityIndicator size="large" color="#6366F1" />
-        <Text style={styles.splashText}>mesNation</Text>
+        <Text style={styles.splashText}>Offix</Text>
+        <Text style={{ marginTop: 8, fontSize: 10, fontWeight: '500', color: '#9CA3AF', letterSpacing: 2 }}>коммуникационный шлюз Dixit</Text>
       </View>
     );
   }

@@ -222,7 +222,7 @@ export default function SettingsScreen({ navigation }: any) {
         {/* ===== FOOTER ===== */}
         <View style={styles.footer}>
           <SettingsIcon size={14} color="#BDBDBD" strokeWidth={2} />
-          <Text style={styles.footerText}>mesNation v1.0</Text>
+          <Text style={styles.footerText}>коммуникационный шлюз Dixit</Text>
         </View>
 
         <View style={{ height: 40 }} />

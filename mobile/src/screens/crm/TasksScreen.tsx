@@ -7,16 +7,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Search, SlidersHorizontal, X, Plus, Flag, CalendarDays, Users,
-  ChevronRight, List, CalendarRange, ArrowDownUp,
+  ChevronRight, List, CalendarRange, ArrowDownUp, UserRound,
 } from 'lucide-react-native';
 import TaskCalendar from '../../components/tasks/TaskCalendar';
 import { api, Task } from '../../services/api';
 
-const AVATAR_COLORS = ['#1F7A52','#3B82F6','#8B5CF6','#EC4899','#F59E0B','#0EA5E9','#14B8A6','#EF4444'];
+const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
+
 const hashColor = (s: string) => {
   const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   return AVATAR_COLORS[sum % AVATAR_COLORS.length];
 };
+
 const initials = (name: string) =>
   (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -191,18 +193,27 @@ export default function TasksScreen({ navigation }: any) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>ЗАДАЧИ</Text>
-        <View style={styles.viewSwitch}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={styles.viewSwitch}>
+            <TouchableOpacity
+              onPress={() => setViewMode('list')}
+              style={[styles.viewSwitchBtn, viewMode === 'list' && styles.viewSwitchBtnActive]}
+            >
+              <List size={18} color={viewMode === 'list' ? '#FFFFFF' : '#6F6F73'} strokeWidth={2} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode('calendar')}
+              style={[styles.viewSwitchBtn, viewMode === 'calendar' && styles.viewSwitchBtnActive]}
+            >
+              <CalendarRange size={18} color={viewMode === 'calendar' ? '#FFFFFF' : '#6F6F73'} strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
-            onPress={() => setViewMode('list')}
-            style={[styles.viewSwitchBtn, viewMode === 'list' && styles.viewSwitchBtnActive]}
+            style={styles.profileBtn}
+            onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
+            activeOpacity={0.7}
           >
-            <List size={18} color={viewMode === 'list' ? '#FFFFFF' : '#6F6F73'} strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setViewMode('calendar')}
-            style={[styles.viewSwitchBtn, viewMode === 'calendar' && styles.viewSwitchBtnActive]}
-          >
-            <CalendarRange size={18} color={viewMode === 'calendar' ? '#FFFFFF' : '#6F6F73'} strokeWidth={2} />
+            <UserRound size={20} color="#1F7A52" strokeWidth={2} />
           </TouchableOpacity>
         </View>
       </View>
@@ -345,6 +356,19 @@ const styles = StyleSheet.create({
   viewSwitch: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
   viewSwitchBtn: { width: 36, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   viewSwitchBtnActive: { backgroundColor: '#1F7A52' },
+  profileBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
   searchContainer: { paddingHorizontal: 24, marginBottom: 16 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 18, paddingHorizontal: 16, height: 48, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4 },
   searchInput: { flex: 1, fontSize: 16, color: '#141414', marginLeft: 12, fontWeight: '500', padding: 0 },

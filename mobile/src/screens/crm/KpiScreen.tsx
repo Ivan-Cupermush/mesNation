@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
-  CheckCircle2, Clock, AlertCircle, Plus, Search,
+  CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound,
 } from 'lucide-react-native';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
@@ -117,10 +117,19 @@ export default function KpiScreen({ navigation }: any) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>СТАТИСТИКА</Text>
-          <Text style={styles.subtitle}>
-            {currentUser ? `${currentUser.display_name || currentUser.username}` : 'Продажи и динамика'}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>СТАТИСТИКА</Text>
+            <Text style={styles.subtitle}>
+              {currentUser ? `${currentUser.display_name || currentUser.username}` : 'Продажи и динамика'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
+            activeOpacity={0.7}
+          >
+            <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+          </TouchableOpacity>
         </View>
 
         {/* Period Selector */}
@@ -330,7 +339,13 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 24, paddingTop: 8 },
 
   // ===== HEADER (премиум) =====
-  header: { marginBottom: 20, paddingTop: 8 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingTop: 8,
+  },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
@@ -338,6 +353,19 @@ const styles = StyleSheet.create({
   subtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
     fontSize: 18, fontStyle: 'italic', color: '#6F6F73', marginTop: 4,
+  },
+  profileBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
   // ===== PERIOD SWITCH =====

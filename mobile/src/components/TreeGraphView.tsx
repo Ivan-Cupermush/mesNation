@@ -1,306 +1,364 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, PanResponder, Animated,
-  TouchableOpacity, Dimensions,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  PanResponder,
+  Animated,
+  LayoutChangeEvent,
 } from 'react-native';
-import Svg, { Line, Circle, Text as SvgText, G } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
+import { Plus, Minus, Maximize2, Users } from 'lucide-react-native';
 
-interface TreeNode {
+export interface RoleNode {
   id: number;
   name: string;
   parent_id: number | null;
-  level: number;
-  color: string;
-  icon: string;
+  level?: number;
+  color?: string;
+  icon?: string;
   users_count?: number;
 }
 
-interface TreeGraphViewProps {
-  nodes: TreeNode[];
-  onNodePress?: (node: TreeNode) => void;
-  onAddChildPress?: (parentNode: TreeNode) => void;
-  selectedNodeId?: number | null;
+interface LayoutNode {
+  node: RoleNode;
+  x: number;
+  y: number;
+  subtreeWidth: number;
+  children: LayoutNode[];
 }
 
-// Компактный canvas (безопасный размер)
-const SVG_SIZE = 500;
-const NODE_RADIUS = 22;
-const H_SPACING = 90;
-// УВЕЛИЧИЛИ: было 75, теперь 95 — больше места между уровнями
-const V_SPACING = 95;
+const NODE_WIDTH = 190;
+const NODE_HEIGHT = 68;
+const H_GAP = 26;
+const V_GAP = 84;
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 2.5;
 
-function calculateLayout(nodes: TreeNode[]) {
-  const positions: Record<number, { x: number; y: number }> = {};
-  const childrenMap: Record<number, TreeNode[]> = {};
-
-  nodes.forEach(n => {
-    const key = n.parent_id ?? -1;
-    if (!childrenMap[key]) childrenMap[key] = [];
-    childrenMap[key].push(n);
+// ========== Аккуратная раскладка: дети центрированы под родителем ==========
+function buildLayout(root: RoleNode, allNodes: RoleNode[]): LayoutNode {
+  const childrenMap = new Map<number, RoleNode[]>();
+  allNodes.forEach(n => {
+    const pid = n.parent_id == null ? -1 : n.parent_id;
+    if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+    childrenMap.get(pid)!.push(n);
   });
 
-  const root = nodes.find(n => n.parent_id === null);
-  if (!root) return positions;
+  const visited = new Set<number>();
 
-  let nextX = 0;
-  const place = (node: TreeNode, depth: number) => {
-    const children = childrenMap[node.id] || [];
-    if (children.length === 0) {
-      positions[node.id] = { x: nextX, y: depth };
-      nextX += 1;
-    } else {
-      children.forEach(c => place(c, depth + 1));
-      const xs = children.map(c => positions[c.id].x);
-      positions[node.id] = {
-        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-        y: depth,
-      };
-    }
+  const build = (node: RoleNode, depth: number): LayoutNode => {
+    visited.add(node.id);
+    const kids = (childrenMap.get(node.id) || []).filter(k => !visited.has(k.id));
+    const children = kids.map(k => build(k, depth + 1));
+    return { node, x: 0, y: depth * (NODE_HEIGHT + V_GAP), subtreeWidth: 0, children };
   };
-  place(root, 0);
 
-  const allX = Object.values(positions).map(p => p.x);
-  const minX = Math.min(...allX);
-  const maxX = Math.max(...allX);
-  const totalW = (maxX - minX) * H_SPACING;
-  const offsetX = (SVG_SIZE - totalW) / 2 - minX * H_SPACING;
-  const offsetY = 60;
+  const rootLayout = build(root, 0);
 
-  const result: Record<number, { x: number; y: number }> = {};
-  Object.keys(positions).forEach(id => {
-    const p = positions[Number(id)];
-    result[Number(id)] = {
-      x: p.x * H_SPACING + offsetX,
-      y: p.y * V_SPACING + offsetY,
-    };
+  // Битые узлы (потерянный parent_id) — вешаем на корень, чтобы не пропали
+  const orphans = allNodes.filter(n => !visited.has(n.id));
+  orphans.forEach(o => {
+    visited.add(o.id);
+    rootLayout.children.push({
+      node: o,
+      x: 0,
+      y: NODE_HEIGHT + V_GAP,
+      subtreeWidth: 0,
+      children: [],
+    });
   });
-  return result;
+
+  const calcWidth = (ln: LayoutNode): number => {
+    if (ln.children.length === 0) {
+      ln.subtreeWidth = NODE_WIDTH;
+      return NODE_WIDTH;
+    }
+    const w = ln.children.reduce((s, c, i) => s + calcWidth(c) + (i > 0 ? H_GAP : 0), 0);
+    ln.subtreeWidth = Math.max(NODE_WIDTH, w);
+    return ln.subtreeWidth;
+  };
+
+  const assignX = (ln: LayoutNode, centerX: number) => {
+    ln.x = centerX - NODE_WIDTH / 2;
+    if (ln.children.length === 0) return;
+    const total = ln.children.reduce((s, c, i) => s + c.subtreeWidth + (i > 0 ? H_GAP : 0), 0);
+    let cursor = centerX - total / 2;
+    ln.children.forEach(c => {
+      assignX(c, cursor + c.subtreeWidth / 2);
+      cursor += c.subtreeWidth + H_GAP;
+    });
+  };
+
+  calcWidth(rootLayout);
+  assignX(rootLayout, rootLayout.subtreeWidth / 2);
+  return rootLayout;
+}
+
+function flatten(ln: LayoutNode): LayoutNode[] {
+  return [ln, ...ln.children.flatMap(flatten)];
+}
+
+function getBounds(layout: LayoutNode) {
+  const all = flatten(layout);
+  let maxX = 0;
+  let maxY = 0;
+  all.forEach(n => {
+    maxX = Math.max(maxX, n.x + NODE_WIDTH);
+    maxY = Math.max(maxY, n.y + NODE_HEIGHT);
+  });
+  return { width: maxX, height: maxY };
+}
+
+// ========== Компонент ==========
+interface Props {
+  nodes?: RoleNode[];
+  tree?: RoleNode[];
+  onNodePress?: (node: RoleNode) => void;
+  onAddChildPress?: (node: RoleNode) => void;
+  selectedNodeId?: number | null;
 }
 
 export default function TreeGraphView({
   nodes,
+  tree,
   onNodePress,
   onAddChildPress,
   selectedNodeId,
-}: TreeGraphViewProps) {
-  const screenW = Dimensions.get('window').width;
-  const initialScale = screenW / SVG_SIZE;
-  const [translateX] = useState(new Animated.Value(0));
-  const [translateY] = useState(new Animated.Value(0));
-  const [scale] = useState(new Animated.Value(initialScale));
+}: Props) {
+  // ✅ Принимаем оба пропа. Никогда не падаем на undefined
+  const data = useMemo(() => {
+    const src = Array.isArray(tree) ? tree : Array.isArray(nodes) ? nodes : [];
+    return src.filter(n => n && typeof n.id === 'number');
+  }, [tree, nodes]);
 
-  const lastTX = useRef(0);
-  const lastTY = useRef(0);
-  const lastScale = useRef(initialScale);
+  const root = useMemo(() => data.find(n => n.parent_id == null), [data]);
+  const layout = useMemo(() => (root ? buildLayout(root, data) : null), [root, data]);
+  const bounds = useMemo(() => (layout ? getBounds(layout) : { width: 0, height: 0 }), [layout]);
 
+  const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  const panX = useRef(new Animated.Value(0)).current;
+  const panY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  // ✅ ВСЕ изменяемые значения — через useRef (никаких const-перезаписей)
+  const curX = useRef(0);
+  const curY = useRef(0);
+  const curScale = useRef(1);
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const pinchDist = useRef(0);
+  const pinchScale = useRef(1);
+  const isPinching = useRef(false);
+  const didFit = useRef(false);
+
+  useEffect(() => {
+    const a = panX.addListener(v => { curX.current = v.value; });
+    const b = panY.addListener(v => { curY.current = v.value; });
+    const c = scale.addListener(v => { curScale.current = v.value; });
+    return () => {
+      panX.removeListener(a);
+      panY.removeListener(b);
+      scale.removeListener(c);
+    };
+  }, [panX, panY, scale]);
+
+  const fitToScreen = (animate: boolean) => {
+    if (!viewport.w || !viewport.h || !bounds.width || !bounds.height) return;
+    const pad = 32;
+    const s = Math.min((viewport.w - pad * 2) / bounds.width, (viewport.h - pad * 2) / bounds.height, 1);
+    const nx = (viewport.w - bounds.width) / 2;
+    const ny = (viewport.h - bounds.height) / 2;
+    if (animate) {
+      Animated.parallel([
+        Animated.spring(scale, { toValue: s, useNativeDriver: true, friction: 8 }),
+        Animated.spring(panX, { toValue: nx, useNativeDriver: true, friction: 8 }),
+        Animated.spring(panY, { toValue: ny, useNativeDriver: true, friction: 8 }),
+      ]).start();
+    } else {
+      scale.setValue(s);
+      panX.setValue(nx);
+      panY.setValue(ny);
+    }
+  };
+
+  // ========== Жесты: 1 палец — панорама, 2 пальца — зум ==========
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5,
-      onPanResponderGrant: () => {
-        translateX.setOffset(lastTX.current);
-        translateY.setOffset(lastTY.current);
-        translateX.setValue(0);
-        translateY.setValue(0);
+      onMoveShouldSetPanResponder: (_e, g) =>
+        Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4 || g.numberActiveTouches >= 2,
+      onPanResponderGrant: (evt) => {
+        const t = evt.nativeEvent.touches;
+        if (t.length >= 2) {
+          isPinching.current = true;
+          pinchDist.current = Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY);
+          pinchScale.current = curScale.current;
+        } else {
+          isPinching.current = false;
+          startX.current = curX.current;
+          startY.current = curY.current;
+        }
       },
-      onPanResponderMove: Animated.event(
-        [null, { dx: translateX, dy: translateY }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: (_, g) => {
-        lastTX.current += g.dx;
-        lastTY.current += g.dy;
-        translateX.flattenOffset();
-        translateY.flattenOffset();
+      onPanResponderMove: (evt, g) => {
+        const t = evt.nativeEvent.touches;
+        if (t.length >= 2) {
+          const d = Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY);
+          if (pinchDist.current > 0) {
+            const s = Math.max(MIN_SCALE, Math.min(MAX_SCALE, pinchScale.current * (d / pinchDist.current)));
+            scale.setValue(s);
+          }
+        } else if (!isPinching.current) {
+          panX.setValue(startX.current + g.dx);
+          panY.setValue(startY.current + g.dy);
+        }
       },
-    })
+      onPanResponderRelease: () => {
+        pinchDist.current = 0;
+        isPinching.current = false;
+      },
+      onPanResponderTerminate: () => {
+        pinchDist.current = 0;
+        isPinching.current = false;
+      },
+    }),
   ).current;
 
-  const positions = useMemo(() => calculateLayout(nodes), [nodes]);
-
-  const zoomIn = () => {
-    const s = Math.min(lastScale.current * 1.3, 4);
-    lastScale.current = s;
-    Animated.spring(scale, { toValue: s, useNativeDriver: false }).start();
+  const zoomBy = (k: number) => {
+    const s = Math.max(MIN_SCALE, Math.min(MAX_SCALE, curScale.current * k));
+    Animated.spring(scale, { toValue: s, useNativeDriver: true, friction: 8 }).start();
   };
 
-  const zoomOut = () => {
-    const s = Math.max(lastScale.current / 1.3, 0.5);
-    lastScale.current = s;
-    Animated.spring(scale, { toValue: s, useNativeDriver: false }).start();
-  };
+  // Авто-fit при первом рендере
+  useEffect(() => {
+    if (viewport.w > 0 && bounds.width > 0 && !didFit.current) {
+      didFit.current = true;
+      fitToScreen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport.w, viewport.h, bounds.width, bounds.height]);
 
-  const resetView = () => {
-    lastTX.current = 0;
-    lastTY.current = 0;
-    lastScale.current = initialScale;
-    Animated.parallel([
-      Animated.spring(translateX, { toValue: 0, useNativeDriver: false }),
-      Animated.spring(translateY, { toValue: 0, useNativeDriver: false }),
-      Animated.spring(scale, { toValue: initialScale, useNativeDriver: false }),
-    ]).start();
-  };
+  const allNodes = layout ? flatten(layout) : [];
+
+  // ========== Плавные кривые связи ==========
+  const edges = useMemo(() => {
+    if (!layout) return [];
+    const list: { key: string; d: string }[] = [];
+    const walk = (ln: LayoutNode) => {
+      if (ln.children.length === 0) return;
+      const px = ln.x + NODE_WIDTH / 2;
+      const py = ln.y + NODE_HEIGHT;
+      ln.children.forEach(c => {
+        const cx = c.x + NODE_WIDTH / 2;
+        const cy = c.y;
+        const my = (py + cy) / 2;
+        list.push({
+          key: `e-${ln.node.id}-${c.node.id}`,
+          d: `M ${px} ${py} C ${px} ${my}, ${cx} ${my}, ${cx} ${cy}`,
+        });
+        walk(c);
+      });
+    };
+    walk(layout);
+    return list;
+  }, [layout]);
+
+  // ========== Пустое состояние ==========
+  if (!root || !layout || data.length === 0) {
+    return (
+      <View style={styles.emptyWrap}>
+        <Text style={styles.emptyText}>Дерево ролей пока пустое</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container} {...panResponder.panHandlers}>
+    <View
+      style={styles.container}
+      onLayout={(e: LayoutChangeEvent) =>
+        setViewport({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
+      }
+      {...panResponder.panHandlers}
+    >
       <Animated.View
         style={[
           styles.canvas,
           {
-            width: SVG_SIZE,
-            height: SVG_SIZE,
-            transform: [{ translateX }, { translateY }, { scale }],
+            width: bounds.width,
+            height: bounds.height,
+            transform: [{ translateX: panX }, { translateY: panY }, { scale }],
           },
         ]}
       >
-        <Svg width={SVG_SIZE} height={SVG_SIZE} style={styles.svg}>
-          {/* Линии */}
-          {nodes.map(node => {
-            if (node.parent_id === null) return null;
-            const pp = positions[node.parent_id];
-            const cp = positions[node.id];
-            if (!pp || !cp) return null;
-            return (
-              <Line
-                key={`l-${node.id}`}
-                x1={pp.x}
-                y1={pp.y + NODE_RADIUS}
-                x2={cp.x}
-                y2={cp.y - NODE_RADIUS}
-                stroke="#94A3B8"
-                strokeWidth="2"
-                strokeDasharray="4 4"
-              />
-            );
-          })}
-
-          {/* Узлы */}
-          {nodes.map(node => {
-            const pos = positions[node.id];
-            if (!pos) return null;
-            const sel = selectedNodeId === node.id;
-            return (
-              <G key={`n-${node.id}`}>
-                <Circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={NODE_RADIUS}
-                  fill={node.color || '#6366F1'}
-                  stroke={sel ? '#000' : '#fff'}
-                  strokeWidth={sel ? 3 : 2}
-                />
-                <SvgText
-                  x={pos.x}
-                  y={pos.y + 5}
-                  fontSize="14"
-                  textAnchor="middle"
-                >
-                  {node.icon || '👤'}
-                </SvgText>
-                <SvgText
-                  x={pos.x}
-                  y={pos.y + NODE_RADIUS + 12}
-                  fontSize="9"
-                  fontWeight="600"
-                  textAnchor="middle"
-                  fill="#1E293B"
-                >
-                  {node.name}
-                </SvgText>
-                {node.users_count && node.users_count > 0 && (
-                  <G>
-                    <Circle
-                      cx={pos.x + NODE_RADIUS - 4}
-                      cy={pos.y - NODE_RADIUS + 4}
-                      r={6}
-                      fill="#EF4444"
-                      stroke="#fff"
-                      strokeWidth="1.5"
-                    />
-                    <SvgText
-                      x={pos.x + NODE_RADIUS - 4}
-                      y={pos.y - NODE_RADIUS + 7}
-                      fontSize="7"
-                      fontWeight="700"
-                      textAnchor="middle"
-                      fill="#fff"
-                    >
-                      {node.users_count}
-                    </SvgText>
-                  </G>
-                )}
-                {/* Кнопка "+" — теперь на NODE_RADIUS + 20 (было +28) */}
-                {onAddChildPress && (
-                  <G>
-                    <Circle
-                      cx={pos.x}
-                      cy={pos.y + NODE_RADIUS + 20}
-                      r={8}
-                      fill="#10B981"
-                      stroke="#fff"
-                      strokeWidth="1.5"
-                    />
-                    <SvgText
-                      x={pos.x}
-                      y={pos.y + NODE_RADIUS + 24}
-                      fontSize="11"
-                      fontWeight="700"
-                      textAnchor="middle"
-                      fill="#fff"
-                    >
-                      +
-                    </SvgText>
-                  </G>
-                )}
-              </G>
-            );
-          })}
+        <Svg width={bounds.width} height={bounds.height} style={styles.svg} pointerEvents="none">
+          {edges.map(e => (
+            <Path key={e.key} d={e.d} stroke="#CBD5E1" strokeWidth={2} fill="none" strokeLinecap="round" />
+          ))}
         </Svg>
 
-        {/* Кликабельные области */}
-        {nodes.map(node => {
-          const pos = positions[node.id];
-          if (!pos) return null;
-          return [
+        {allNodes.map(ln => {
+          const node = ln.node;
+          const color = node.color || '#6366F1';
+          const selected = selectedNodeId === node.id;
+          const userCount = node.users_count || 0;
+          // ✅ Та же логика иконок что в старой версии: emoji из БД, фолбэк 👤
+          const icon = node.icon && String(node.icon).trim() ? String(node.icon) : '\u{1F464}';
+
+          return (
             <TouchableOpacity
-              key={`tn-${node.id}`}
+              key={node.id}
+              activeOpacity={0.85}
               onPress={() => onNodePress?.(node)}
-              style={{
-                position: 'absolute',
-                left: pos.x - NODE_RADIUS,
-                top: pos.y - NODE_RADIUS,
-                width: NODE_RADIUS * 2,
-                height: NODE_RADIUS * 2,
-              }}
-            />,
-            onAddChildPress && (
-              <TouchableOpacity
-                key={`ta-${node.id}`}
-                onPress={() => onAddChildPress(node)}
-                style={{
-                  position: 'absolute',
-                  left: pos.x - 14,
-                  top: pos.y + NODE_RADIUS + 14,
-                  width: 28,
-                  height: 28,
-                }}
-              />
-            ),
-          ];
+              style={[
+                styles.nodeCard,
+                { left: ln.x, top: ln.y },
+                selected && styles.nodeCardSelected,
+              ]}
+            >
+              <View style={[styles.nodeAccent, { backgroundColor: color }]} />
+              <View style={styles.nodeBody}>
+                <View style={[styles.nodeIconWrap, { backgroundColor: color + '22' }]}>
+                  <Text style={styles.nodeIcon}>{icon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nodeName} numberOfLines={1}>{node.name}</Text>
+                  {userCount > 0 ? (
+                    <View style={styles.usersChip}>
+                      <Users size={10} color="#6F6F73" strokeWidth={2.2} />
+                      <Text style={styles.usersChipText}>{userCount}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.nodeEmpty}>нет людей</Text>
+                  )}
+                </View>
+              </View>
+              {onAddChildPress && (
+                <TouchableOpacity
+                  onPress={() => onAddChildPress(node)}
+                  style={styles.addBtn}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Plus size={14} color="#1F7A52" strokeWidth={2.6} />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          );
         })}
       </Animated.View>
 
-      {/* Зум */}
+      {/* Зум-контролы */}
       <View style={styles.zoomControls}>
-        <TouchableOpacity onPress={zoomIn} style={styles.zoomBtn}>
-          <Text style={styles.zoomBtnText}>+</Text>
+        <TouchableOpacity onPress={() => zoomBy(1.25)} style={styles.zoomBtn} activeOpacity={0.7}>
+          <Plus size={20} color="#141414" strokeWidth={2.2} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={resetView} style={styles.zoomBtn}>
-          <Text style={styles.zoomBtnText}>⊙</Text>
+        <View style={styles.zoomDivider} />
+        <TouchableOpacity onPress={() => fitToScreen(true)} style={styles.zoomBtn} activeOpacity={0.7}>
+          <Maximize2 size={18} color="#141414" strokeWidth={2.2} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={zoomOut} style={styles.zoomBtn}>
-          <Text style={styles.zoomBtnText}>−</Text>
+        <View style={styles.zoomDivider} />
+        <TouchableOpacity onPress={() => zoomBy(0.8)} style={styles.zoomBtn} activeOpacity={0.7}>
+          <Minus size={20} color="#141414" strokeWidth={2.2} />
         </TouchableOpacity>
       </View>
     </View>
@@ -308,27 +366,89 @@ export default function TreeGraphView({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, overflow: 'hidden', backgroundColor: '#F8FAFC' },
-  canvas: { position: 'relative' },
+  container: { flex: 1, overflow: 'hidden', backgroundColor: '#F6F8FA' },
+  canvas: {},
   svg: { position: 'absolute', top: 0, left: 0 },
-  zoomControls: {
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { fontSize: 14, color: '#6F6F73', fontWeight: '500' },
+
+  // ===== Карточка узла =====
+  nodeCard: {
     position: 'absolute',
-    right: 20,
-    top: 100,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 4,
+    width: NODE_WIDTH,
+    height: NODE_HEIGHT,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    flexDirection: 'row',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  zoomBtn: {
-    width: 44,
-    height: 44,
+  nodeCardSelected: { borderWidth: 2, borderColor: '#1F7A52' },
+  nodeAccent: { width: 4, borderTopLeftRadius: 16, borderBottomLeftRadius: 16 },
+  nodeBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#FFFFFF',
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  nodeIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  zoomBtnText: { fontSize: 24, color: '#1E293B', fontWeight: '300' },
+  nodeIcon: { fontSize: 18, lineHeight: 22 },
+  nodeName: { fontSize: 13, fontWeight: '700', color: '#141414', marginBottom: 3 },
+  usersChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  usersChipText: { fontSize: 10, fontWeight: '700', color: '#6F6F73' },
+  nodeEmpty: { fontSize: 10, color: '#BDBDBD', fontStyle: 'italic' },
+  addBtn: {
+    position: 'absolute',
+    right: -12,
+    top: NODE_HEIGHT / 2 - 13,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+
+  // ===== Зум =====
+  zoomControls: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  zoomBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  zoomDivider: { width: 1, height: 24, backgroundColor: '#F3F4F6' },
 });

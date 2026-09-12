@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, ChatMessage, SourceChunk } from '../../services/api';
 import {
   Bot, User, Send, ThumbsUp, ThumbsDown, BookOpen,
-  ChevronDown, ChevronUp, Sparkles,
+  ChevronDown, ChevronUp, Sparkles, UserRound,
 } from 'lucide-react-native';
 
 export default function KnowledgeScreen({ navigation }: any) {
@@ -234,11 +234,20 @@ export default function KnowledgeScreen({ navigation }: any) {
       >
         {/* Hero header */}
         <View style={styles.heroHeader}>
-          <Text style={styles.bigTitle}>БАЗА ЗНАНИЙ</Text>
-          <View style={styles.subtitleRow}>
-            <Sparkles size={14} color="#6F6F73" strokeWidth={2.2} />
-            <Text style={styles.bigSubtitle}>AI-ассистент компании</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bigTitle}>БАЗА ЗНАНИЙ</Text>
+            <View style={styles.subtitleRow}>
+              <Sparkles size={14} color="#6F6F73" strokeWidth={2.2} />
+              <Text style={styles.bigSubtitle}>AI-ассистент компании</Text>
+            </View>
           </View>
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
+            activeOpacity={0.7}
+          >
+            <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+          </TouchableOpacity>
         </View>
 
         <FlatList
@@ -330,7 +339,14 @@ const styles = StyleSheet.create({
   chatContainer: { flex: 1 },
 
   // ===== HERO HEADER =====
-  heroHeader: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 20 },
+  heroHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
   bigTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
@@ -339,6 +355,19 @@ const styles = StyleSheet.create({
   bigSubtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
     fontSize: 18, fontStyle: 'italic', color: '#6F6F73',
+  },
+  profileBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
   // ===== MESSAGES =====

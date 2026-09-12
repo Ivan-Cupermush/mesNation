@@ -115,6 +115,8 @@ export default function ChatScreen({ navigation }: any) {
   const [pollCorrectIndex, setPollCorrectIndex] = useState<number | null>(null);
   const [sendingPoll, setSendingPoll] = useState(false);
 
+  const [membersMap, setMembersMap] = useState<Record<number, { display_name: string; username: string }>>({});
+
   const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
 
@@ -177,9 +179,40 @@ export default function ChatScreen({ navigation }: any) {
     if (currentUserId !== null) loadMessages();
   }, [currentUserId, loadMessages]);
 
+  // ===== Загрузка участников чата (для отображения имен отправителей) =====
+  const loadMembers = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.members || [];
+        const map: Record<number, { display_name: string; username: string }> = {};
+        list.forEach((m: any) => {
+          const uid = m.user_id ?? m.id;
+          if (uid != null) {
+            map[uid] = {
+              display_name: m.display_name || '',
+              username: m.username || '',
+            };
+          }
+        });
+        setMembersMap(map);
+      }
+    } catch (e) {}
+  }, [chatId]);
+
+
   useEffect(() => {
     loadPinned();
   }, [loadPinned]);
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+
 
   // ===== WebSocket =====
   useEffect(() => {
@@ -210,7 +243,12 @@ export default function ChatScreen({ navigation }: any) {
             } catch (e) {}
           })();
         }
-        return [...prev, msg];
+        // Обогащаем именем отправителя из membersMap, если сервер не прислал
+        const enrichedMsg = {
+          ...msg,
+          sender_name: msg.sender_name || msg.sender_display_name || (membersMap[msg.sender_id]?.display_name || membersMap[msg.sender_id]?.username),
+        };
+        return [...prev, enrichedMsg];
       });
     });
     socket.on('message_deleted', ({ id }: { id: number }) => {
@@ -514,9 +552,19 @@ export default function ChatScreen({ navigation }: any) {
 
   const isMineMsg = (m: any) => m.sender_id === currentUserId;
 
+
+  // ===== Хелпер: имя отправителя с фолбэком на membersMap =====
+  const senderNameOf = (m: any): string => {
+    if (m.sender_name) return m.sender_name;
+    if (m.sender_display_name) return m.sender_display_name;
+    const u = membersMap[m.sender_id];
+    if (u) return u.display_name || u.username || 'Участник';
+    return 'Участник';
+  };
+
   const renderMessage = (m: any) => {
     const mine = isMineMsg(m);
-    const senderName = m.sender_name || m.sender_display_name || 'Участник';
+    const senderName = senderNameOf(m);
     const replied = m.reply_to_message_id ? findMessageById(m.reply_to_message_id) : null;
 
     return (
@@ -537,7 +585,7 @@ export default function ChatScreen({ navigation }: any) {
               {replied ? (
                 <>
                   <Text style={[styles.quoteName, mine && styles.quoteNameMine]}>
-                    {replied.sender_name || replied.sender_display_name || 'Участник'}
+                    {senderNameOf(replied)}
                   </Text>
                   <Text style={[styles.quoteText, mine && styles.quoteTextMine]} numberOfLines={2}>
                     {replied.text || '📎 Вложение'}

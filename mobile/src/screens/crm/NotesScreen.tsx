@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Calendar, Star, Plus, FileText, BookOpen } from 'lucide-react-native';
+import { Calendar, Star, Plus, FileText, BookOpen, UserRound } from 'lucide-react-native';
 import { CalendarView } from '../../components/CalendarView';
 import { api, Note, DayWithNotes } from '../../services/api';
 
@@ -93,7 +93,6 @@ export default function NotesScreen({ navigation }: any) {
 
   const renderNoteCard = ({ item }: { item: Note }) => {
     const preview = item.content.substring(0, 100) + (item.content.length > 100 ? '...' : '');
-    
     return (
       <TouchableOpacity
         onPress={() => handleEditNote(item)}
@@ -128,7 +127,7 @@ export default function NotesScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
@@ -138,19 +137,11 @@ export default function NotesScreen({ navigation }: any) {
           </Text>
         </View>
         <TouchableOpacity
-          onPress={() => setFilter(filter === 'all' ? 'favorite' : 'all')}
-          activeOpacity={0.85}
-          style={[
-            styles.filterBtn,
-            filter === 'favorite' && styles.filterBtnActive,
-          ]}
+          style={styles.profileBtn}
+          onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
+          activeOpacity={0.7}
         >
-          <Star
-            size={20}
-            color={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
-            fill={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
-            strokeWidth={2.2}
-          />
+          <UserRound size={20} color="#1F7A52" strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -171,8 +162,25 @@ export default function NotesScreen({ navigation }: any) {
           <Text style={styles.listTitle}>
             {filter === 'favorite' ? 'Избранные заметки' : `Записи за день`}
           </Text>
-          <View style={styles.listCountBadge}>
-            <Text style={styles.listCountText}>{notes.length}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => setFilter(filter === 'all' ? 'favorite' : 'all')}
+              activeOpacity={0.85}
+              style={[
+                styles.filterBtn,
+                filter === 'favorite' && styles.filterBtnActive,
+              ]}
+            >
+              <Star
+                size={18}
+                color={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
+                fill={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
+                strokeWidth={2.2}
+              />
+            </TouchableOpacity>
+            <View style={styles.listCountBadge}>
+              <Text style={styles.listCountText}>{notes.length}</Text>
+            </View>
           </View>
         </View>
 
@@ -221,10 +229,10 @@ const styles = StyleSheet.create({
   // ===== HEADER =====
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 24,
   },
   title: {
@@ -242,21 +250,18 @@ const styles = StyleSheet.create({
     color: '#6F6F73',
     marginTop: 4,
   },
-  filterBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+  profileBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 24,
-    elevation: 4,
-  },
-  filterBtnActive: {
-    backgroundColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
   // ===== CALENDAR =====
@@ -291,6 +296,22 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1F7A52',
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
+  },
+  filterBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 24,
+    elevation: 4,
+  },
+  filterBtnActive: {
+    backgroundColor: '#F59E0B',
   },
 
   // ===== STATES =====

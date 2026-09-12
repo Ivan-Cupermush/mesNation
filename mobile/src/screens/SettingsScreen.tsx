@@ -36,7 +36,7 @@ const hashColor = (s: string) => {
 const initials = (name: string) =>
   (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-export default function SettingsScreen({ navigation }: any) {
+export default function SettingsScreen({ navigation, onLogout }: any) {
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
@@ -49,16 +49,12 @@ export default function SettingsScreen({ navigation }: any) {
       {
         text: 'Выйти',
         style: 'destructive',
-        onPress: async () => {
-          await api.logout();
-          navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
-        },
+        onPress: () => onLogout?.(),
       },
     ]);
   };
 
   const goToProfile = () => {
-    // Переход в ProfileScreen через ChatTab (там уже есть onLogout)
     navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' });
   };
 

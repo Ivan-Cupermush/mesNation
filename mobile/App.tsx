@@ -76,6 +76,7 @@ type KpiStackParamList = {
   CreateUserRole: undefined;
   EmployeeStats: { userId: number; userName: string };
 };
+
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
 
@@ -162,7 +163,7 @@ function NotesStackNavigator() {
   );
 }
 
-// ========== KPI Stack (С ВАШИМИ НОВЫМИ ЭКРАНАМИ) ==========
+// ========== KPI Stack ==========
 function KpiStackNavigator() {
   const headerStyle = useHeaderStyle();
   return (
@@ -201,7 +202,7 @@ function KnowledgeStackNavigator() {
 }
 
 // ========== Иконка вкладки ==========
-import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen , Settings } from 'lucide-react-native';
+import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
 
 function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   const { colors } = useTheme();
@@ -212,14 +213,16 @@ function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   );
 }
 
-// ========== Главный Tab-навигатор ==========
-
-// ========== Settings Stack ==========
-function SettingsStackNavigator() {
+// ========== Settings Stack (ИСПРАВЛЕНО: передаём onLogout) ==========
+function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
   const headerStyle = useHeaderStyle();
   return (
     <SettingsStack.Navigator screenOptions={headerStyle}>
-      <SettingsStack.Screen name="SettingsHome" component={SettingsScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen
+        name="SettingsHome"
+        options={{ headerShown: false }}
+        children={(props) => <SettingsScreen {...props} onLogout={onLogout} />}
+      />
       <SettingsStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ title: 'Дерево прав', headerShown: false }} />
@@ -237,6 +240,7 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
       .then(setCurrentUser)
       .catch(console.error);
   }, []);
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -297,11 +301,11 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
       {currentUser && (currentUser.role_name === 'director' || currentUser.role_name === 'admin' || (currentUser.role_name || '').toLowerCase().includes('руководитель')) && (
         <Tab.Screen
           name="SettingsTab"
-          component={SettingsStackNavigator}
           options={{
             title: 'Настройки',
             tabBarIcon: ({ focused }) => <TabIcon icon={Settings} focused={focused} />,
           }}
+          children={() => <SettingsStackNavigator onLogout={onLogout} />}
         />
       )}
     </Tab.Navigator>

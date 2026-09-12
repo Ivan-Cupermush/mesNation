@@ -1,20 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal, ScrollView,
+  Alert, ActivityIndicator, TextInput, Modal, ScrollView, Platform,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
 import TreeGraphView from '../../components/TreeGraphView';
+import { ChevronLeft } from 'lucide-react-native';
 
+// ✅ ТЕ ЖЕ списки что были — совместимость со старыми ролями в БД
 const COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
-const ICONS = ['👤', '💼', '🎯', '⭐', '🔧', '📊', '💻', '🏆', '🚀', '⚡', '🎨', '📈'];
+const ICONS = [
+  '\u{1F464}', '\u{1F4BC}', '\u{1F3AF}', '\u{2B50}',
+  '\u{1F527}', '\u{1F4CA}', '\u{1F4BB}', '\u{1F3C6}',
+  '\u{1F680}', '\u{26A1}', '\u{1F3A8}', '\u{1F4C8}',
+  '\u{1F6E1}\u{FE0F}', '\u{1F4E6}', '\u{1F511}', '\u{1F91D}',
+];
 
 export default function RoleTreeEditorScreen({ navigation }: any) {
   const { colors } = useTheme();
   const [nodes, setNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Модалка добавления ребёнка
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedParent, setSelectedParent] = useState<any>(null);
@@ -33,7 +40,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const loadTree = async () => {
     try {
       const data = await api.getRoleTree();
-      setNodes(data);
+      setNodes(Array.isArray(data) ? data : []);
     } catch (e: any) {
       Alert.alert('Ошибка', e.message);
     } finally {
@@ -107,14 +114,12 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   // === Удаление узла ===
   const handleDelete = () => {
     if (!editingNode) return;
-    
-    // Корень нельзя удалить
+
     if (editingNode.name === 'director' || editingNode.parent_id === null) {
       Alert.alert('Нельзя удалить', 'Корень дерева (директор) удалить нельзя');
       return;
     }
 
-    // Проверка пользователей
     if (editingNode.users_count && editingNode.users_count > 0) {
       Alert.alert(
         'Нельзя удалить',
@@ -159,26 +164,25 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
-        backgroundColor={colors.background}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+
+      {/* ===== HEADER (новая круглая кнопка назад) ===== */}
       <View style={[styles.header, {
         borderBottomColor: colors.border,
         paddingTop: (StatusBar.currentHeight || 24) + 8,
       }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Text style={{ color: colors.accent, fontSize: 16 }}>← Назад</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
+          <ChevronLeft size={22} color="#1F7A52" strokeWidth={2.5} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
-          Дерево прав
-        </Text>
-        <View style={{ width: 60 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>ДЕРЕВО РОЛЕЙ</Text>
+          <Text style={styles.headerSubtitle}>Иерархия и управление правами</Text>
+        </View>
       </View>
 
       <View style={styles.hint}>
         <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-          👆 Нажми на узел — редактировать. Нажми <Text style={{ color: '#10B981', fontWeight: '700' }}>+</Text> — добавить ребёнка.
+          👆 Узел — редактировать. <Text style={{ color: '#10B981', fontWeight: '700' }}>+</Text> — добавить ребёнка. 1 палец — двигать, 2 пальца — зум.
         </Text>
       </View>
 
@@ -224,9 +228,9 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
               <Text style={[styles.label, { color: colors.textSecondary }]}>Иконка</Text>
               <View style={styles.iconRow}>
-                {ICONS.map(i => (
+                {ICONS.map((i, idx) => (
                   <TouchableOpacity
-                    key={i}
+                    key={idx}
                     onPress={() => setNewIcon(i)}
                     style={[
                       styles.iconCircle,
@@ -297,9 +301,9 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
               <Text style={[styles.label, { color: colors.textSecondary }]}>Иконка</Text>
               <View style={styles.iconRow}>
-                {ICONS.map(i => (
+                {ICONS.map((i, idx) => (
                   <TouchableOpacity
-                    key={i}
+                    key={idx}
                     onPress={() => setEditIcon(i)}
                     style={[
                       styles.iconCircle,
@@ -312,7 +316,6 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 ))}
               </View>
 
-              {/* Информация о пользователях */}
               {editingNode?.users_count > 0 && (
                 <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
                   <Text style={{ color: '#92400E', fontSize: 13 }}>
@@ -340,7 +343,6 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
 
-            {/* Кнопка удаления (только для не-корня) */}
             {editingNode && editingNode.parent_id !== null && editingNode.name !== 'director' && (
               <TouchableOpacity
                 onPress={handleDelete}
@@ -362,64 +364,57 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 12,
+    gap: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerBtn: { padding: 8, minWidth: 60 },
-  headerTitle: { fontSize: 17, fontWeight: '600' },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  headerTitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#141414',
+    letterSpacing: 0.3,
+    lineHeight: 28,
+  },
+  headerSubtitle: {
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: '#6F6F73',
+    marginTop: 1,
+  },
   hint: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: 'rgba(99, 102, 241, 0.08)',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    padding: 24,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  input: {
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    fontSize: 16,
-  },
-  colorRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  colorCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  iconRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { padding: 24, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' },
+  modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: '600', marginTop: 12, marginBottom: 6 },
+  input: { padding: 14, borderRadius: 10, borderWidth: 1, fontSize: 16 },
+  colorRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  colorCircle: { width: 40, height: 40, borderRadius: 20 },
+  iconRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   iconCircle: {
     width: 48,
     height: 48,
@@ -428,27 +423,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  infoBox: {
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: 16,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  deleteBtn: {
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
+  infoBox: { padding: 12, borderRadius: 8, borderWidth: 1, marginTop: 16 },
+  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  deleteBtn: { marginTop: 12, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
 });

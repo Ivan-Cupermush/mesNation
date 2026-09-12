@@ -13,14 +13,11 @@ import ProfileScreen from './screens/ProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import ImportExcelScreen from './screens/ImportExcelScreen';
 import EmployeeStatsScreen from './screens/EmployeeStatsScreen';
+import RoleTreeScreen from './screens/RoleTreeScreen';
+import CreateUserScreen from './screens/CreateUserScreen';
 import { getToken } from './utils';
 
-const Placeholder = ({ title }: { title: string }) => (
-  <div style={{ maxWidth: 960, margin: '0 auto', padding: '32px 24px' }}>
-    <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 40, color: '#141414' }}>{title}</h1>
-    <p style={{ fontStyle: 'italic', color: '#6F6F73', marginTop: 4 }}>Скоро будет готово…</p>
-  </div>
-);
+
 
 const PrivateRoute = ({ children }: { children: React.ReactElement }) => {
   const token = getToken();
@@ -44,6 +41,8 @@ function App() {
           <Route path="settings" element={<SettingsScreen />} />
           <Route path="profile" element={<ProfileScreen />} />
           <Route path="import" element={<ImportExcelScreen />} />
+          <Route path="roles" element={<RoleTreeScreen />} />
+          <Route path="create-user" element={<CreateUserScreen />} />
           <Route path="employee/:userId" element={<EmployeeStatsScreen />} />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
@@ -53,3 +52,6 @@ function App() {
 }
 
 export default App;
+
+
+

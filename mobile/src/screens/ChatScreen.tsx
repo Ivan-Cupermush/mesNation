@@ -246,7 +246,7 @@ export default function ChatScreen({ navigation }: any) {
         // Обогащаем именем отправителя из membersMap, если сервер не прислал
         const enrichedMsg = {
           ...msg,
-          sender_name: msg.sender_name || msg.sender_display_name || (membersMap[msg.sender_id]?.display_name || membersMap[msg.sender_id]?.username),
+          sender_name: msg.sender_display_name || msg.sender_name || (membersMap[msg.sender_id]?.display_name || membersMap[msg.sender_id]?.username),
         };
         return [...prev, enrichedMsg];
       });
@@ -555,8 +555,8 @@ export default function ChatScreen({ navigation }: any) {
 
   // ===== Хелпер: имя отправителя с фолбэком на membersMap =====
   const senderNameOf = (m: any): string => {
-    if (m.sender_name) return m.sender_name;
     if (m.sender_display_name) return m.sender_display_name;
+    if (m.sender_name) return m.sender_name;
     const u = membersMap[m.sender_id];
     if (u) return u.display_name || u.username || 'Участник';
     return 'Участник';

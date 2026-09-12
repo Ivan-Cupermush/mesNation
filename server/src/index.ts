@@ -381,20 +381,27 @@ app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
     const { topic_id } = req.query;
-    let query = 'SELECT * FROM messages WHERE chat_id = $1';
+    let query = `
+      SELECT m.*,
+             u.display_name AS sender_display_name,
+             u.username     AS sender_name,
+             u.avatar_url   AS sender_avatar_url
+      FROM messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.chat_id = $1`;
     const params: any[] = [chatId];
     if (topic_id) {
-      query += ' AND topic_id = $2';
+      query += ' AND m.topic_id = $2';
       params.push(topic_id);
     } else {
-      query += ' AND topic_id IS NULL';
+      query += ' AND m.topic_id IS NULL';
     }
-    query += ' ORDER BY created_at ASC';
+    query += ' ORDER BY m.created_at ASC';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ СЃРѕРѕР±С‰РµРЅРёР№' });
+    res.status(500).json({ error: 'Ошибка получения сообщений' });
   }
 });
 
@@ -402,20 +409,27 @@ app.get('/api/messages/:chatId/pinned', async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
     const { topic_id } = req.query;
-    let query = 'SELECT * FROM messages WHERE chat_id = $1 AND pinned = true AND deleted_for_all = false';
+    let query = `
+      SELECT m.*,
+             u.display_name AS sender_display_name,
+             u.username     AS sender_name,
+             u.avatar_url   AS sender_avatar_url
+      FROM messages m
+      LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.chat_id = $1 AND m.pinned = true AND m.deleted_for_all = false`;
     const params: any[] = [chatId];
     if (topic_id) {
-      query += ' AND topic_id = $2';
+      query += ' AND m.topic_id = $2';
       params.push(topic_id);
     } else {
-      query += ' AND topic_id IS NULL';
+      query += ' AND m.topic_id IS NULL';
     }
-    query += ' ORDER BY created_at ASC';
+    query += ' ORDER BY m.created_at ASC';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    console.error('РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ Р·Р°РєСЂРµРїР»С‘РЅРЅС‹С…:', err);
-    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
+    console.error('Ошибка получения закреплённых:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
@@ -423,21 +437,29 @@ app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Respo
   try {
     const messageId = parseInt(req.params.id as string);
     const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'РўРµРєСЃС‚ РѕР±СЏР·Р°С‚РµР»РµРЅ' });
+    if (!text) return res.status(400).json({ error: 'Текст обязателен' });
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
     const msg = msgResult.rows[0];
-    if (msg.sender_id !== req.userId) return res.status(403).json({ error: 'РўРѕР»СЊРєРѕ Р°РІС‚РѕСЂ РјРѕР¶РµС‚ СЂРµРґР°РєС‚РёСЂРѕРІР°С‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ' });
+    if (msg.sender_id !== req.userId) return res.status(403).json({ error: 'Только автор может редактировать сообщение' });
     const result = await pool.query(
-      'UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2 RETURNING *',
+      `WITH upd AS (
+         UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2 RETURNING *
+       )
+       SELECT upd.*,
+              u.display_name AS sender_display_name,
+              u.username     AS sender_name,
+              u.avatar_url   AS sender_avatar_url
+       FROM upd
+       LEFT JOIN users u ON u.id = upd.sender_id`,
       [text, messageId]
     );
     const updatedMsg = result.rows[0];
     io.to(msg.chat_id).emit('message_edited', updatedMsg);
     res.json(updatedMsg);
   } catch (err) {
-    console.error('РћС€РёР±РєР° СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёСЏ:', err);
-    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
+    console.error('Ошибка редактирования:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
@@ -521,17 +543,15 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
   try {
     const { chatId, senderId, topicId } = req.body;
     const file = req.file;
-    if (!file) return res.status(400).json({ error: 'РќРµС‚ С„Р°Р№Р»Р°' });
-    if (!chatId || !senderId) return res.status(400).json({ error: 'РќРµ СѓРєР°Р·Р°РЅ С‡Р°С‚ РёР»Рё РѕС‚РїСЂР°РІРёС‚РµР»СЊ' });
-
+    if (!file) return res.status(400).json({ error: 'Нет файла' });
+    if (!chatId || !senderId) return res.status(400).json({ error: 'Не указан чат или отправитель' });
     const memberCheck = await pool.query(
       'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
       [chatId, senderId]
     );
     if (memberCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ СЃРѕСЃС‚РѕРёС‚ РІ С‡Р°С‚Рµ' });
+      return res.status(403).json({ error: 'Пользователь не состоит в чате' });
     }
-
     let thumbUrl: string | null = null;
     const isImage = file.mimetype.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.originalname);
     if (isImage) {
@@ -541,25 +561,32 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
         await sharp(file.path).resize(300, 300, { fit: 'inside' }).toFile(thumbPath);
         thumbUrl = '/uploads/thumbs/' + thumbFilename;
       } catch (sharpErr) {
-        console.error('РћС€РёР±РєР° СЃРѕР·РґР°РЅРёСЏ РјРёРЅРёР°С‚СЋСЂС‹:', sharpErr);
+        console.error('Ошибка создания миниатюры:', sharpErr);
       }
     }
-
     const result = await pool.query(
-      `INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url, topic_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `WITH ins AS (
+         INSERT INTO messages (chat_id, sender_id, file_url, file_name, thumb_url, topic_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *
+       )
+       SELECT ins.*,
+              u.display_name AS sender_display_name,
+              u.username     AS sender_name,
+              u.avatar_url   AS sender_avatar_url
+       FROM ins
+       LEFT JOIN users u ON u.id = ins.sender_id`,
       [chatId, senderId, `/uploads/${file.filename}`, file.originalname, thumbUrl, topicId || null]
     );
     const msg = result.rows[0];
     io.to(chatId).emit('new_message', msg);
     res.status(201).json(msg);
   } catch (err) {
-    console.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°:', err);
-    res.status(500).json({ error: 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°' });
+    console.error('Ошибка загрузки файла:', err);
+    res.status(500).json({ error: 'Ошибка загрузки файла' });
   }
 });
 
-// ========== РўРѕРїРёРєРё ==========
 app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
@@ -642,26 +669,35 @@ app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRe
     const { message_id, target_chat_id, target_topic_id, text } = req.body;
     const userId = req.userId!;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РСЃС…РѕРґРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
     const originalMsg = msgResult.rows[0];
     const memberCheck = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [target_chat_id, userId]);
-    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Р’С‹ РЅРµ СЏРІР»СЏРµС‚РµСЃСЊ СѓС‡Р°СЃС‚РЅРёРєРѕРј С†РµР»РµРІРѕРіРѕ С‡Р°С‚Р°' });
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не являетесь участником целевого чата' });
     const externalChatId = (originalMsg.chat_id != target_chat_id) ? originalMsg.chat_id : null;
     const finalText = (text && text.trim() !== '') ? text : (originalMsg.text || '');
     const fileUrl = originalMsg.file_url || null;
     const fileName = originalMsg.file_name || null;
     const thumbUrl = originalMsg.thumb_url || null;
     const insertResult = await pool.query(
-      `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, external_reply_chat_id, file_url, file_name, thumb_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `WITH ins AS (
+         INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, external_reply_chat_id, file_url, file_name, thumb_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *
+       )
+       SELECT ins.*,
+              u.display_name AS sender_display_name,
+              u.username     AS sender_name,
+              u.avatar_url   AS sender_avatar_url
+       FROM ins
+       LEFT JOIN users u ON u.id = ins.sender_id`,
       [target_chat_id, userId, finalText, message_id, target_topic_id || null, externalChatId, fileUrl, fileName, thumbUrl]
     );
     const newMsg = insertResult.rows[0];
     io.to(target_chat_id.toString()).emit('new_message', newMsg);
     res.status(201).json(newMsg);
   } catch (err) {
-    console.error('РћС€РёР±РєР° РїРµСЂРµСЃС‹Р»РєРё:', err);
-    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
+    console.error('Ошибка пересылки:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
@@ -689,8 +725,17 @@ io.on('connection', (socket) => {
         if (replyMsg.rows.length === 0) return;
       }
       const result = await pool.query(
-        `INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        `WITH ins AS (
+           INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *
+         )
+         SELECT ins.*,
+                u.display_name AS sender_display_name,
+                u.username     AS sender_name,
+                u.avatar_url   AS sender_avatar_url
+         FROM ins
+         LEFT JOIN users u ON u.id = ins.sender_id`,
         [chatId, senderId || 0, text, reply_to_message_id || null, topic_id || null]
       );
       io.to(chatId).emit('new_message', result.rows[0]);

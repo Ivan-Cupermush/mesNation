@@ -1,13 +1,13 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { SERVER_URL, getToken, clearToken } from '../utils';
 
-// Создаём instance axios
+// РЎРѕР·РґР°С‘Рј instance axios
 export const apiClient = axios.create({
   baseURL: SERVER_URL,
   timeout: 30000,
 });
 
-// Интерцептор для добавления токена
+// РРЅС‚РµСЂС†РµРїС‚РѕСЂ РґР»СЏ РґРѕР±Р°РІР»РµРЅРёСЏ С‚РѕРєРµРЅР°
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
   if (token) {
@@ -16,7 +16,7 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Интерцептор для обработки ошибок авторизации
+// РРЅС‚РµСЂС†РµРїС‚РѕСЂ РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РѕС€РёР±РѕРє Р°РІС‚РѕСЂРёР·Р°С†РёРё
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -49,7 +49,7 @@ async function request<T>(url: string, options: any = {}): Promise<T> {
   return response.data;
 }
 
-// ==================== АВТОРИЗАЦИЯ ====================
+// ==================== РђР’РўРћР РР—РђР¦РРЇ ====================
 export interface User {
   id: number;
   username: string;
@@ -66,7 +66,7 @@ export interface LoginResponse {
 
 export const api = {
   login: async (username: string, password: string): Promise<LoginResponse> => {
-    const response = await apiClient.post('/api/auth/login', { username, password });
+    const response = await apiClient.post('/api/auth/login', { username, email: username, password });
     return response.data;
   },
 
@@ -81,7 +81,7 @@ export const api = {
   logout: (): Promise<void> =>
     request<void>('/api/auth/logout', { method: 'POST' }).catch(() => {}),
 
-  // ==================== ЗАДАЧИ ====================
+  // ==================== Р—РђР”РђР§Р ====================
   getTasks: (params?: any) => request<any[]>('/api/tasks', { params }),
   
   getTaskById: (id: number) => request<any>(`/api/tasks/${id}`),
@@ -118,7 +118,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // ==================== ИМПОРТ ====================
+  // ==================== РРњРџРћР Рў ====================
   previewImport: async (file: File): Promise<any> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -136,7 +136,7 @@ export const api = {
       body: JSON.stringify({ importId, mapping }),
     }),
 
-  // ==================== ЗАМЕТКИ ====================
+  // ==================== Р—РђРњР•РўРљР ====================
   getNotesByDate: (date: string) => request<any[]>(`/api/notes?date=${date}`),
   
   getFavoriteNotes: () => request<any[]>('/api/notes/favorites'),
@@ -157,7 +157,7 @@ export const api = {
     method: 'DELETE',
   }),
 
-  // ==================== БАЗА ЗНАНИЙ ====================
+  // ==================== Р‘РђР—Рђ Р—РќРђРќРР™ ====================
   getChatSessions: (): Promise<any[]> =>
     request<any[]>('/api/knowledge/sessions'),
 
@@ -176,7 +176,7 @@ export const api = {
       body: JSON.stringify({ feedback, comment }),
     }),
 
-  // ==================== ПРОФИЛЬ ====================
+  // ==================== РџР РћР¤РР›Р¬ ====================
   updateProfile: (data: any) => request<any>('/api/auth/profile', {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -194,18 +194,18 @@ export const api = {
   },
 };
 
-// ==================== ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ====================
+// ==================== Р”РћРџРћР›РќРРўР•Р›Р¬РќР«Р• Р¤РЈРќРљР¦РР ====================
 export const getSalesTransactions = (params?: any): Promise<any[]> =>
   request<any[]>('/api/kpi/sales/transactions', { params });
 
-// ==================== ПОЛЬЗОВАТЕЛИ И ДЕРЕВО РОЛЕЙ ====================
+// ==================== РџРћР›Р¬Р—РћР’РђРўР•Р›Р Р Р”Р•Р Р•Р’Рћ Р РћР›Р•Р™ ====================
 export const getSubtreeUsers = (): Promise<any[]> =>
   request<any[]>('/api/role-tree/subtree-users').catch(() => []);
 
 export const getUsers = (): Promise<any[]> =>
   request<any[]>('/api/users').catch(() => []);
 
-// ==================== ДЕТАЛИ ЗАДАЧ ====================
+// ==================== Р”Р•РўРђР›Р Р—РђР”РђР§ ====================
 export interface TaskHistoryItem {
   id: number;
   task_id: number;
@@ -288,7 +288,7 @@ export const uploadTaskFile = async (taskId: number, file: File): Promise<TaskFi
 export const deleteTaskFile = (taskId: number, fileId: number): Promise<void> =>
   request<void>(`/api/tasks/${taskId}/files/${fileId}`, { method: 'DELETE' });
 
-// ==================== ЗАМЕТКИ ====================
+// ==================== Р—РђРњР•РўРљР ====================
 export interface Note {
   id: number;
   title: string;
@@ -339,3 +339,5 @@ export const updateNote = (id: number, data: Partial<{title: string; content: st
 
 export const deleteNote = (id: number): Promise<void> =>
   request<void>(`/api/notes/${id}`, { method: 'DELETE' });
+
+

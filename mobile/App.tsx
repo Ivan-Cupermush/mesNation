@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { api } from './src/services/api';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -39,6 +39,7 @@ import CreateUserRoleScreen from './src/screens/crm/CreateUserRoleScreen';
 
 // ===== Тема =====
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SERVER_URL, getToken } from './src/utils';
 
 // ========== Навигационные типы ==========
@@ -232,6 +233,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
 }
 
 function MainTabs({ onLogout }: { onLogout: () => void }) {
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -252,7 +254,8 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
           borderTopColor: colors.border,
           borderTopWidth: StyleSheet.hairlineWidth,
           height: 64,
-          paddingBottom: 8,
+          // Safe area inset added below
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
@@ -370,9 +373,11 @@ function RootNavigator() {
 // ========== Точка входа ==========
 export default function App() {
   return (
-    <ThemeProvider>
-      <RootNavigator />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <RootNavigator />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 

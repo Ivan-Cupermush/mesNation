@@ -1,4 +1,4 @@
-export const SERVER_URL = 'http://localhost:5000';
+﻿export const SERVER_URL = 'https://offixcrm.ru';
 
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'current_user';

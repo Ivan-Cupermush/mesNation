@@ -1,6 +1,6 @@
-import * as RNFS from 'react-native-fs';
+﻿import * as RNFS from 'react-native-fs';
 
-export const SERVER_URL = 'http://188.234.166.110:5000';
+export const SERVER_URL = 'https://offixcrm.ru';
 const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;
 
 export async function getToken(): Promise<string | null> {

@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+﻿import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -17,7 +17,7 @@ import notesRouter from './routes/notes';
 import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
-import pollsRouter from './routes/polls';  // ← ДОБАВЛЕНО
+import pollsRouter from './routes/polls';  // в†ђ Р”РћР‘РђР’Р›Р•РќРћ
 import { startDeadlineChecker } from './services/deadlineChecker';
 
 dotenv.config();
@@ -51,31 +51,31 @@ interface AuthRequest extends Request {
 
 function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'Токен не предоставлен' });
+  if (!authHeader) return res.status(401).json({ error: 'РўРѕРєРµРЅ РЅРµ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅ' });
   const token = authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Неверный формат токена' });
+  if (!token) return res.status(401).json({ error: 'РќРµРІРµСЂРЅС‹Р№ С„РѕСЂРјР°С‚ С‚РѕРєРµРЅР°' });
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { userId: number; username: string };
     req.userId = payload.userId;
     req.username = payload.username;
     next();
   } catch (err) {
-    return res.status(403).json({ error: 'Недействительный токен' });
+    return res.status(403).json({ error: 'РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ С‚РѕРєРµРЅ' });
   }
 }
 
 function authenticateQuery(req: AuthRequest, res: Response, next: NextFunction) {
   const token = req.query.token as string;
-  if (!token) return res.status(401).json({ error: 'Токен не предоставлен' });
+  if (!token) return res.status(401).json({ error: 'РўРѕРєРµРЅ РЅРµ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅ' });
   try {
     jwt.verify(token, JWT_SECRET);
     next();
   } catch (err) {
-    return res.status(403).json({ error: 'Недействительный или истекший токен' });
+    return res.status(403).json({ error: 'РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ РёР»Рё РёСЃС‚РµРєС€РёР№ С‚РѕРєРµРЅ' });
   }
 }
 
-// Статика для аплоадов
+// РЎС‚Р°С‚РёРєР° РґР»СЏ Р°РїР»РѕР°РґРѕРІ
 app.use('/uploads/thumbs', express.static('uploads/thumbs'));
 app.use('/uploads/tasks', express.static('uploads/tasks'));
 app.use('/uploads/avatars', express.static('uploads/avatars'));
@@ -84,12 +84,12 @@ app.use('/uploads', (req: AuthRequest, res: Response, next: NextFunction) => {
   return authenticate(req, res, next);
 }, express.static('uploads'));
 
-// ========== Публичные эндпоинты ==========
+// ========== РџСѓР±Р»РёС‡РЅС‹Рµ СЌРЅРґРїРѕРёРЅС‚С‹ ==========
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ========== Онбординг: создание компании ==========
+// ========== РћРЅР±РѕСЂРґРёРЅРі: СЃРѕР·РґР°РЅРёРµ РєРѕРјРїР°РЅРёРё ==========
 app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
@@ -100,8 +100,8 @@ app.get('/api/auth/has-company', async (_req: Request, res: Response) => {
     const count = parseInt(result.rows[0].count);
     res.json({ hasCompany: count > 0 });
   } catch (err) {
-    console.error('Ошибка проверки компании:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїСЂРѕРІРµСЂРєРё РєРѕРјРїР°РЅРёРё:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -115,22 +115,22 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     `);
     if (parseInt(directorCheck.rows[0].count) > 0) {
       client.release();
-      return res.status(400).json({ error: 'Компания уже создана. Используйте вход.' });
+      return res.status(400).json({ error: 'РљРѕРјРїР°РЅРёСЏ СѓР¶Рµ СЃРѕР·РґР°РЅР°. РСЃРїРѕР»СЊР·СѓР№С‚Рµ РІС…РѕРґ.' });
     }
 
     const { company_name, username, email, password, display_name } = req.body;
 
     if (!company_name || !company_name.trim()) {
       client.release();
-      return res.status(400).json({ error: 'Название компании обязательно' });
+      return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ РєРѕРјРїР°РЅРёРё РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ' });
     }
     if (!username || !email || !password) {
       client.release();
-      return res.status(400).json({ error: 'Логин, email и пароль обязательны' });
+      return res.status(400).json({ error: 'Р›РѕРіРёРЅ, email Рё РїР°СЂРѕР»СЊ РѕР±СЏР·Р°С‚РµР»СЊРЅС‹' });
     }
     if (password.length < 4) {
       client.release();
-      return res.status(400).json({ error: 'Пароль должен быть не менее 4 символов' });
+      return res.status(400).json({ error: 'РџР°СЂРѕР»СЊ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РЅРµ РјРµРЅРµРµ 4 СЃРёРјРІРѕР»РѕРІ' });
     }
 
     await client.query('BEGIN');
@@ -139,9 +139,9 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
     if (directorRole.rows.length === 0) {
       await client.query(`
         INSERT INTO role_tree (name, parent_id, description, level, icon, color) VALUES
-          ('director', NULL, 'Директор', 0, '👑', '#6366F1'),
-          ('manager', (SELECT id FROM role_tree WHERE name = 'director'), 'Менеджер', 1, '💼', '#10B981'),
-          ('employee', (SELECT id FROM role_tree WHERE name = 'manager'), 'Сотрудник', 2, '👤', '#F59E0B')
+          ('director', NULL, 'Р”РёСЂРµРєС‚РѕСЂ', 0, 'рџ‘‘', '#6366F1'),
+          ('manager', (SELECT id FROM role_tree WHERE name = 'director'), 'РњРµРЅРµРґР¶РµСЂ', 1, 'рџ’ј', '#10B981'),
+          ('employee', (SELECT id FROM role_tree WHERE name = 'manager'), 'РЎРѕС‚СЂСѓРґРЅРёРє', 2, 'рџ‘¤', '#F59E0B')
       `);
     }
     const directorId = (await client.query("SELECT id FROM role_tree WHERE name = 'director'")).rows[0].id;
@@ -198,11 +198,11 @@ app.post('/api/auth/setup-company', async (req: Request, res: Response) => {
   } catch (err: any) {
     await client.query('ROLLBACK');
     client.release();
-    console.error('Ошибка создания компании:', err);
+    console.error('РћС€РёР±РєР° СЃРѕР·РґР°РЅРёСЏ РєРѕРјРїР°РЅРёРё:', err);
     if (err.code === '23505') {
-      return res.status(409).json({ error: 'Пользователь с таким логином или email уже существует' });
+      return res.status(409).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЃ С‚Р°РєРёРј Р»РѕРіРёРЅРѕРј РёР»Рё email СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚' });
     }
-    res.status(500).json({ error: 'Ошибка сервера при создании компании' });
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР° РїСЂРё СЃРѕР·РґР°РЅРёРё РєРѕРјРїР°РЅРёРё' });
   }
 });
 
@@ -217,7 +217,7 @@ app.get('/api/company', async (_req: Request, res: Response) => {
     const result = await pool.query("SELECT value FROM app_settings WHERE key = 'company_name'");
     res.json({ company_name: result.rows[0]?.value || null });
   } catch (err) {
-    res.status(500).json({ error: 'Ошибка сервера' });
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -226,11 +226,11 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   try {
     const { username, email, password, display_name } = req.body;
     if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Имя пользователя, email и пароль обязательны' });
+      return res.status(400).json({ error: 'РРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ, email Рё РїР°СЂРѕР»СЊ РѕР±СЏР·Р°С‚РµР»СЊРЅС‹' });
     }
     const existing = await pool.query('SELECT id FROM users WHERE email = $1 OR username = $2', [email, username]);
     if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Пользователь с таким email или именем уже существует' });
+      return res.status(409).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЃ С‚Р°РєРёРј email РёР»Рё РёРјРµРЅРµРј СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚' });
     }
     const password_hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
@@ -243,8 +243,8 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user });
   } catch (err) {
-    console.error('Ошибка регистрации:', err);
-    res.status(500).json({ error: 'Ошибка сервера при регистрации' });
+    console.error('РћС€РёР±РєР° СЂРµРіРёСЃС‚СЂР°С†РёРё:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР° РїСЂРё СЂРµРіРёСЃС‚СЂР°С†РёРё' });
   }
 });
 
@@ -252,25 +252,25 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   try {
     const { username, email, password } = req.body;
     if ((!username && !email) || !password) {
-      return res.status(400).json({ error: 'Укажите имя пользователя (или email) и пароль' });
+      return res.status(400).json({ error: 'РЈРєР°Р¶РёС‚Рµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ (РёР»Рё email) Рё РїР°СЂРѕР»СЊ' });
     }
     const result = await pool.query(
       'SELECT id, username, email, password_hash, display_name, avatar_url FROM users WHERE username = $1 OR email = $2',
       [username || '', email || '']
     );
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+      return res.status(401).json({ error: 'РќРµРІРµСЂРЅРѕРµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР»Рё РїР°СЂРѕР»СЊ' });
     }
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
-      return res.status(401).json({ error: 'Неверное имя пользователя или пароль' });
+      return res.status(401).json({ error: 'РќРµРІРµСЂРЅРѕРµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР»Рё РїР°СЂРѕР»СЊ' });
     }
     const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user.id, username: user.username, email: user.email, display_name: user.display_name, avatar_url: user.avatar_url } });
   } catch (err) {
-    console.error('Ошибка входа:', err);
-    res.status(500).json({ error: 'Ошибка сервера при входе' });
+    console.error('РћС€РёР±РєР° РІС…РѕРґР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР° РїСЂРё РІС…РѕРґРµ' });
   }
 });
 
@@ -283,11 +283,11 @@ app.get('/api/auth/me', authenticate, async (req: AuthRequest, res: Response) =>
        WHERE u.id = $1`,
       [req.userId]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (result.rows.length === 0) return res.status(404).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Ошибка получения профиля:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РїСЂРѕС„РёР»СЏ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
 
   }
 });
@@ -297,21 +297,21 @@ app.get('/api/users', authenticate, async (req: AuthRequest, res: Response) => {
     const result = await pool.query('SELECT id, username, display_name, avatar_url FROM users');
     res.json(result.rows);
   } catch (err) {
-    console.error('Ошибка получения пользователей:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
 app.post('/api/auth/avatar', authenticate, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
   try {
     const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
+    if (!file) return res.status(400).json({ error: 'РќРµС‚ С„Р°Р№Р»Р°' });
     const avatarUrl = '/uploads/avatars/' + file.filename;
     await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [avatarUrl, req.userId]);
     res.json({ avatar_url: avatarUrl });
   } catch (err) {
-    console.error('Ошибка загрузки аватара:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р°РІР°С‚Р°СЂР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -323,23 +323,23 @@ app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Respo
       let paramIdx = 1;
 
       if (display_name !== undefined) {
-        if (!display_name.trim()) return res.status(400).json({ error: 'Имя не может быть пустым' });
+        if (!display_name.trim()) return res.status(400).json({ error: 'РРјСЏ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј' });
         updates.push(`display_name = $${paramIdx++}`);
         values.push(display_name.trim());
       }
 
       if (email !== undefined) {
-        if (email.trim() && !email.includes('@')) return res.status(400).json({ error: 'Некорректный email' });
-        // Проверка уникальности email
+        if (email.trim() && !email.includes('@')) return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ email' });
+        // РџСЂРѕРІРµСЂРєР° СѓРЅРёРєР°Р»СЊРЅРѕСЃС‚Рё email
         if (email.trim()) {
           const existing = await pool.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email.trim().toLowerCase(), req.userId]);
-          if (existing.rows.length > 0) return res.status(409).json({ error: 'Этот email уже используется' });
+          if (existing.rows.length > 0) return res.status(409).json({ error: 'Р­С‚РѕС‚ email СѓР¶Рµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ' });
         }
         updates.push(`email = $${paramIdx++}`);
         values.push(email.trim().toLowerCase() || null);
       }
 
-      if (updates.length === 0) return res.status(400).json({ error: 'Нет данных для обновления' });
+      if (updates.length === 0) return res.status(400).json({ error: 'РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РѕР±РЅРѕРІР»РµРЅРёСЏ' });
 
       values.push(req.userId);
       const result = await pool.query(
@@ -348,8 +348,8 @@ app.patch('/api/auth/profile', authenticate, async (req: AuthRequest, res: Respo
       );
       res.json(result.rows[0]);
     } catch (err) {
-      console.error('Ошибка обновления профиля:', err);
-      res.status(500).json({ error: 'Ошибка сервера' });
+      console.error('РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ РїСЂРѕС„РёР»СЏ:', err);
+      res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
     }
   });
 
@@ -357,16 +357,16 @@ app.get('/api/file-token/:filename', authenticate, async (req: AuthRequest, res:
   try {
     const filename = req.params.filename;
     const filePath = path.join('uploads', filename as string);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл не найден' });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ' });
     const tempToken = jwt.sign({ filename }, JWT_SECRET, { expiresIn: '5m' });
     res.json({ url: `/uploads/${filename}?token=${tempToken}` });
   } catch (err) {
-    console.error('Ошибка генерации токена:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РіРµРЅРµСЂР°С†РёРё С‚РѕРєРµРЅР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== Основные роуты ==========
+// ========== РћСЃРЅРѕРІРЅС‹Рµ СЂРѕСѓС‚С‹ ==========
 app.use('/api/chats', authenticate, chatsRouter);
 app.use('/api/role-tree', authenticate, roleTreeRouter);
 app.use('/api/tasks', authenticate, tasksRouter);
@@ -374,9 +374,9 @@ app.use('/api/notes', authenticate, notesRouter);
 app.use('/api/kpi', kpiImportRouter);
 app.use('/api/kpi/sales', authenticate, kpiSalesRouter);
 app.use('/api/knowledge', authenticate, knowledgeRouter);
-app.use('/api/polls', pollsRouter);  // ← ДОБАВЛЕНО
+app.use('/api/polls', pollsRouter);  // в†ђ Р”РћР‘РђР’Р›Р•РќРћ
 
-// ========== Сообщения ==========
+// ========== РЎРѕРѕР±С‰РµРЅРёСЏ ==========
 app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
   try {
     const { chatId } = req.params;
@@ -394,7 +394,7 @@ app.get('/api/messages/:chatId', async (req: Request, res: Response) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Ошибка получения сообщений' });
+    res.status(500).json({ error: 'РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ СЃРѕРѕР±С‰РµРЅРёР№' });
   }
 });
 
@@ -414,8 +414,8 @@ app.get('/api/messages/:chatId/pinned', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    console.error('Ошибка получения закреплённых:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ Р·Р°РєСЂРµРїР»С‘РЅРЅС‹С…:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -423,11 +423,11 @@ app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Respo
   try {
     const messageId = parseInt(req.params.id as string);
     const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'Текст обязателен' });
+    if (!text) return res.status(400).json({ error: 'РўРµРєСЃС‚ РѕР±СЏР·Р°С‚РµР»РµРЅ' });
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
     const msg = msgResult.rows[0];
-    if (msg.sender_id !== req.userId) return res.status(403).json({ error: 'Только автор может редактировать сообщение' });
+    if (msg.sender_id !== req.userId) return res.status(403).json({ error: 'РўРѕР»СЊРєРѕ Р°РІС‚РѕСЂ РјРѕР¶РµС‚ СЂРµРґР°РєС‚РёСЂРѕРІР°С‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ' });
     const result = await pool.query(
       'UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2 RETURNING *',
       [text, messageId]
@@ -436,8 +436,8 @@ app.patch('/api/messages/:id', authenticate, async (req: AuthRequest, res: Respo
     io.to(msg.chat_id).emit('message_edited', updatedMsg);
     res.json(updatedMsg);
   } catch (err) {
-    console.error('Ошибка редактирования:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёСЏ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -446,13 +446,13 @@ app.delete('/api/messages/:id', authenticate, async (req: AuthRequest, res: Resp
     const messageId = parseInt(req.params.id as string);
     const { scope } = req.query;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
     const msg = msgResult.rows[0];
     if (scope === 'all') {
       const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [msg.chat_id]);
       const chat = chatResult.rows[0];
       if (msg.sender_id !== req.userId && chat.created_by !== req.userId) {
-        return res.status(403).json({ error: 'Нет прав для удаления для всех' });
+        return res.status(403).json({ error: 'РќРµС‚ РїСЂР°РІ РґР»СЏ СѓРґР°Р»РµРЅРёСЏ РґР»СЏ РІСЃРµС…' });
       }
       await pool.query('UPDATE messages SET deleted_for_all = true WHERE id = $1', [messageId]);
     } else {
@@ -464,18 +464,18 @@ app.delete('/api/messages/:id', authenticate, async (req: AuthRequest, res: Resp
     io.to(msg.chat_id).emit('message_deleted', { id: messageId, scope, userId: req.userId });
     res.json({ success: true });
   } catch (err) {
-    console.error('Ошибка удаления:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== Закрепление сообщений ==========
+// ========== Р—Р°РєСЂРµРїР»РµРЅРёРµ СЃРѕРѕР±С‰РµРЅРёР№ ==========
 app.patch('/api/messages/:id/pin', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const messageId = parseInt(req.params.id as string);
     const userId = req.userId!;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
     const msg = msgResult.rows[0];
     let canPin = true;
     const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
@@ -483,13 +483,13 @@ app.patch('/api/messages/:id/pin', authenticate, async (req: AuthRequest, res: R
       const perms = adminCheck.rows[0].permissions || [];
       canPin = perms.includes('pin_messages');
     }
-    if (!canPin) return res.status(403).json({ error: 'Нет прав на закрепление сообщений' });
+    if (!canPin) return res.status(403).json({ error: 'РќРµС‚ РїСЂР°РІ РЅР° Р·Р°РєСЂРµРїР»РµРЅРёРµ СЃРѕРѕР±С‰РµРЅРёР№' });
     await pool.query('UPDATE messages SET pinned = true WHERE id = $1', [messageId]);
     io.to(msg.chat_id).emit('message_pinned', { id: messageId, pinned: true });
     res.json({ success: true, pinned: true });
   } catch (err) {
-    console.error('Ошибка закрепления:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° Р·Р°РєСЂРµРїР»РµРЅРёСЏ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -498,7 +498,7 @@ app.patch('/api/messages/:id/unpin', authenticate, async (req: AuthRequest, res:
     const messageId = parseInt(req.params.id as string);
     const userId = req.userId!;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
     const msg = msgResult.rows[0];
     let canUnpin = true;
     const adminCheck = await pool.query('SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [msg.chat_id, userId]);
@@ -506,30 +506,30 @@ app.patch('/api/messages/:id/unpin', authenticate, async (req: AuthRequest, res:
       const perms = adminCheck.rows[0].permissions || [];
       canUnpin = perms.includes('pin_messages');
     }
-    if (!canUnpin) return res.status(403).json({ error: 'Нет прав на открепление сообщений' });
+    if (!canUnpin) return res.status(403).json({ error: 'РќРµС‚ РїСЂР°РІ РЅР° РѕС‚РєСЂРµРїР»РµРЅРёРµ СЃРѕРѕР±С‰РµРЅРёР№' });
     await pool.query('UPDATE messages SET pinned = false WHERE id = $1', [messageId]);
     io.to(msg.chat_id).emit('message_unpinned', { id: messageId, pinned: false });
     res.json({ success: true, pinned: false });
   } catch (err) {
-    console.error('Ошибка открепления:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РѕС‚РєСЂРµРїР»РµРЅРёСЏ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== Загрузка файлов ==========
+// ========== Р—Р°РіСЂСѓР·РєР° С„Р°Р№Р»РѕРІ ==========
 app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
   try {
     const { chatId, senderId, topicId } = req.body;
     const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
-    if (!chatId || !senderId) return res.status(400).json({ error: 'Не указан чат или отправитель' });
+    if (!file) return res.status(400).json({ error: 'РќРµС‚ С„Р°Р№Р»Р°' });
+    if (!chatId || !senderId) return res.status(400).json({ error: 'РќРµ СѓРєР°Р·Р°РЅ С‡Р°С‚ РёР»Рё РѕС‚РїСЂР°РІРёС‚РµР»СЊ' });
 
     const memberCheck = await pool.query(
       'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
       [chatId, senderId]
     );
     if (memberCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Пользователь не состоит в чате' });
+      return res.status(403).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ СЃРѕСЃС‚РѕРёС‚ РІ С‡Р°С‚Рµ' });
     }
 
     let thumbUrl: string | null = null;
@@ -541,7 +541,7 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
         await sharp(file.path).resize(300, 300, { fit: 'inside' }).toFile(thumbPath);
         thumbUrl = '/uploads/thumbs/' + thumbFilename;
       } catch (sharpErr) {
-        console.error('Ошибка создания миниатюры:', sharpErr);
+        console.error('РћС€РёР±РєР° СЃРѕР·РґР°РЅРёСЏ РјРёРЅРёР°С‚СЋСЂС‹:', sharpErr);
       }
     }
 
@@ -554,30 +554,30 @@ app.post('/api/upload', authenticate, upload.single('file'), async (req: AuthReq
     io.to(chatId).emit('new_message', msg);
     res.status(201).json(msg);
   } catch (err) {
-    console.error('Ошибка загрузки файла:', err);
-    res.status(500).json({ error: 'Ошибка загрузки файла' });
+    console.error('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р°' });
   }
 });
 
-// ========== Топики ==========
+// ========== РўРѕРїРёРєРё ==========
 app.post('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const chatId = parseInt(req.params.id as string);
     const { title } = req.body;
-    if (!title) return res.status(400).json({ error: 'Название топика обязательно' });
+    if (!title) return res.status(400).json({ error: 'РќР°Р·РІР°РЅРёРµ С‚РѕРїРёРєР° РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ' });
     const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
+    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Р§Р°С‚ РЅРµ РЅР°Р№РґРµРЅ' });
     const chat = chatResult.rows[0];
-    if (!chat.is_supergroup) return res.status(400).json({ error: 'Топики доступны только в супергруппах' });
-    if (chat.created_by !== req.userId) return res.status(403).json({ error: 'Только создатель может создавать топики' });
+    if (!chat.is_supergroup) return res.status(400).json({ error: 'РўРѕРїРёРєРё РґРѕСЃС‚СѓРїРЅС‹ С‚РѕР»СЊРєРѕ РІ СЃСѓРїРµСЂРіСЂСѓРїРїР°С…' });
+    if (chat.created_by !== req.userId) return res.status(403).json({ error: 'РўРѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ РјРѕР¶РµС‚ СЃРѕР·РґР°РІР°С‚СЊ С‚РѕРїРёРєРё' });
     const result = await pool.query(
       'INSERT INTO topics (chat_id, title, created_by) VALUES ($1, $2, $3) RETURNING *',
       [chatId, title, req.userId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('Ошибка создания топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СЃРѕР·РґР°РЅРёСЏ С‚РѕРїРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -587,22 +587,22 @@ app.get('/api/chats/:id/topics', authenticate, async (req: AuthRequest, res: Res
     const result = await pool.query('SELECT * FROM topics WHERE chat_id = $1 ORDER BY created_at ASC', [chatId]);
     res.json(result.rows);
   } catch (err) {
-    console.error('Ошибка получения топиков:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ С‚РѕРїРёРєРѕРІ:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== PATCH /api/topics/:id — обновление топика (название + иконка) ==========
+// ========== PATCH /api/topics/:id вЂ” РѕР±РЅРѕРІР»РµРЅРёРµ С‚РѕРїРёРєР° (РЅР°Р·РІР°РЅРёРµ + РёРєРѕРЅРєР°) ==========
 app.patch('/api/topics/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const topicId = parseInt(req.params.id as string);
     const { title, icon, icon_color, icon_opacity } = req.body;
     const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
-    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
+    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'РўРѕРїРёРє РЅРµ РЅР°Р№РґРµРЅ' });
     const topic = topicResult.rows[0];
     const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [topic.chat_id]);
     if (chatResult.rows[0].created_by !== req.userId) {
-      return res.status(403).json({ error: 'Только создатель супергруппы может изменять топик' });
+      return res.status(403).json({ error: 'РўРѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ СЃСѓРїРµСЂРіСЂСѓРїРїС‹ РјРѕР¶РµС‚ РёР·РјРµРЅСЏС‚СЊ С‚РѕРїРёРє' });
     }
     const result = await pool.query(
       `UPDATE topics SET
@@ -615,8 +615,8 @@ app.patch('/api/topics/:id', authenticate, async (req: AuthRequest, res: Respons
     );
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Ошибка обновления топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ С‚РѕРїРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -624,28 +624,28 @@ app.delete('/api/topics/:id', authenticate, async (req: AuthRequest, res: Respon
   try {
     const topicId = parseInt(req.params.id as string);
     const topicResult = await pool.query('SELECT * FROM topics WHERE id = $1', [topicId]);
-    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'Топик не найден' });
+    if (topicResult.rows.length === 0) return res.status(404).json({ error: 'РўРѕРїРёРє РЅРµ РЅР°Р№РґРµРЅ' });
     const topic = topicResult.rows[0];
     const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [topic.chat_id]);
-    if (chatResult.rows[0].created_by !== req.userId) return res.status(403).json({ error: 'Только создатель супергруппы может удалять топики' });
+    if (chatResult.rows[0].created_by !== req.userId) return res.status(403).json({ error: 'РўРѕР»СЊРєРѕ СЃРѕР·РґР°С‚РµР»СЊ СЃСѓРїРµСЂРіСЂСѓРїРїС‹ РјРѕР¶РµС‚ СѓРґР°Р»СЏС‚СЊ С‚РѕРїРёРєРё' });
     await pool.query('DELETE FROM topics WHERE id = $1', [topicId]);
     res.json({ success: true });
   } catch (err) {
-    console.error('Ошибка удаления топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ С‚РѕРїРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== Пересылка между чатами ==========
+// ========== РџРµСЂРµСЃС‹Р»РєР° РјРµР¶РґСѓ С‡Р°С‚Р°РјРё ==========
 app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { message_id, target_chat_id, target_topic_id, text } = req.body;
     const userId = req.userId!;
     const msgResult = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
-    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+    if (msgResult.rows.length === 0) return res.status(404).json({ error: 'РСЃС…РѕРґРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
     const originalMsg = msgResult.rows[0];
     const memberCheck = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [target_chat_id, userId]);
-    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не являетесь участником целевого чата' });
+    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Р’С‹ РЅРµ СЏРІР»СЏРµС‚РµСЃСЊ СѓС‡Р°СЃС‚РЅРёРєРѕРј С†РµР»РµРІРѕРіРѕ С‡Р°С‚Р°' });
     const externalChatId = (originalMsg.chat_id != target_chat_id) ? originalMsg.chat_id : null;
     const finalText = (text && text.trim() !== '') ? text : (originalMsg.text || '');
     const fileUrl = originalMsg.file_url || null;
@@ -660,8 +660,8 @@ app.post('/api/messages/reply-to-another-chat', authenticate, async (req: AuthRe
     io.to(target_chat_id.toString()).emit('new_message', newMsg);
     res.status(201).json(newMsg);
   } catch (err) {
-    console.error('Ошибка пересылки:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РїРµСЂРµСЃС‹Р»РєРё:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -720,7 +720,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// ========== МЕДИА ТОПИКА: статистика и вкладки (фото/файлы/ссылки/опросы) ==========
+// ========== РњР•Р”РРђ РўРћРџРРљРђ: СЃС‚Р°С‚РёСЃС‚РёРєР° Рё РІРєР»Р°РґРєРё (С„РѕС‚Рѕ/С„Р°Р№Р»С‹/СЃСЃС‹Р»РєРё/РѕРїСЂРѕСЃС‹) ==========
 app.get('/api/chats/:chatId/topics/:topicId/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { chatId, topicId } = req.params;
@@ -738,8 +738,8 @@ app.get('/api/chats/:chatId/topics/:topicId/stats', authenticate, async (req: Au
       total_files: files.rows[0].c + media.rows[0].c,
     });
   } catch (err) {
-    console.error('Ошибка статистики топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СЃС‚Р°С‚РёСЃС‚РёРєРё С‚РѕРїРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
@@ -751,7 +751,7 @@ app.get('/api/chats/:chatId/topics/:topicId/media/:type', authenticate, async (r
     else if (type === 'files') q += ' AND file_url IS NOT NULL AND thumb_url IS NULL';
     else if (type === 'links') q += " AND text ILIKE '%http%'";
     else if (type === 'polls') q += ' AND poll_id IS NOT NULL';
-    else return res.status(400).json({ error: 'Неизвестный тип' });
+    else return res.status(400).json({ error: 'РќРµРёР·РІРµСЃС‚РЅС‹Р№ С‚РёРї' });
     q += ' ORDER BY created_at DESC LIMIT 100';
     let rows = (await pool.query(q, [chatId, topicId])).rows;
 
@@ -779,34 +779,34 @@ app.get('/api/chats/:chatId/topics/:topicId/media/:type', authenticate, async (r
     }
     res.json(rows);
   } catch (err) {
-    console.error('Ошибка медиа топика:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° РјРµРґРёР° С‚РѕРїРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
 
-// ========== СТАРТ СЕРВЕРА ==========
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+// ========== РЎРўРђР Рў РЎР•Р Р’Р•Р Рђ ==========
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`рџљЂ РЎРµСЂРІРµСЂ Р·Р°РїСѓС‰РµРЅ РЅР° РїРѕСЂС‚Сѓ ${PORT}`);
   
-  // Запускаем периодическую проверку дедлайнов (каждый час)
+  // Р—Р°РїСѓСЃРєР°РµРј РїРµСЂРёРѕРґРёС‡РµСЃРєСѓСЋ РїСЂРѕРІРµСЂРєСѓ РґРµРґР»Р°Р№РЅРѕРІ (РєР°Р¶РґС‹Р№ С‡Р°СЃ)
   startDeadlineChecker(60 * 60 * 1000);
 });
-// ==================== СТАТИСТИКА КОНКРЕТНОГО СОТРУДНИКА ====================
+// ==================== РЎРўРђРўРРЎРўРРљРђ РљРћРќРљР Р•РўРќРћР“Рћ РЎРћРўР РЈР”РќРРљРђ ====================
 app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const userId = parseInt(req.params.userId);
-    if (isNaN(userId)) return res.status(400).json({ error: 'Некорректный ID сотрудника' });
+    if (isNaN(userId)) return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ ID СЃРѕС‚СЂСѓРґРЅРёРєР°' });
     const period = (req.query.period as string) || 'month';
 
     const managerCheck = await pool.query(
       'SELECT rt.name as role_name FROM users u LEFT JOIN role_tree rt ON u.role_id = rt.id WHERE u.id = $1',
       [req.userId]
     );
-    if (managerCheck.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (managerCheck.rows.length === 0) return res.status(404).json({ error: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ' });
     const managerRole = managerCheck.rows[0].role_name;
     const isDirector = managerRole === 'director' || managerRole === 'admin';
-    const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('руководитель') || managerRole?.includes('начальник');
-    if (!isDirector && !isManager) return res.status(403).json({ error: 'Нет прав' });
+    const isManager = managerRole?.includes('manager') || managerRole?.includes('head') || managerRole?.includes('СЂСѓРєРѕРІРѕРґРёС‚РµР»СЊ') || managerRole?.includes('РЅР°С‡Р°Р»СЊРЅРёРє');
+    if (!isDirector && !isManager) return res.status(403).json({ error: 'РќРµС‚ РїСЂР°РІ' });
 
     const dateFilter = period === 'week' ? "CURRENT_DATE - INTERVAL '7 days'"
       : period === 'quarter' ? "CURRENT_DATE - INTERVAL '3 months'"
@@ -835,7 +835,7 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
       ).catch(() => ({ rows: [] })),
     ]);
 
-    if (userResult.rows.length === 0) return res.status(404).json({ error: 'Сотрудник не найден' });
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'РЎРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' });
 
     const user = userResult.rows[0];
     const kpis = (kpisResult.rows || []).map((k) => ({
@@ -863,7 +863,8 @@ app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthR
       transactions,
     });
   } catch (err) {
-    console.error('Ошибка статистики сотрудника:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('РћС€РёР±РєР° СЃС‚Р°С‚РёСЃС‚РёРєРё СЃРѕС‚СЂСѓРґРЅРёРєР°:', err);
+    res.status(500).json({ error: 'РћС€РёР±РєР° СЃРµСЂРІРµСЂР°' });
   }
 });
+

@@ -528,6 +528,15 @@ export const api = {
       method: 'DELETE',
     }),
 
+  assignUserToRole: (userId: number, roleNodeId: number) =>
+    request<{ success: boolean }>(`/api/role-tree/users/${userId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ role_node_id: roleNodeId }),
+    }),
+
+  getAllUsersWithRoles: () =>
+    request<any[]>(`/api/users`).catch(() => []),
+
   createUser: (data: {
     username: string;
     email: string;

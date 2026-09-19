@@ -44,19 +44,14 @@ function buildLayout(root: RoleNode, allNodes: RoleNode[]): LayoutNode {
     if (!childrenMap.has(pid)) childrenMap.set(pid, []);
     childrenMap.get(pid)!.push(n);
   });
-
   const visited = new Set<number>();
-
   const build = (node: RoleNode, depth: number): LayoutNode => {
     visited.add(node.id);
     const kids = (childrenMap.get(node.id) || []).filter(k => !visited.has(k.id));
     const children = kids.map(k => build(k, depth + 1));
     return { node, x: 0, y: depth * (NODE_HEIGHT + V_GAP), subtreeWidth: 0, children };
   };
-
   const rootLayout = build(root, 0);
-
-  // Битые узлы (потерянный parent_id) — вешаем на корень, чтобы не пропали
   const orphans = allNodes.filter(n => !visited.has(n.id));
   orphans.forEach(o => {
     visited.add(o.id);
@@ -68,7 +63,6 @@ function buildLayout(root: RoleNode, allNodes: RoleNode[]): LayoutNode {
       children: [],
     });
   });
-
   const calcWidth = (ln: LayoutNode): number => {
     if (ln.children.length === 0) {
       ln.subtreeWidth = NODE_WIDTH;
@@ -76,9 +70,8 @@ function buildLayout(root: RoleNode, allNodes: RoleNode[]): LayoutNode {
     }
     const w = ln.children.reduce((s, c, i) => s + calcWidth(c) + (i > 0 ? H_GAP : 0), 0);
     ln.subtreeWidth = Math.max(NODE_WIDTH, w);
-    return ln.subtreeWidth;
+    return w;
   };
-
   const assignX = (ln: LayoutNode, centerX: number) => {
     ln.x = centerX - NODE_WIDTH / 2;
     if (ln.children.length === 0) return;
@@ -89,7 +82,6 @@ function buildLayout(root: RoleNode, allNodes: RoleNode[]): LayoutNode {
       cursor += c.subtreeWidth + H_GAP;
     });
   };
-
   calcWidth(rootLayout);
   assignX(rootLayout, rootLayout.subtreeWidth / 2);
   return rootLayout;
@@ -126,7 +118,6 @@ export default function TreeGraphView({
   onAddChildPress,
   selectedNodeId,
 }: Props) {
-  // ✅ Принимаем оба пропа. Никогда не падаем на undefined
   const data = useMemo(() => {
     const src = Array.isArray(tree) ? tree : Array.isArray(nodes) ? nodes : [];
     return src.filter(n => n && typeof n.id === 'number');
@@ -141,7 +132,6 @@ export default function TreeGraphView({
   const panY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
 
-  // ✅ ВСЕ изменяемые значения — через useRef (никаких const-перезаписей)
   const curX = useRef(0);
   const curY = useRef(0);
   const curScale = useRef(1);
@@ -182,7 +172,6 @@ export default function TreeGraphView({
     }
   };
 
-  // ========== Жесты: 1 палец — панорама, 2 пальца — зум ==========
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -229,7 +218,6 @@ export default function TreeGraphView({
     Animated.spring(scale, { toValue: s, useNativeDriver: true, friction: 8 }).start();
   };
 
-  // Авто-fit при первом рендере
   useEffect(() => {
     if (viewport.w > 0 && bounds.width > 0 && !didFit.current) {
       didFit.current = true;
@@ -240,7 +228,6 @@ export default function TreeGraphView({
 
   const allNodes = layout ? flatten(layout) : [];
 
-  // ========== Плавные кривые связи ==========
   const edges = useMemo(() => {
     if (!layout) return [];
     const list: { key: string; d: string }[] = [];
@@ -263,7 +250,6 @@ export default function TreeGraphView({
     return list;
   }, [layout]);
 
-  // ========== Пустое состояние ==========
   if (!root || !layout || data.length === 0) {
     return (
       <View style={styles.emptyWrap}>
@@ -295,15 +281,12 @@ export default function TreeGraphView({
             <Path key={e.key} d={e.d} stroke="#CBD5E1" strokeWidth={2} fill="none" strokeLinecap="round" />
           ))}
         </Svg>
-
         {allNodes.map(ln => {
           const node = ln.node;
           const color = node.color || '#6366F1';
           const selected = selectedNodeId === node.id;
           const userCount = node.users_count || 0;
-          // ✅ Та же логика иконок что в старой версии: emoji из БД, фолбэк 👤
           const icon = node.icon && String(node.icon).trim() ? String(node.icon) : '\u{1F464}';
-
           return (
             <TouchableOpacity
               key={node.id}
@@ -346,7 +329,6 @@ export default function TreeGraphView({
           );
         })}
       </Animated.View>
-
       {/* Зум-контролы */}
       <View style={styles.zoomControls}>
         <TouchableOpacity onPress={() => zoomBy(1.25)} style={styles.zoomBtn} activeOpacity={0.7}>
@@ -371,8 +353,6 @@ const styles = StyleSheet.create({
   svg: { position: 'absolute', top: 0, left: 0 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 14, color: '#6F6F73', fontWeight: '500' },
-
-  // ===== Карточка узла =====
   nodeCard: {
     position: 'absolute',
     width: NODE_WIDTH,
@@ -398,13 +378,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
   },
-  nodeIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  nodeIconWrap: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   nodeIcon: { fontSize: 18, lineHeight: 22 },
   nodeName: { fontSize: 13, fontWeight: '700', color: '#141414', marginBottom: 3 },
   usersChip: {
@@ -432,8 +406,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-
-  // ===== Зум =====
   zoomControls: {
     position: 'absolute',
     right: 16,
@@ -450,5 +422,5 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   zoomBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  zoomDivider: { width: 1, height: 24, backgroundColor: '#F3F4F6' },
+  zoomDivider: { width: 1, height: 24, backgroundColor: '#F4F4F5' },
 });

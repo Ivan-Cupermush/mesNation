@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   TreePine,
   UserPlus,
+  Users,
   LogOut,
   ChevronRight,
   Crown,
@@ -85,6 +86,15 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       color: '#F59E0B',
       bg: '#FEF3C7',
       screen: 'CreateUserRole',
+    },
+    {
+      id: 'employees',
+      icon: Users,
+      title: 'Сотрудники',
+      description: 'Все сотрудники компании',
+      color: '#0EA5E9',
+      bg: '#DBEAFE',
+      screen: 'Employees',
     },
   ];
 

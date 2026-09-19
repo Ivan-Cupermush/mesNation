@@ -36,6 +36,7 @@ import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
 // ===== Экраны управления деревом прав =====
 import RoleTreeEditorScreen from './src/screens/crm/RoleTreeEditorScreen';
 import CreateUserRoleScreen from './src/screens/crm/CreateUserRoleScreen';
+import EmployeesScreen from './src/screens/crm/EmployeesScreen';
 
 // ===== Тема =====
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
@@ -228,6 +229,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
       <SettingsStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ title: 'Дерево прав', headerShown: false }} />
       <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
+      <SettingsStack.Screen name="Employees" component={EmployeesScreen} options={{ title: 'Сотрудники', headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }

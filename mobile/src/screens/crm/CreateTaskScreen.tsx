@@ -3,14 +3,13 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   ScrollView,
   Platform,
   TextInput,
   Modal,
   Alert,
   ActivityIndicator,
-  FlatList,
+  FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePickerModal from '../../components/DateTimePickerModal';
@@ -26,11 +25,13 @@ import {
   Paperclip,
   Plus,
   X,
-  ChevronRight,
+  ChevronRight
 } from 'lucide-react-native';
 import { api } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
+import { T, themed } from '../../theme/runtime';
+import SafeBottom from '../../components/ui/SafeBottom';
 interface User {
   id: number;
   username: string;
@@ -231,7 +232,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
-              <X size={22} color="#141414" strokeWidth={2} />
+              <X size={22} color={T.textPrimary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
           <FlatList
@@ -266,7 +267,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                   </View>
                   {isSelected && (
                     <View style={styles.checkCircle}>
-                      <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
+                      <Check size={16} color={T.onAccent} strokeWidth={2.5} />
                     </View>
                   )}
                 </TouchableOpacity>
@@ -280,20 +281,21 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               </Text>
             </TouchableOpacity>
           </View>
+          <SafeBottom />
         </View>
       </View>
     </Modal>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.headerBackBtn}
         >
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
@@ -307,16 +309,16 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           ]}
         >
           {loading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color={T.onAccent} size="small" />
           ) : (
-            <Check size={20} color="#FFFFFF" strokeWidth={2.5} />
+            <Check size={20} color={T.onAccent} strokeWidth={2.5} />
           )}
         </TouchableOpacity>
       </View>
 
       {prefilling ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+          <ActivityIndicator size="large" color={T.accent} />
         </View>
       ) : (
       <ScrollView
@@ -328,7 +330,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Type size={18} color="#1F7A52" strokeWidth={2} />
+              <Type size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Основная информация</Text>
           </View>
@@ -337,7 +339,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <TextInput
             style={styles.textInput}
             placeholder="Например: Подготовить квартальный отчёт"
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             value={title}
             onChangeText={setTitle}
           />
@@ -348,7 +350,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <TextInput
             style={[styles.textInput, styles.textArea]}
             placeholder="Детали задачи, ожидаемый результат..."
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             value={description}
             onChangeText={setDescription}
             multiline
@@ -361,16 +363,16 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Flag size={18} color="#1F7A52" strokeWidth={2} />
+              <Flag size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Приоритет</Text>
           </View>
 
           <View style={styles.priorityRow}>
             {([
-              { key: 'green', label: 'Низкий', color: '#1F7A52', bg: '#D1FAE5' },
-              { key: 'yellow', label: 'Средний', color: '#B45309', bg: '#FEF3C7' },
-              { key: 'red', label: 'Высокий', color: '#B91C1C', bg: '#FEE2E2' },
+              { key: 'green', label: 'Низкий', color: T.accent, bg: T.successSoft },
+              { key: 'yellow', label: 'Средний', color: T.warning, bg: T.warningSoft },
+              { key: 'red', label: 'Высокий', color: T.danger, bg: T.dangerSoft },
             ] as const).map((p) => {
               const active = importance === p.key;
               return (
@@ -379,7 +381,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                   onPress={() => setImportance(p.key)}
                   style={[
                     styles.priorityBtn,
-                    { backgroundColor: active ? p.bg : '#FFFFFF' },
+                    { backgroundColor: active ? p.bg : T.card },
                     active && { borderColor: p.color },
                   ]}
                   activeOpacity={0.7}
@@ -393,7 +395,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                   <Text
                     style={[
                       styles.priorityLabel,
-                      { color: active ? p.color : '#6F6F73' },
+                      { color: active ? p.color : T.textSecondary },
                     ]}
                   >
                     {p.label}
@@ -408,7 +410,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Clock size={18} color="#1F7A52" strokeWidth={2} />
+              <Clock size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Сроки</Text>
           </View>
@@ -419,7 +421,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             style={styles.dateRow}
             activeOpacity={0.7}
           >
-            <CalendarDays size={18} color="#6F6F73" strokeWidth={2} />
+            <CalendarDays size={18} color={T.textSecondary} strokeWidth={2} />
             <Text
               style={[
                 styles.dateText,
@@ -433,7 +435,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                 onPress={() => setExecutorDeadline(null)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <X size={16} color="#BDBDBD" strokeWidth={2} />
+                <X size={16} color={T.textMuted} strokeWidth={2} />
               </TouchableOpacity>
             )}
           </TouchableOpacity>
@@ -446,7 +448,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             style={styles.dateRow}
             activeOpacity={0.7}
           >
-            <CalendarDays size={18} color="#6F6F73" strokeWidth={2} />
+            <CalendarDays size={18} color={T.textSecondary} strokeWidth={2} />
             <Text
               style={[
                 styles.dateText,
@@ -460,7 +462,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                 onPress={() => setReviewerDeadline(null)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <X size={16} color="#BDBDBD" strokeWidth={2} />
+                <X size={16} color={T.textMuted} strokeWidth={2} />
               </TouchableOpacity>
             )}
           </TouchableOpacity>
@@ -473,7 +475,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Users size={18} color="#1F7A52" strokeWidth={2} />
+              <Users size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Участники</Text>
           </View>
@@ -517,7 +519,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               ) : (
                 <Text style={styles.participantsEmpty}>Выбрать...</Text>
               )}
-              <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+              <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
             </View>
           </TouchableOpacity>
 
@@ -529,7 +531,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             activeOpacity={0.7}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Eye size={14} color="#6F6F73" strokeWidth={2} />
+              <Eye size={14} color={T.textSecondary} strokeWidth={2} />
               <Text style={styles.participantsLabel}>Наблюдатели</Text>
             </View>
             <View style={styles.participantsRight}>
@@ -540,7 +542,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               ) : (
                 <Text style={styles.participantsEmpty}>Добавить...</Text>
               )}
-              <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+              <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
             </View>
           </TouchableOpacity>
         </View>
@@ -550,22 +552,22 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Paperclip size={18} color="#1F7A52" strokeWidth={2} />
+              <Paperclip size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Файлы</Text>
           </View>
 
           {files.map((f, i) => (
             <View key={`${f.uri}-${i}`} style={styles.fileRow}>
-              <Paperclip size={16} color="#6F6F73" strokeWidth={2} />
+              <Paperclip size={16} color={T.textSecondary} strokeWidth={2} />
               <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
               <TouchableOpacity onPress={() => setFiles((prev) => prev.filter((_, x) => x !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <X size={16} color="#BDBDBD" strokeWidth={2} />
+                <X size={16} color={T.textMuted} strokeWidth={2} />
               </TouchableOpacity>
             </View>
           ))}
           <TouchableOpacity style={styles.addBtn} activeOpacity={0.7} onPress={pickFiles}>
-            <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
+            <Plus size={18} color={T.accent} strokeWidth={2.5} />
             <Text style={styles.addBtnText}>Прикрепить документ</Text>
           </TouchableOpacity>
           <Text style={styles.fieldHint}>Любые файлы до 50 МБ</Text>
@@ -577,25 +579,25 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <Flag size={18} color="#1F7A52" strokeWidth={2} />
+              <Flag size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Контрольные точки</Text>
           </View>
           {checkpoints.map((c, i) => (
             <View key={i} style={styles.fileRow}>
-              <CalendarDays size={16} color="#6F6F73" strokeWidth={2} />
+              <CalendarDays size={16} color={T.textSecondary} strokeWidth={2} />
               <Text style={styles.fileName} numberOfLines={1}>
                 {c.title} · {c.deadline.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
               </Text>
               <TouchableOpacity onPress={() => setCheckpoints((prev) => prev.filter((_, x) => x !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <X size={16} color="#BDBDBD" strokeWidth={2} />
+                <X size={16} color={T.textMuted} strokeWidth={2} />
               </TouchableOpacity>
             </View>
           ))}
           <TextInput
             style={styles.textInput}
             placeholder="Например: черновик отчёта"
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             value={newCpTitle}
             onChangeText={setNewCpTitle}
           />
@@ -604,7 +606,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             activeOpacity={0.7}
             onPress={() => (newCpTitle.trim() ? setShowCpPicker(true) : Alert.alert('Контрольная точка', 'Сначала введите название'))}
           >
-            <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
+            <Plus size={18} color={T.accent} strokeWidth={2.5} />
             <Text style={styles.addBtnText}>Выбрать дату и добавить</Text>
           </TouchableOpacity>
           <Text style={styles.fieldHint}>Промежуточные сроки: наблюдатель отмечает, выполнены ли они</Text>
@@ -668,21 +670,21 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  fileName: { flex: 1, fontSize: 14, color: '#141414' },
+  fileName: { flex: 1, fontSize: 14, color: T.textPrimary },
   container: {
     flex: 1,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
+    borderBottomColor: T.border,
   },
   headerBackBtn: {
     width: 40,
@@ -699,29 +701,29 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 24,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
   },
   headerCreateBtn: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCreateBtnDisabled: {
-    backgroundColor: '#BDBDBD',
+    backgroundColor: T.surfaceActive,
   },
   scrollContent: {
     padding: 20,
     gap: 20,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -738,36 +740,36 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     flex: 1,
   },
   fieldLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   fieldHint: {
     fontSize: 12,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontStyle: 'italic',
   },
   divider: {
     height: 1,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     marginVertical: 4,
   },
   textInput: {
     fontSize: 16,
-    color: '#141414',
+    color: T.textPrimary,
     fontWeight: '500',
     paddingVertical: 8,
     minHeight: 36,
@@ -788,7 +790,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
   },
   priorityDot: {
     width: 8,
@@ -808,11 +810,11 @@ const styles = StyleSheet.create({
   dateText: {
     flex: 1,
     fontSize: 15,
-    color: '#141414',
+    color: T.textPrimary,
     fontWeight: '500',
   },
   dateTextPlaceholder: {
-    color: '#BDBDBD',
+    color: T.textMuted,
   },
   participantsRow: {
     flexDirection: 'row',
@@ -823,10 +825,10 @@ const styles = StyleSheet.create({
   participantsLabel: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
   },
   required: {
-    color: '#DC2626',
+    color: T.danger,
   },
   participantsRight: {
     flexDirection: 'row',
@@ -835,13 +837,13 @@ const styles = StyleSheet.create({
   },
   participantsEmpty: {
     fontSize: 14,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontStyle: 'italic',
   },
   participantsCount: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F7A52',
+    color: T.accent,
   },
   avatarsStack: {
     flexDirection: 'row',
@@ -854,20 +856,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
   },
   miniAvatarText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   miniAvatarMore: {
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
   },
   miniAvatarMoreText: {
     fontSize: 9,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
   },
   addBtn: {
     flexDirection: 'row',
@@ -875,24 +877,24 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#D1FAE5',
+    borderColor: T.successSoft,
     borderStyle: 'dashed',
   },
   addBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F7A52',
+    color: T.accent,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     maxHeight: '80%',
@@ -904,12 +906,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
+    borderBottomColor: T.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
   },
   modalCloseBtn: {
     padding: 6,
@@ -917,16 +919,16 @@ const styles = StyleSheet.create({
   modalFooter: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
+    borderTopColor: T.border,
   },
   modalDoneBtn: {
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     paddingVertical: 14,
     borderRadius: 16,
     alignItems: 'center',
   },
   modalDoneBtnText: {
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -936,12 +938,12 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
     borderRadius: 14,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
   },
   userRowSelected: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     borderWidth: 1,
-    borderColor: '#1F7A52',
+    borderColor: T.accent,
   },
   userAvatar: {
     width: 40,
@@ -951,21 +953,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   userAvatarText: {
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontWeight: '700',
     fontSize: 13,
   },
   userName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
   },
   checkCircle: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-});
+  }
+}));

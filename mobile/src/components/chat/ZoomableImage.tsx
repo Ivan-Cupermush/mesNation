@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Animated, Image, PanResponder, StyleSheet, View, ActivityIndicator, GestureResponderEvent } from 'react-native';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Картинка с жестами как в галерее Telegram:
  * - щипок — масштаб (до 4×) вокруг точки между пальцами;
@@ -197,12 +198,12 @@ export default function ZoomableImage(props: Props) {
           resizeMode="contain"
           onLoad={() => setLoaded(true)}
         />
-        {!loaded && !previewUri && <ActivityIndicator color="#FFFFFF" style={StyleSheet.absoluteFill} />}
+        {!loaded && !previewUri && <ActivityIndicator color={T.onAccent} style={StyleSheet.absoluteFill} />}
       </Animated.View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   center: { alignItems: 'center', justifyContent: 'center' },
-});
+}));

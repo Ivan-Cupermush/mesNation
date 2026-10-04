@@ -1,21 +1,32 @@
+import { T } from '../../theme/runtime';
+import type { PaletteColors } from '../../theme/palettes';
 import { PermissionsAndroid, Platform } from 'react-native';
 
-/** Палитра мессенджера (в фирменных цветах приложения). */
-export const C = {
-  accent: '#1F7A52',
-  accentSoft: '#E3F1EA',
-  accentText: '#FFFFFF',
-  bg: '#EEF1EC', // фон ленты, чуть темнее карточек — пузыри читаются лучше
-  bubbleIn: '#FFFFFF',
-  bubbleOut: '#1F7A52',
-  text: '#141414',
-  textMuted: '#6F6F73',
-  textOutMuted: 'rgba(255,255,255,0.78)',
-  border: '#ECECE8',
-  danger: '#DC2626',
-  overlay: 'rgba(0,0,0,0.45)',
-  readTick: '#7FE3B4',
+/**
+ * Палитра мессенджера — берётся из текущей темы (светлая/тёмная,
+ * цвет акцента), поэтому чат перекрашивается вместе с приложением.
+ */
+const MAP: Record<string, keyof PaletteColors> = {
+  accent: 'accent',
+  accentSoft: 'accentMuted',
+  accentText: 'onAccent',
+  bg: 'chatBg',
+  bubbleIn: 'otherMessageBubble',
+  bubbleOut: 'myMessageBubble',
+  text: 'textPrimary',
+  textMuted: 'textSecondary',
+  textOutMuted: 'myMessageMuted',
+  border: 'border',
+  danger: 'danger',
+  overlay: 'overlay',
+  readTick: 'readTick',
+  card: 'card',
+  inputBg: 'inputBg',
+  background: 'background',
 };
+export const C = new Proxy({} as Record<keyof typeof MAP, string>, {
+  get: (_t, key: string) => (T as any)[MAP[key] ?? key],
+});
 
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 

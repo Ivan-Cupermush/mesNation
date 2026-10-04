@@ -5,20 +5,20 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
-  StatusBar,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, ChatMessage, SourceChunk } from '../../services/api';
 import {
   Bot, User, Send, ThumbsUp, ThumbsDown, BookOpen,
-  ChevronDown, ChevronUp, Sparkles, UserRound,
+  ChevronDown, ChevronUp, Sparkles, UserRound
 } from 'lucide-react-native';
 
+import { T, themed } from '../../theme/runtime';
 export default function KnowledgeScreen({ navigation }: any) {
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -145,7 +145,7 @@ export default function KnowledgeScreen({ navigation }: any) {
       <View style={[styles.messageRow, isUser ? styles.messageRowUser : styles.messageRowAI]}>
         {!isUser && (
           <View style={styles.aiAvatar}>
-            <Bot size={18} color="#1F7A52" strokeWidth={2.2} />
+            <Bot size={18} color={T.accent} strokeWidth={2.2} />
           </View>
         )}
 
@@ -160,13 +160,13 @@ export default function KnowledgeScreen({ navigation }: any) {
 
           {!isUser && sources.length > 0 && (
             <TouchableOpacity onPress={() => toggleSources(item.id)} style={styles.sourcesToggle}>
-              <BookOpen size={14} color="#1F7A52" strokeWidth={2.2} />
+              <BookOpen size={14} color={T.accent} strokeWidth={2.2} />
               <Text style={styles.sourcesToggleText}>
                 Источники ({sources.length})
               </Text>
               {isExpanded
-                ? <ChevronUp size={14} color="#1F7A52" strokeWidth={2.2} />
-                : <ChevronDown size={14} color="#1F7A52" strokeWidth={2.2} />}
+                ? <ChevronUp size={14} color={T.accent} strokeWidth={2.2} />
+                : <ChevronDown size={14} color={T.accent} strokeWidth={2.2} />}
             </TouchableOpacity>
           )}
 
@@ -192,13 +192,13 @@ export default function KnowledgeScreen({ navigation }: any) {
                 onPress={() => handleFeedback(item.id, 'positive')}
                 style={styles.feedbackButton}
               >
-                <ThumbsUp size={14} color="#1F7A52" strokeWidth={2.2} />
+                <ThumbsUp size={14} color={T.accent} strokeWidth={2.2} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => handleFeedback(item.id, 'negative')}
                 style={styles.feedbackButton}
               >
-                <ThumbsDown size={14} color="#DC2626" strokeWidth={2.2} />
+                <ThumbsDown size={14} color={T.danger} strokeWidth={2.2} />
               </TouchableOpacity>
             </View>
           )}
@@ -206,8 +206,8 @@ export default function KnowledgeScreen({ navigation }: any) {
           {!isUser && item.feedback && (
             <View style={styles.feedbackLabelRow}>
               {item.feedback === 'positive'
-                ? <ThumbsUp size={12} color="#1F7A52" strokeWidth={2.2} />
-                : <ThumbsDown size={12} color="#DC2626" strokeWidth={2.2} />}
+                ? <ThumbsUp size={12} color={T.accent} strokeWidth={2.2} />
+                : <ThumbsDown size={12} color={T.danger} strokeWidth={2.2} />}
               <Text style={styles.feedbackLabel}>
                 {item.feedback === 'positive' ? 'Полезно' : 'Бесполезно'}
               </Text>
@@ -217,7 +217,7 @@ export default function KnowledgeScreen({ navigation }: any) {
 
         {isUser && (
           <View style={styles.userAvatar}>
-            <User size={18} color="#3B82F6" strokeWidth={2.2} />
+            <User size={18} color={T.info} strokeWidth={2.2} />
           </View>
         )}
       </View>
@@ -226,18 +226,18 @@ export default function KnowledgeScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
       <KeyboardAvoidingView
         style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         {/* Hero header */}
         <View style={styles.heroHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.bigTitle}>БАЗА ЗНАНИЙ</Text>
             <View style={styles.subtitleRow}>
-              <Sparkles size={14} color="#6F6F73" strokeWidth={2.2} />
+              <Sparkles size={14} color={T.textSecondary} strokeWidth={2.2} />
               <Text style={styles.bigSubtitle}>AI-ассистент компании</Text>
             </View>
           </View>
@@ -246,7 +246,7 @@ export default function KnowledgeScreen({ navigation }: any) {
             onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
             activeOpacity={0.7}
           >
-            <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+            <UserRound size={20} color={T.accent} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
@@ -260,7 +260,7 @@ export default function KnowledgeScreen({ navigation }: any) {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <View style={styles.emptyIconWrap}>
-                <Bot size={40} color="#1F7A52" strokeWidth={1.8} />
+                <Bot size={40} color={T.accent} strokeWidth={1.8} />
               </View>
               <Text style={styles.emptyTitle}>
                 Привет! Я AI-ассистент компании
@@ -287,7 +287,7 @@ export default function KnowledgeScreen({ navigation }: any) {
         {isTyping && (
           <View style={styles.typingRow}>
             <View style={styles.aiAvatar}>
-              <Bot size={18} color="#1F7A52" strokeWidth={2.2} />
+              <Bot size={18} color={T.accent} strokeWidth={2.2} />
             </View>
             <View style={styles.typingBubble}>
               <View style={styles.typingDots}>
@@ -307,7 +307,7 @@ export default function KnowledgeScreen({ navigation }: any) {
               value={inputText}
               onChangeText={setInputText}
               placeholder="Задайте вопрос..."
-              placeholderTextColor="#BDBDBD"
+              placeholderTextColor={T.textMuted}
               multiline
               maxLength={2000}
               editable={!isSending}
@@ -322,9 +322,9 @@ export default function KnowledgeScreen({ navigation }: any) {
               ]}
             >
               {isSending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={T.onAccent} />
               ) : (
-                <Send size={18} color="#FFFFFF" strokeWidth={2.5} />
+                <Send size={18} color={T.onAccent} strokeWidth={2.5} />
               )}
             </TouchableOpacity>
           </View>
@@ -334,8 +334,8 @@ export default function KnowledgeScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   chatContainer: { flex: 1 },
 
   // ===== HERO HEADER =====
@@ -349,21 +349,21 @@ const styles = StyleSheet.create({
   },
   bigTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
+    fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   bigSubtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: '#6F6F73',
+    fontSize: 18, fontStyle: 'italic', color: T.textSecondary,
   },
   profileBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -377,11 +377,11 @@ const styles = StyleSheet.create({
   messageRowAI: { justifyContent: 'flex-start' },
 
   aiAvatar: {
-    width: 34, height: 34, borderRadius: 12, backgroundColor: '#D1FAE5',
+    width: 34, height: 34, borderRadius: 12, backgroundColor: T.successSoft,
     justifyContent: 'center', alignItems: 'center', marginRight: 8, marginBottom: 4,
   },
   userAvatar: {
-    width: 34, height: 34, borderRadius: 12, backgroundColor: '#DBEAFE',
+    width: 34, height: 34, borderRadius: 12, backgroundColor: T.infoSoft,
     justifyContent: 'center', alignItems: 'center', marginLeft: 8, marginBottom: 4,
   },
 
@@ -392,63 +392,63 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   userBubble: {
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     borderBottomRightRadius: 6,
-    shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 4,
   },
   aiBubble: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderBottomLeftRadius: 6,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
   },
   messageText: { fontSize: 15, lineHeight: 21, fontWeight: '500' },
-  messageTextUser: { color: '#FFFFFF' },
-  messageTextAI: { color: '#141414' },
+  messageTextUser: { color: T.onAccent },
+  messageTextAI: { color: T.textPrimary },
   messageTime: { fontSize: 10, marginTop: 6, alignSelf: 'flex-end', fontWeight: '600' },
   messageTimeUser: { color: 'rgba(255,255,255,0.6)' },
-  messageTimeAI: { color: '#BDBDBD' },
+  messageTimeAI: { color: T.textMuted },
 
   // ===== SOURCES =====
   sourcesToggle: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F3F4F6',
+    marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: T.border,
   },
-  sourcesToggleText: { fontSize: 12, fontWeight: '700', color: '#1F7A52' },
+  sourcesToggleText: { fontSize: 12, fontWeight: '700', color: T.accent },
   sourcesList: { marginTop: 8, gap: 6 },
-  sourceItem: { padding: 10, borderRadius: 12, backgroundColor: '#F9FAFB' },
-  sourceName: { fontSize: 12, fontWeight: '700', color: '#1F7A52', marginBottom: 4 },
-  sourceContent: { fontSize: 11, lineHeight: 15, fontStyle: 'italic', color: '#6F6F73' },
-  sourceSimilarity: { fontSize: 10, marginTop: 4, color: '#BDBDBD', fontWeight: '600' },
+  sourceItem: { padding: 10, borderRadius: 12, backgroundColor: T.inputBg },
+  sourceName: { fontSize: 12, fontWeight: '700', color: T.accent, marginBottom: 4 },
+  sourceContent: { fontSize: 11, lineHeight: 15, fontStyle: 'italic', color: T.textSecondary },
+  sourceSimilarity: { fontSize: 10, marginTop: 4, color: T.textMuted, fontWeight: '600' },
 
   // ===== FEEDBACK =====
   feedbackRow: { flexDirection: 'row', marginTop: 10, gap: 8 },
   feedbackButton: {
-    width: 32, height: 32, borderRadius: 10, backgroundColor: '#F9FAFB',
+    width: 32, height: 32, borderRadius: 10, backgroundColor: T.inputBg,
     justifyContent: 'center', alignItems: 'center',
   },
   feedbackLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
-  feedbackLabel: { fontSize: 11, color: '#6F6F73', fontStyle: 'italic', fontWeight: '600' },
+  feedbackLabel: { fontSize: 11, color: T.textSecondary, fontStyle: 'italic', fontWeight: '600' },
 
   // ===== EMPTY STATE =====
   emptyState: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
   emptyIconWrap: {
-    width: 96, height: 96, borderRadius: 28, backgroundColor: '#D1FAE5',
+    width: 96, height: 96, borderRadius: 28, backgroundColor: T.successSoft,
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
-    shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 6,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 6,
   },
   emptyTitle: {
-    fontSize: 20, fontWeight: '800', marginBottom: 8, textAlign: 'center', color: '#141414',
+    fontSize: 20, fontWeight: '800', marginBottom: 8, textAlign: 'center', color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  emptySubtitle: { fontSize: 14, textAlign: 'center', marginBottom: 28, color: '#6F6F73', fontWeight: '500' },
+  emptySubtitle: { fontSize: 14, textAlign: 'center', marginBottom: 28, color: T.textSecondary, fontWeight: '500' },
   suggestionsContainer: { gap: 10, width: '100%' },
   suggestionChip: {
     paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
   },
   suggestionText: {
-    fontSize: 14, fontWeight: '600', textAlign: 'center', color: '#1F7A52',
+    fontSize: 14, fontWeight: '600', textAlign: 'center', color: T.accent,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
@@ -456,18 +456,18 @@ const styles = StyleSheet.create({
   typingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 },
   typingBubble: {
     paddingHorizontal: 16, paddingVertical: 14, borderRadius: 20, borderBottomLeftRadius: 6,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 3,
   },
   typingDots: { flexDirection: 'row', gap: 4 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1F7A52' },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.accent },
 
   // ===== INPUT BAR =====
   inputContainer: { paddingHorizontal: 16, paddingBottom: 12, paddingTop: 8 },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end',
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 6,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 24, elevation: 5,
+    backgroundColor: T.card, borderRadius: 22, padding: 6,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 24, elevation: 5,
   },
   input: {
     flex: 1,
@@ -475,13 +475,13 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? 10 : 6,
     fontSize: 15,
     maxHeight: 100,
-    color: '#141414',
+    color: T.textPrimary,
     fontWeight: '500',
   },
   sendButton: {
-    width: 44, height: 44, borderRadius: 16, backgroundColor: '#1F7A52',
+    width: 44, height: 44, borderRadius: 16, backgroundColor: T.accent,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
-  sendButtonDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0 },
-});
+  sendButtonDisabled: { backgroundColor: T.disabled, shadowOpacity: 0 }
+}));

@@ -4,6 +4,7 @@ import { Play, AlertCircle } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
 import { albumLayout, formatDuration } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Фото и видео в ленте: одиночное — в своих пропорциях, несколько —
  * мозаикой (как альбомы в Telegram). Пока файл загружается, показываем
@@ -67,7 +68,7 @@ export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop 
             {isVideo && (
               <>
                 <View style={styles.playWrap}>
-                  <Play size={22} color="#FFFFFF" fill="#FFFFFF" />
+                  <Play size={22} color={T.onAccent} fill={T.onAccent} />
                 </View>
                 {m.media_duration ? (
                   <View style={styles.durationPill}>
@@ -78,7 +79,7 @@ export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop 
             )}
             {m.status === 'sending' && (
               <View style={styles.progress}>
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={T.onAccent} />
               </View>
             )}
             {m.status === 'failed' && (
@@ -94,8 +95,8 @@ export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop 
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { overflow: 'hidden', borderRadius: 4, backgroundColor: '#D9DED8' },
+const styles = themed(() => ({
+  wrap: { overflow: 'hidden', borderRadius: 4, backgroundColor: T.surfaceActive },
   cell: { position: 'absolute', overflow: 'hidden' },
   placeholder: { backgroundColor: '#2B2F2C' },
   playWrap: {
@@ -107,7 +108,7 @@ const styles = StyleSheet.create({
     marginLeft: -24,
     marginTop: -24,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: T.overlay,
     alignItems: 'center',
     justifyContent: 'center',
     paddingLeft: 3,
@@ -119,9 +120,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: T.overlay,
   },
-  durationText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
-  progress: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
+  durationText: { color: T.onAccent, fontSize: 12, fontWeight: '600' },
+  progress: { ...StyleSheet.absoluteFill, backgroundColor: T.overlay, alignItems: 'center', justifyContent: 'center' },
   overlay: { position: 'absolute', right: 6, bottom: 6 },
-});
+}));

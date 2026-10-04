@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,7 +12,7 @@ import {
   StatusBar,
   Modal,
   Pressable,
-  Linking,
+  Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -23,9 +22,11 @@ import { signedFileUrl, UploadFile } from '../../services/http';
 import ShareToChatModal from '../../components/ShareToChatModal';
 import {
   ArrowLeft, Star, Check, PenLine, Calendar, MoreVertical, Copy, CopyPlus, FileDown, Send,
-  Trash2, Paperclip, FileText, X,
+  Trash2, Paperclip, FileText, X
 } from 'lucide-react-native';
 
+import { T, themed } from '../../theme/runtime';
+import SafeBottom from '../../components/ui/SafeBottom';
 // Форматируем дату в локальное YYYY-MM-DD
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
@@ -45,7 +46,7 @@ type PendingFile = UploadFile & { size?: number | null };
 function MenuItem({ icon: Icon, label, onPress, danger }: { icon: any; label: string; onPress: () => void; danger?: boolean }) {
   return (
     <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
-      <Icon size={20} color={danger ? '#DC2626' : '#141414'} strokeWidth={2} />
+      <Icon size={20} color={danger ? T.danger : T.textPrimary} strokeWidth={2} />
       <Text style={[styles.menuText, danger && styles.menuTextDanger]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -367,7 +368,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1F7A52" />
+        <ActivityIndicator size="large" color={T.accent} />
       </SafeAreaView>
     );
   }
@@ -381,22 +382,22 @@ export default function NoteEditorScreen({ route, navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         {/* Header row */}
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.85} accessibilityLabel="Назад">
-            <ArrowLeft size={22} color="#141414" strokeWidth={2.2} />
+            <ArrowLeft size={22} color={T.textPrimary} strokeWidth={2.2} />
           </TouchableOpacity>
 
           <View style={styles.headerCenter}>
             {busyAction ? (
-              <ActivityIndicator size="small" color="#1F7A52" />
+              <ActivityIndicator size="small" color={T.accent} />
             ) : (
               isEditing && hasChanges() && <View style={styles.unsavedDot} />
             )}
@@ -410,8 +411,8 @@ export default function NoteEditorScreen({ route, navigation }: any) {
           >
             <Star
               size={20}
-              color={isFavorite ? '#FFFFFF' : '#F59E0B'}
-              fill={isFavorite ? '#FFFFFF' : '#F59E0B'}
+              color={isFavorite ? T.onAccent : T.warning}
+              fill={isFavorite ? T.onAccent : T.warning}
               strokeWidth={2.2}
             />
           </TouchableOpacity>
@@ -423,7 +424,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
             disabled={!canAct}
             accessibilityLabel="Действия с заметкой"
           >
-            <MoreVertical size={20} color="#141414" strokeWidth={2.2} />
+            <MoreVertical size={20} color={T.textPrimary} strokeWidth={2.2} />
           </TouchableOpacity>
         </View>
 
@@ -433,7 +434,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
             {isEditing ? 'РЕДАКТИРОВАНИЕ' : 'НОВАЯ ЗАМЕТКА'}
           </Text>
           <View style={styles.dateRow}>
-            <Calendar size={14} color="#6F6F73" strokeWidth={2.2} />
+            <Calendar size={14} color={T.textSecondary} strokeWidth={2.2} />
             <Text style={styles.bigSubtitle}>{currentNoteDate}</Text>
           </View>
         </View>
@@ -451,7 +452,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
             value={title}
             onChangeText={setTitle}
             placeholder="Заголовок заметки"
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             multiline={false}
             returnKeyType="next"
             maxLength={255}
@@ -460,13 +461,13 @@ export default function NoteEditorScreen({ route, navigation }: any) {
           <View style={styles.divider} />
 
           <View style={styles.contentRow}>
-            <PenLine size={18} color="#BDBDBD" strokeWidth={2} style={{ marginTop: 4 }} />
+            <PenLine size={18} color={T.textMuted} strokeWidth={2} style={{ marginTop: 4 }} />
             <TextInput
               style={styles.contentInput}
               value={content}
               onChangeText={setContent}
               placeholder="Напишите свои мысли..."
-              placeholderTextColor="#BDBDBD"
+              placeholderTextColor={T.textMuted}
               multiline
               textAlignVertical="top"
               scrollEnabled={false}
@@ -479,10 +480,10 @@ export default function NoteEditorScreen({ route, navigation }: any) {
               <Text style={styles.attachTitle}>Вложения{files.length + pendingFiles.length ? ` · ${files.length + pendingFiles.length}` : ''}</Text>
               <TouchableOpacity onPress={pickFiles} style={styles.attachBtn} disabled={uploading} activeOpacity={0.8}>
                 {uploading ? (
-                  <ActivityIndicator size="small" color="#1F7A52" />
+                  <ActivityIndicator size="small" color={T.accent} />
                 ) : (
                   <>
-                    <Paperclip size={16} color="#1F7A52" strokeWidth={2.2} />
+                    <Paperclip size={16} color={T.accent} strokeWidth={2.2} />
                     <Text style={styles.attachBtnText}>Прикрепить</Text>
                   </>
                 )}
@@ -490,19 +491,19 @@ export default function NoteEditorScreen({ route, navigation }: any) {
             </View>
             {files.map((f) => (
               <TouchableOpacity key={f.id} style={styles.fileRow} onPress={() => openFile(f)} onLongPress={() => removeFile(f)}>
-                <FileText size={18} color="#1F7A52" strokeWidth={2} />
+                <FileText size={18} color={T.accent} strokeWidth={2} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fileName} numberOfLines={1}>{f.file_name}</Text>
                   {f.file_size ? <Text style={styles.fileMeta}>{formatSize(f.file_size)}</Text> : null}
                 </View>
                 <TouchableOpacity onPress={() => removeFile(f)} hitSlop={10} accessibilityLabel="Удалить вложение">
-                  <X size={18} color="#9A9AA0" />
+                  <X size={18} color={T.textMuted} />
                 </TouchableOpacity>
               </TouchableOpacity>
             ))}
             {pendingFiles.map((f, i) => (
               <View key={`${f.uri}-${i}`} style={[styles.fileRow, { opacity: 0.7 }]}>
-                <FileText size={18} color="#6F6F73" strokeWidth={2} />
+                <FileText size={18} color={T.textSecondary} strokeWidth={2} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
                   <Text style={styles.fileMeta}>Загрузится при сохранении{f.size ? ` · ${formatSize(f.size)}` : ''}</Text>
@@ -512,7 +513,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
                   hitSlop={10}
                   accessibilityLabel="Убрать файл"
                 >
-                  <X size={18} color="#9A9AA0" />
+                  <X size={18} color={T.textMuted} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -530,10 +531,10 @@ export default function NoteEditorScreen({ route, navigation }: any) {
           ]}
         >
           {saving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={T.onAccent} />
           ) : (
             <>
-              <Check size={22} color="#FFFFFF" strokeWidth={2.8} />
+              <Check size={22} color={T.onAccent} strokeWidth={2.8} />
               <Text style={styles.fabText}>
                 {isEditing ? 'Сохранить' : 'Создать'}
               </Text>
@@ -551,6 +552,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
             <MenuItem icon={FileDown} label="Экспорт в PDF" onPress={exportPdf} />
             <MenuItem icon={Send} label="Отправить в чат" onPress={openShare} />
             {isEditing && <MenuItem icon={Trash2} label="Удалить заметку" onPress={deleteNote} danger />}
+            <SafeBottom />
           </Pressable>
         </Pressable>
       </Modal>
@@ -565,9 +567,9 @@ export default function NoteEditorScreen({ route, navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.background },
 
   // ===== HEADER ROW =====
   headerRow: {
@@ -575,31 +577,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingVertical: 12,
   },
   backBtn: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFFFFF',
+    width: 44, height: 44, borderRadius: 14, backgroundColor: T.card,
     justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
   unsavedDot: {
-    width: 10, height: 10, borderRadius: 5, backgroundColor: '#1F7A52',
+    width: 10, height: 10, borderRadius: 5, backgroundColor: T.accent,
   },
   iconBtn: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFFFFF',
+    width: 44, height: 44, borderRadius: 14, backgroundColor: T.card,
     justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
-  iconBtnActiveFav: { backgroundColor: '#F59E0B' },
+  iconBtnActiveFav: { backgroundColor: T.warning },
 
   // ===== HERO HEADER =====
   heroHeader: { paddingHorizontal: 24, marginBottom: 20, paddingTop: 8 },
   bigTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
+    fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   bigSubtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: '#6F6F73',
+    fontSize: 18, fontStyle: 'italic', color: T.textSecondary,
   },
 
   // ===== CONTENT =====
@@ -610,12 +612,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 16,
     padding: 0,
-    color: '#141414',
+    color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   divider: {
     height: 1,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     marginBottom: 20,
   },
   contentRow: { flexDirection: 'row' },
@@ -626,7 +628,7 @@ const styles = StyleSheet.create({
     minHeight: 300,
     padding: 0,
     paddingLeft: 12,
-    color: '#141414',
+    color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif',
     fontWeight: '500',
   },
@@ -643,44 +645,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderRadius: 22,
-    backgroundColor: '#1F7A52',
-    shadowColor: '#1F7A52',
+    backgroundColor: T.accent,
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
   },
-  fabDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0.1 },
+  fabDisabled: { backgroundColor: T.disabled, shadowOpacity: 0.1 },
   fabText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
   // ===== ВЛОЖЕНИЯ =====
   attachSection: { marginTop: 28 },
   attachHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  attachTitle: { fontSize: 13, fontWeight: '700', color: '#6F6F73', textTransform: 'uppercase', letterSpacing: 0.5 },
+  attachTitle: { fontSize: 13, fontWeight: '700', color: T.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   attachBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36,
-    paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#E3F1EA',
+    paddingHorizontal: 12, borderRadius: 12, backgroundColor: T.accentMuted,
   },
-  attachBtnText: { color: '#1F7A52', fontWeight: '700', fontSize: 14 },
+  attachBtnText: { color: T.accent, fontWeight: '700', fontSize: 14 },
   fileRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, marginBottom: 8,
-    borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#ECECE8',
+    borderRadius: 14, backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
   },
-  fileName: { fontSize: 15, color: '#141414', fontWeight: '500' },
-  fileMeta: { fontSize: 12, color: '#9A9AA0', marginTop: 2 },
+  fileName: { fontSize: 15, color: T.textPrimary, fontWeight: '500' },
+  fileMeta: { fontSize: 12, color: T.textMuted, marginTop: 2 },
 
   // ===== МЕНЮ =====
-  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  menuBackdrop: { flex: 1, backgroundColor: T.overlay, justifyContent: 'flex-end' },
   menuSheet: {
-    backgroundColor: '#FFFFFF', borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    backgroundColor: T.card, borderTopLeftRadius: 22, borderTopRightRadius: 22,
     paddingTop: 10, paddingBottom: 28,
   },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingVertical: 15 },
-  menuText: { fontSize: 16, color: '#141414', fontWeight: '500' },
-  menuTextDanger: { color: '#DC2626' },
-});
+  menuText: { fontSize: 16, color: T.textPrimary, fontWeight: '500' },
+  menuTextDanger: { color: T.danger }
+}));

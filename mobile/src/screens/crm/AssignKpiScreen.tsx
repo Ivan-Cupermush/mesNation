@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -6,6 +7,7 @@ import {
 import { useTheme } from '../../theme/ThemeContext';
 import { api, MetricType } from '../../services/api';
 
+import { themed } from '../../theme/runtime';
 const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
   { id: 'quantity', label: 'Штуки', unit: 'шт' },
   { id: 'amount', label: 'Рубли', unit: '₽' },
@@ -13,6 +15,7 @@ const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
 ];
 
 export default function AssignKpiScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [subordinates, setSubordinates] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any>(null);
@@ -75,11 +78,11 @@ export default function AssignKpiScreen({ navigation }: any) {
   const currentUnit = METRIC_OPTIONS.find(m => m.id === metricType)?.unit || '';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
+    <View style={[styles.container, { backgroundColor: colors.background, paddingBottom: insets.bottom }]}>
+      <StatusBar barStyle={colors.statusBar} backgroundColor="transparent" translucent />
       
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: (StatusBar.currentHeight || 24) + 8 }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={{ color: colors.accent, fontSize: 16 }}>Отмена</Text>
         </TouchableOpacity>
@@ -209,7 +212,7 @@ export default function AssignKpiScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -253,4 +256,4 @@ const styles = StyleSheet.create({
   },
   userName: { fontSize: 15, fontWeight: '600', marginBottom: 2 },
   userKpis: { fontSize: 12 },
-});
+}));

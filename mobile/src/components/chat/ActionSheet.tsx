@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Нижнее меню действий (долгое нажатие на сообщение, чат и т.п.).
  * Сверху — короткое превью того, к чему относится меню.
@@ -67,25 +68,25 @@ export default function ActionSheet({ visible, title, preview, actions, onClose 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingTop: 6,
   },
-  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', marginBottom: 8 },
+  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: T.surfaceActive, marginBottom: 8 },
   previewBox: {
     marginHorizontal: 16,
     marginBottom: 6,
     padding: 10,
     borderRadius: 12,
-    backgroundColor: '#F4F5F3',
+    backgroundColor: T.inputBg,
     borderLeftWidth: 3,
     borderLeftColor: C.accent,
   },
@@ -94,4 +95,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 22, height: 52 },
   icon: { width: 24, alignItems: 'center' },
   label: { fontSize: 16, color: C.text },
-});
+}));

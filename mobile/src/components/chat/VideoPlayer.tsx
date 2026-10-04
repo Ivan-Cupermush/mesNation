@@ -4,6 +4,7 @@ import Video, { VideoRef, OnLoadData, OnProgressData } from 'react-native-video'
 import { Play, Pause, RotateCcw, Volume2, VolumeX } from 'lucide-react-native';
 import { formatDuration } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Встроенный видеоплеер для просмотра медиа из чата: кнопка воспроизведения,
  * полоса перемотки с перетаскиванием, время, звук. Тап по видео прячет
@@ -81,7 +82,7 @@ export default function VideoPlayer({ width, height, uri, posterUri, active, chr
   const progress = duration ? Math.min(1, time / duration) : 0;
 
   return (
-    <View style={{ width, height, backgroundColor: '#000' }}>
+    <View style={{ width, height, backgroundColor: T.textPrimary }}>
       <TouchableOpacity activeOpacity={1} onPress={onTap} style={StyleSheet.absoluteFill}>
         {uri ? (
           <Video
@@ -117,17 +118,17 @@ export default function VideoPlayer({ width, height, uri, posterUri, active, chr
         </View>
       ) : (buffering || !uri) && !paused ? (
         <View style={styles.centerBox} pointerEvents="none">
-          <ActivityIndicator color="#FFFFFF" size="large" />
+          <ActivityIndicator color={T.onAccent} size="large" />
         </View>
       ) : chromeVisible || paused ? (
         <View style={styles.centerBox} pointerEvents="box-none">
           <TouchableOpacity onPress={toggle} style={styles.bigBtn} accessibilityLabel={paused ? 'Воспроизвести' : 'Пауза'}>
             {ended ? (
-              <RotateCcw size={30} color="#FFFFFF" />
+              <RotateCcw size={30} color={T.onAccent} />
             ) : paused ? (
-              <Play size={32} color="#FFFFFF" fill="#FFFFFF" style={{ marginLeft: 4 }} />
+              <Play size={32} color={T.onAccent} fill={T.onAccent} style={{ marginLeft: 4 }} />
             ) : (
-              <Pause size={30} color="#FFFFFF" fill="#FFFFFF" />
+              <Pause size={30} color={T.onAccent} fill={T.onAccent} />
             )}
           </TouchableOpacity>
         </View>
@@ -144,7 +145,7 @@ export default function VideoPlayer({ width, height, uri, posterUri, active, chr
           </View>
           <Text style={styles.time}>{formatDuration(duration)}</Text>
           <TouchableOpacity onPress={() => setMuted((m) => !m)} hitSlop={10} accessibilityLabel="Звук">
-            {muted ? <VolumeX size={20} color="#FFFFFF" /> : <Volume2 size={20} color="#FFFFFF" />}
+            {muted ? <VolumeX size={20} color={T.onAccent} /> : <Volume2 size={20} color={T.onAccent} />}
           </TouchableOpacity>
         </View>
       )}
@@ -152,17 +153,17 @@ export default function VideoPlayer({ width, height, uri, posterUri, active, chr
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   centerBox: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   bigBtn: {
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: T.overlay,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  errorText: { color: '#FFFFFF', fontSize: 15 },
+  errorText: { color: T.onAccent, fontSize: 15 },
   controls: {
     position: 'absolute',
     left: 0,
@@ -173,9 +174,9 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
   },
-  time: { color: '#FFFFFF', fontSize: 12, fontVariant: ['tabular-nums'], minWidth: 38, textAlign: 'center' },
+  time: { color: T.onAccent, fontSize: 12, fontVariant: ['tabular-nums'], minWidth: 38, textAlign: 'center' },
   barHit: { flex: 1, height: 32, justifyContent: 'center' },
   barTrack: { height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)', overflow: 'hidden' },
-  barFill: { height: 3, backgroundColor: '#FFFFFF' },
-  knob: { position: 'absolute', top: 9, width: 14, height: 14, borderRadius: 7, backgroundColor: '#FFFFFF' },
-});
+  barFill: { height: 3, backgroundColor: T.card },
+  knob: { position: 'absolute', top: 9, width: 14, height: 14, borderRadius: 7, backgroundColor: T.card },
+}));

@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { themed } from '../../theme/runtime';
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'muted';
 
 interface BadgeProps {
@@ -32,6 +33,6 @@ export const Badge = ({ label, variant = 'info', size = 'sm', dot }: BadgeProps)
   );
 };
 
-const styles = StyleSheet.create({
-  badge: { borderRadius: 20, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-});
+const styles = themed(() => ({
+  badge: { borderRadius: 20, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }
+}));

@@ -1,7 +1,9 @@
 import React, { ReactNode } from 'react';
-import { View, StyleSheet, StatusBar, ScrollView, Platform } from 'react-native';
+import { View, StatusBar, ScrollView, Platform } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { themed } from '../../theme/runtime';
 interface Props {
   children: ReactNode;
   scroll?: boolean;
@@ -11,8 +13,8 @@ interface Props {
 export const ScreenWrapper = ({ children, scroll = false, padding = 0 }: Props) => {
   const { colors, isDark } = useTheme();
   
-  // Простой фиксированный отступ для Android
-  const statusBarHeight = Platform.OS === 'android' ? 24 : 0;
+  // Отступ сверху — реальная высота статус-бара/выреза камеры этого телефона.
+  const statusBarHeight = useSafeAreaInsets().top;
   
   const content = (
     <View style={[styles.inner, { padding, paddingTop: padding + statusBarHeight }]}>
@@ -22,11 +24,7 @@ export const ScreenWrapper = ({ children, scroll = false, padding = 0 }: Props) 
   
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar 
-        barStyle={isDark ? 'light-content' : 'dark-content'} 
-        backgroundColor={colors.background}
-        translucent={Platform.OS === 'android'}
-      />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       {scroll ? (
         <ScrollView 
           style={{ flex: 1 }} 
@@ -41,7 +39,7 @@ export const ScreenWrapper = ({ children, scroll = false, padding = 0 }: Props) 
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   root: { flex: 1 },
-  inner: { flex: 1 },
-});
+  inner: { flex: 1 }
+}));

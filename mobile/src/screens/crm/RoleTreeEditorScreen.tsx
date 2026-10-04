@@ -12,6 +12,8 @@ import { fuzzyMatch } from '../../utils/fuzzySearch';
 import TreeGraphView from '../../components/TreeGraphView';
 import { ChevronLeft, Move, X, Lock, Search } from 'lucide-react-native';
 
+import { T, themed } from '../../theme/runtime';
+import SafeBottom from '../../components/ui/SafeBottom';
 // ✅ ТЕ ЖЕ списки что были — совместимость со старыми ролями в БД
 const COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
 const ICONS = [
@@ -273,7 +275,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         paddingTop: insets.top + 8,
       }]}>
         <TouchableOpacity onPress={() => (moveUser ? setMoveUser(null) : navigation.goBack())} style={styles.backBtn} activeOpacity={0.7}>
-          <ChevronLeft size={22} color="#1F7A52" strokeWidth={2.5} />
+          <ChevronLeft size={22} color={T.accent} strokeWidth={2.5} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>ДЕРЕВО РОЛЕЙ</Text>
@@ -293,7 +295,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
             </Text>
           </View>
           <TouchableOpacity onPress={() => setMoveUser(null)} style={styles.moveCancel} activeOpacity={0.7}>
-            <X size={18} color="#FFFFFF" strokeWidth={2.5} />
+            <X size={18} color={T.onAccent} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
       )}
@@ -302,7 +304,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
           {moveUser
             ? '👆 Выберите узел-цель для переноса сотрудника'
-            : <>👆 Узел — редактирование и люди. <Text style={{ color: '#10B981', fontWeight: '700' }}>⇄</Text> у человека — перенос на дереве. <Text style={{ color: '#10B981', fontWeight: '700' }}>+</Text> — добавить ребёнка.</>}
+            : <>👆 Узел — редактирование и люди. <Text style={{ color: T.success, fontWeight: '700' }}>⇄</Text> у человека — перенос на дереве. <Text style={{ color: T.success, fontWeight: '700' }}>+</Text> — добавить ребёнка.</>}
         </Text>
       </View>
 
@@ -338,7 +340,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                     style={[
                       styles.colorCircle,
                       { backgroundColor: c },
-                      newColor === c && { borderWidth: 3, borderColor: '#000' },
+                      newColor === c && { borderWidth: 3, borderColor: T.textPrimary },
                     ]}
                   />
                 ))}
@@ -377,6 +379,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 </Text>
               </TouchableOpacity>
             </View>
+            <SafeBottom />
           </View>
         </View>
       </Modal>
@@ -411,7 +414,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                     style={[
                       styles.colorCircle,
                       { backgroundColor: c },
-                      editColor === c && { borderWidth: 3, borderColor: '#000' },
+                      editColor === c && { borderWidth: 3, borderColor: T.textPrimary },
                     ]}
                   />
                 ))}
@@ -458,7 +461,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
               )}
               {loadingUsers ? (
                 <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color="#1F7A52" />
+                  <ActivityIndicator size="small" color={T.accent} />
                 </View>
               ) : nodeUsers.length === 0 ? (
                 <View style={[styles.emptyUsersBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -484,7 +487,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                     style={[styles.userRow, { backgroundColor: colors.surface }]}
                     activeOpacity={0.7}
                   >
-                    <View style={[styles.userAvatar, { backgroundColor: user.avatar_url ? '#ECECE8' : hashColor(user.display_name || user.username) }]}>
+                    <View style={[styles.userAvatar, { backgroundColor: user.avatar_url ? T.surfaceActive : hashColor(user.display_name || user.username) }]}>
                       {user.avatar_url ? (
                         <Image source={{ uri: publicFileUrl(user.avatar_url)! }} style={styles.userAvatarImg} />
                       ) : (
@@ -503,11 +506,11 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                     </View>
                     {editingNode?.is_root ? (
                       <View style={styles.userLockIcon}>
-                        <Lock size={16} color="#9CA3AF" strokeWidth={2.2} />
+                        <Lock size={16} color={T.textMuted} strokeWidth={2.2} />
                       </View>
                     ) : (
                       <View style={styles.userEditBtn}>
-                        <Move size={16} color="#1F7A52" strokeWidth={2.2} />
+                        <Move size={16} color={T.accent} strokeWidth={2.2} />
                       </View>
                     )}
                   </TouchableOpacity>
@@ -536,13 +539,14 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
               <TouchableOpacity
                 onPress={handleDelete}
                 disabled={saving}
-                style={[styles.deleteBtn, { backgroundColor: '#FEE2E2' }]}
+                style={[styles.deleteBtn, { backgroundColor: T.dangerSoft }]}
               >
-                <Text style={{ color: '#DC2626', fontWeight: '600' }}>
+                <Text style={{ color: T.danger, fontWeight: '600' }}>
                   🗑 Удалить роль
                 </Text>
               </TouchableOpacity>
             )}
+            <SafeBottom />
           </View>
         </View>
       </Modal>
@@ -550,7 +554,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
@@ -565,10 +569,10 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -578,7 +582,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 24,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 0.3,
     lineHeight: 28,
   },
@@ -586,7 +590,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
     fontSize: 13,
     fontStyle: 'italic',
-    color: '#6F6F73',
+    color: T.textSecondary,
     marginTop: 1,
   },
   // ===== Плашка переноса =====
@@ -599,14 +603,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 16,
-    backgroundColor: '#1F7A52',
-    shadowColor: '#000',
+    backgroundColor: T.accent,
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 6,
   },
-  moveBannerTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  moveBannerTitle: { color: T.onAccent, fontSize: 15, fontWeight: '800' },
   moveBannerSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 },
   moveCancel: {
     width: 32,
@@ -621,7 +625,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     backgroundColor: 'rgba(99, 102, 241, 0.08)',
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: T.overlay, justifyContent: 'flex-end' },
   modalContent: { padding: 24, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' },
   modalHeaderRow: {
     flexDirection: 'row',
@@ -672,14 +676,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   userAvatarImg: { width: 40, height: 40, borderRadius: 20 },
-  userAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  userAvatarText: { color: T.onAccent, fontWeight: '700', fontSize: 16 },
   userName: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
   userRole: { fontSize: 12 },
   userEditBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -687,7 +691,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: T.inputBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -707,4 +711,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     padding: 0,
   },
-});
+}));

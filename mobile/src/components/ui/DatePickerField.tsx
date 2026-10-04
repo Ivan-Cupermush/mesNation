@@ -5,6 +5,7 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { T, themed } from '../../theme/runtime';
 interface DatePickerFieldProps {
   label: string;
   value: Date | null;
@@ -227,7 +228,7 @@ export const DatePickerField = ({
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginLeft: 2 },
   field: {
     flexDirection: 'row',
@@ -241,7 +242,7 @@ const styles = StyleSheet.create({
   value: { flex: 1, fontSize: 15 },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -257,4 +258,4 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-});
+}));

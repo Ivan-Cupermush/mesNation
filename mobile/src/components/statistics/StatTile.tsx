@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { themed } from '../../theme/runtime';
 interface StatTileProps {
   emoji: string;
   label: string;
@@ -30,7 +31,7 @@ export const StatTile: React.FC<StatTileProps> = ({ emoji, label, value, tint })
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   tile: {
     flex: 1,
     minWidth: '46%',
@@ -49,4 +50,4 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 19 },
   value: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4, marginBottom: 2 },
   label: { fontSize: 12, fontWeight: '500' },
-});
+}));

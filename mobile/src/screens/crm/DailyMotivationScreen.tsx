@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowRight, Sparkles } from 'lucide-react-native';
 import { api } from '../../services/api';
 
+import { T, themed } from '../../theme/runtime';
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 const fmtNum = (n: number) => new Intl.NumberFormat('ru-RU').format(Math.round(n));
@@ -75,7 +76,7 @@ export default function DailyMotivationScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
       <View style={styles.content}>
         <Text style={styles.dateLine}>
           {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -110,7 +111,7 @@ export default function DailyMotivationScreen({ navigation }: any) {
 
         <View style={styles.quoteBox}>
           <View style={styles.quoteHead}>
-            <Sparkles size={16} color="#1F7A52" />
+            <Sparkles size={16} color={T.accent} />
             <Text style={styles.quoteHeadText}>цитата дня · по твоим показателям</Text>
           </View>
           <Text style={styles.quote}>«{quote}»</Text>
@@ -118,39 +119,39 @@ export default function DailyMotivationScreen({ navigation }: any) {
 
         <TouchableOpacity style={styles.btn} onPress={() => navigation.goBack()}>
           <Text style={styles.btnText}>Начать день</Text>
-          <ArrowRight size={18} color="#FFFFFF" />
+          <ArrowRight size={18} color={T.onAccent} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   content: { flex: 1, paddingHorizontal: 28, justifyContent: 'center' },
-  dateLine: { fontSize: 13, color: '#9CA3AF', marginBottom: 8 },
-  title: { fontSize: 34, fontWeight: '800', color: '#141414', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#6F6F73', marginBottom: 28 },
+  dateLine: { fontSize: 13, color: T.textMuted, marginBottom: 8 },
+  title: { fontSize: 34, fontWeight: '800', color: T.textPrimary, marginBottom: 4 },
+  subtitle: { fontSize: 14, color: T.textSecondary, marginBottom: 28 },
   hero: { marginBottom: 24 },
-  heroValue: { fontSize: 56, fontWeight: '800', color: '#1F7A52' },
-  heroLabel: { fontSize: 13, color: '#6F6F73', marginBottom: 10 },
-  barBg: { height: 6, backgroundColor: '#ECECE8', borderRadius: 3, overflow: 'hidden' },
-  barFill: { height: '100%', backgroundColor: '#1F7A52', borderRadius: 3 },
+  heroValue: { fontSize: 56, fontWeight: '800', color: T.accent },
+  heroLabel: { fontSize: 13, color: T.textSecondary, marginBottom: 10 },
+  barBg: { height: 6, backgroundColor: T.surfaceActive, borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: T.accent, borderRadius: 3 },
   row: { flexDirection: 'row', marginBottom: 28 },
   stat: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 18, fontWeight: '700', color: '#141414' },
-  statLabel: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
-  divider: { width: 1, backgroundColor: '#ECECE8' },
+  statValue: { fontSize: 18, fontWeight: '700', color: T.textPrimary },
+  statLabel: { fontSize: 11, color: T.textMuted, marginTop: 2 },
+  divider: { width: 1, backgroundColor: T.surfaceActive },
   quoteBox: {
-    borderLeftWidth: 3, borderLeftColor: '#1F7A52', paddingLeft: 14,
-    marginBottom: 32, backgroundColor: '#FFFFFF', padding: 16, borderRadius: 14,
+    borderLeftWidth: 3, borderLeftColor: T.accent, paddingLeft: 14,
+    marginBottom: 32, backgroundColor: T.card, padding: 16, borderRadius: 14,
   },
   quoteHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  quoteHeadText: { fontSize: 11, color: '#6F6F73', marginLeft: 6 },
-  quote: { fontSize: 15, color: '#374151', lineHeight: 22, fontStyle: 'italic' },
+  quoteHeadText: { fontSize: 11, color: T.textSecondary, marginLeft: 6 },
+  quote: { fontSize: 15, color: T.textPrimary, lineHeight: 22, fontStyle: 'italic' },
   btn: {
-    flexDirection: 'row', backgroundColor: '#1F7A52', borderRadius: 16,
+    flexDirection: 'row', backgroundColor: T.accent, borderRadius: 16,
     paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
   },
-  btnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginRight: 8 },
-});
+  btnText: { color: T.onAccent, fontSize: 16, fontWeight: '700', marginRight: 8 }
+}));

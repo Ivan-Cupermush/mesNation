@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform,
-  ActivityIndicator, Alert, TextInput, Modal, Image, Dimensions,
+  View, Text, ScrollView, TouchableOpacity, Platform,
+  ActivityIndicator, Alert, TextInput, Modal, Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import {
   ChevronLeft, Pencil, Trash2, RotateCcw, Check, X, Image as ImageIcon,
-  Paperclip, Link as LinkIcon, BarChart3, Forward, ChevronRight,
+  Paperclip, Link as LinkIcon, BarChart3, Forward, ChevronRight
 } from 'lucide-react-native';
 import { getToken, SERVER_URL } from '../utils';
 import {
-  TOPIC_ICONS, TOPIC_COLORS, TOPIC_OPACITIES, DEFAULT_TOPIC_STYLE, hexToRgba,
+  TOPIC_ICONS, TOPIC_COLORS, TOPIC_OPACITIES, DEFAULT_TOPIC_STYLE, hexToRgba
 } from '../theme/topicIcons';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from '../components/ui/SafeBottom';
 type TopicInfoRouteProp = RouteProp<{ params: { chatId: string; topicId: number } }, 'params'>;
 
-const SCREEN_W = Dimensions.get('window').width;
-const GRID_ITEM_SIZE = (SCREEN_W - 60) / 3;
 
 export default function TopicInfoScreen({ navigation }: any) {
   const route = useRoute<TopicInfoRouteProp>();
@@ -203,7 +203,7 @@ export default function TopicInfoScreen({ navigation }: any) {
   if (loading || !topic) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
+        <View style={styles.loadingWrap}><ActivityIndicator size="large" color={T.accent} /></View>
       </SafeAreaView>
     );
   }
@@ -211,11 +211,11 @@ export default function TopicInfoScreen({ navigation }: any) {
   const PreviewIcon = TOPIC_ICONS[icon] || TOPIC_ICONS.hash;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ПРОФИЛЬ ТОПИКА</Text>
         <View style={{ width: 40 }} />
@@ -232,7 +232,7 @@ export default function TopicInfoScreen({ navigation }: any) {
 
           {isCreator && !editing && (
             <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.7}>
-              <Pencil size={16} color="#1F7A52" strokeWidth={2} />
+              <Pencil size={16} color={T.accent} strokeWidth={2} />
               <Text style={styles.editBtnText}>Редактировать</Text>
             </TouchableOpacity>
           )}
@@ -247,7 +247,7 @@ export default function TopicInfoScreen({ navigation }: any) {
               value={title}
               onChangeText={setTitle}
               placeholder="Название топика"
-              placeholderTextColor="#BDBDBD"
+              placeholderTextColor={T.textMuted}
               autoFocus
             />
 
@@ -262,7 +262,7 @@ export default function TopicInfoScreen({ navigation }: any) {
                     onPress={() => setIcon(key)}
                     activeOpacity={0.7}
                   >
-                    <IconComp size={20} color={active ? color : '#6F6F73'} strokeWidth={2} />
+                    <IconComp size={20} color={active ? color : T.textSecondary} strokeWidth={2} />
                   </TouchableOpacity>
                 );
               })}
@@ -277,7 +277,7 @@ export default function TopicInfoScreen({ navigation }: any) {
                   onPress={() => setColor(c)}
                   activeOpacity={0.7}
                 >
-                  {color === c && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                  {color === c && <Check size={14} color={T.onAccent} strokeWidth={3} />}
                 </TouchableOpacity>
               ))}
             </View>
@@ -300,7 +300,7 @@ export default function TopicInfoScreen({ navigation }: any) {
 
             <View style={styles.editorActions}>
               <TouchableOpacity onPress={resetDefaults} style={styles.resetBtn}>
-                <RotateCcw size={16} color="#6F6F73" strokeWidth={2} />
+                <RotateCcw size={16} color={T.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => { setEditing(false); load(); }} style={styles.cancelBtn}>
                 <Text style={styles.cancelBtnText}>Отмена</Text>
@@ -308,9 +308,9 @@ export default function TopicInfoScreen({ navigation }: any) {
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={saving || !hasChanges}
-                style={[styles.saveBtn, { backgroundColor: saving || !hasChanges ? '#ECECE8' : '#1F7A52' }]}
+                style={[styles.saveBtn, { backgroundColor: saving || !hasChanges ? T.surfaceActive : T.accent }]}
               >
-                {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.saveBtnText}>Сохранить</Text>}
+                {saving ? <ActivityIndicator size="small" color={T.onAccent} /> : <Text style={styles.saveBtnText}>Сохранить</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -334,7 +334,7 @@ export default function TopicInfoScreen({ navigation }: any) {
                   style={[styles.tabBtn, isActive && styles.tabBtnActive]}
                   activeOpacity={0.7}
                 >
-                  <TIcon size={14} color={isActive ? '#1F7A52' : '#6F6F73'} strokeWidth={2} />
+                  <TIcon size={14} color={isActive ? T.accent : T.textSecondary} strokeWidth={2} />
                   <Text style={[styles.tabBtnText, isActive && styles.tabBtnTextActive]}>
                     {tab.label} {tab.count > 0 && `(${tab.count})`}
                   </Text>
@@ -344,7 +344,7 @@ export default function TopicInfoScreen({ navigation }: any) {
           </View>
 
           {loadingTab ? (
-            <View style={{ padding: 20 }}><ActivityIndicator color="#1F7A52" /></View>
+            <View style={{ padding: 20 }}><ActivityIndicator color={T.accent} /></View>
           ) : tabItems.length === 0 ? (
             <View style={styles.emptyTab}>
               <Text style={styles.emptyTabText}>Пока пусто</Text>
@@ -368,7 +368,7 @@ export default function TopicInfoScreen({ navigation }: any) {
                     />
                     {isSelected && (
                       <View style={styles.mediaCheck}>
-                        <Check size={14} color="#FFFFFF" strokeWidth={3} />
+                        <Check size={14} color={T.onAccent} strokeWidth={3} />
                       </View>
                     )}
                   </TouchableOpacity>
@@ -389,9 +389,9 @@ export default function TopicInfoScreen({ navigation }: any) {
                     activeOpacity={0.7}
                   >
                     <View style={styles.listIcon}>
-                      {activeTab === 'files' && <Paperclip size={16} color="#1F7A52" strokeWidth={2} />}
-                      {activeTab === 'links' && <LinkIcon size={16} color="#1F7A52" strokeWidth={2} />}
-                      {activeTab === 'polls' && <BarChart3 size={16} color="#1F7A52" strokeWidth={2} />}
+                      {activeTab === 'files' && <Paperclip size={16} color={T.accent} strokeWidth={2} />}
+                      {activeTab === 'links' && <LinkIcon size={16} color={T.accent} strokeWidth={2} />}
+                      {activeTab === 'polls' && <BarChart3 size={16} color={T.accent} strokeWidth={2} />}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.listItemTitle} numberOfLines={1}>
@@ -401,7 +401,7 @@ export default function TopicInfoScreen({ navigation }: any) {
                         {new Date(item.created_at || item.message_created_at).toLocaleDateString('ru-RU')}
                       </Text>
                     </View>
-                    <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                    <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
                   </TouchableOpacity>
                 );
               })}
@@ -412,10 +412,10 @@ export default function TopicInfoScreen({ navigation }: any) {
             <View style={styles.selectionBar}>
               <Text style={styles.selectionText}>Выбрано: {selectedIds.length}</Text>
               <TouchableOpacity onPress={() => setSelectedIds([])} style={styles.selectionBtn}>
-                <X size={18} color="#6F6F73" strokeWidth={2} />
+                <X size={18} color={T.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
               <TouchableOpacity onPress={startForward} style={[styles.selectionBtn, styles.selectionBtnPrimary]}>
-                <Forward size={18} color="#FFFFFF" strokeWidth={2} />
+                <Forward size={18} color={T.onAccent} strokeWidth={2} />
                 <Text style={styles.selectionBtnText}>Переслать</Text>
               </TouchableOpacity>
             </View>
@@ -426,8 +426,8 @@ export default function TopicInfoScreen({ navigation }: any) {
         {isCreator && !editing && (
           <View style={styles.card}>
             <TouchableOpacity style={styles.dangerRow} onPress={handleDelete} activeOpacity={0.7}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#FEE2E2' }]}>
-                <Trash2 size={18} color="#DC2626" strokeWidth={2} />
+              <View style={[styles.cardIconWrap, { backgroundColor: T.dangerSoft }]}>
+                <Trash2 size={18} color={T.danger} strokeWidth={2} />
               </View>
               <Text style={styles.dangerText}>Удалить топик</Text>
             </TouchableOpacity>
@@ -451,13 +451,14 @@ export default function TopicInfoScreen({ navigation }: any) {
                   onPress={() => forwardTo(c.id)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.forwardAvatar, { backgroundColor: '#1F7A52' }]}>
+                  <View style={[styles.forwardAvatar, { backgroundColor: T.accent }]}>
                     <Text style={styles.forwardAvatarText}>{(c.name || '?')[0].toUpperCase()}</Text>
                   </View>
                   <Text style={styles.forwardName}>{c.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
+            <SafeBottom />
           </View>
         </TouchableOpacity>
       </Modal>
@@ -465,147 +466,147 @@ export default function TopicInfoScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: '#ECECE8',
+    borderBottomWidth: 1, borderBottomColor: T.border,
   },
   headerBackBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   headerTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1,
+    fontSize: 22, fontWeight: '900', color: T.textPrimary, letterSpacing: 1,
   },
 
   scrollContent: { padding: 20, gap: 20 },
 
   heroCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 28, alignItems: 'center', gap: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card, borderRadius: 22, padding: 28, alignItems: 'center', gap: 10,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
   },
   heroIconWrap: {
     width: 72, height: 72, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
-  heroTitle: { fontSize: 20, fontWeight: '700', color: '#141414' },
-  heroSubtitle: { fontSize: 13, color: '#6F6F73', fontWeight: '500' },
+  heroTitle: { fontSize: 20, fontWeight: '700', color: T.textPrimary },
+  heroSubtitle: { fontSize: 13, color: T.textSecondary, fontWeight: '500' },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingVertical: 8, paddingHorizontal: 16, borderRadius: 12,
-    backgroundColor: '#ECFDF5', marginTop: 8,
+    backgroundColor: T.accentMuted, marginTop: 8,
   },
-  editBtnText: { fontSize: 14, fontWeight: '600', color: '#1F7A52' },
+  editBtnText: { fontSize: 14, fontWeight: '600', color: T.accent },
 
   editorCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 20, gap: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card, borderRadius: 22, padding: 20, gap: 14,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
   },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#6F6F73', textTransform: 'uppercase', letterSpacing: 0.5 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: T.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   textInput: {
-    fontSize: 16, color: '#141414', fontWeight: '500',
-    backgroundColor: '#FAFAF8', borderWidth: 1, borderColor: '#ECECE8', borderRadius: 14,
+    fontSize: 16, color: T.textPrimary, fontWeight: '500',
+    backgroundColor: T.background, borderWidth: 1, borderColor: T.border, borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 12,
   },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   iconCell: {
     width: 48, height: 48, borderRadius: 14,
-    backgroundColor: '#FAFAF8', borderWidth: 1.5, borderColor: '#ECECE8',
+    backgroundColor: T.background, borderWidth: 1.5, borderColor: T.border,
     alignItems: 'center', justifyContent: 'center',
   },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorSwatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  colorSwatchActive: { borderWidth: 3, borderColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 4 },
+  colorSwatchActive: { borderWidth: 3, borderColor: T.card, shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 4 },
   opacityRow: { flexDirection: 'row', gap: 8 },
   opacityChip: {
     flex: 1, paddingVertical: 10, borderRadius: 12,
-    backgroundColor: '#FAFAF8', borderWidth: 1.5, borderColor: '#ECECE8', alignItems: 'center',
+    backgroundColor: T.background, borderWidth: 1.5, borderColor: T.border, alignItems: 'center',
   },
-  opacityChipActive: { backgroundColor: '#ECFDF5', borderColor: '#1F7A52' },
-  opacityChipText: { fontSize: 13, fontWeight: '600', color: '#6F6F73' },
-  opacityChipTextActive: { color: '#1F7A52' },
+  opacityChipActive: { backgroundColor: T.accentMuted, borderColor: T.accent },
+  opacityChipText: { fontSize: 13, fontWeight: '600', color: T.textSecondary },
+  opacityChipTextActive: { color: T.accent },
   editorActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
   resetBtn: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: '#F4F4F5',
+    width: 44, height: 44, borderRadius: 12, backgroundColor: T.inputBg,
     alignItems: 'center', justifyContent: 'center',
   },
   cancelBtn: {
-    flex: 1, height: 44, borderRadius: 12, backgroundColor: '#F4F4F5',
+    flex: 1, height: 44, borderRadius: 12, backgroundColor: T.inputBg,
     alignItems: 'center', justifyContent: 'center',
   },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#6F6F73' },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: T.textSecondary },
   saveBtn: {
-    flex: 2, height: 44, borderRadius: 12, backgroundColor: '#1F7A52',
+    flex: 2, height: 44, borderRadius: 12, backgroundColor: T.accent,
     alignItems: 'center', justifyContent: 'center',
   },
-  saveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  saveBtnText: { fontSize: 14, fontWeight: '700', color: T.onAccent },
 
   card: {
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, gap: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card, borderRadius: 22, padding: 16, gap: 12,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
   },
-  cardIconWrap: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' },
+  cardIconWrap: { width: 32, height: 32, borderRadius: 10, backgroundColor: T.accentMuted, alignItems: 'center', justifyContent: 'center' },
   dangerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  dangerText: { fontSize: 15, fontWeight: '600', color: '#DC2626' },
+  dangerText: { fontSize: 15, fontWeight: '600', color: T.danger },
 
   tabsRow: { flexDirection: 'row', gap: 6 },
   tabBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
-    paddingVertical: 8, borderRadius: 10, backgroundColor: '#FAFAF8',
+    paddingVertical: 8, borderRadius: 10, backgroundColor: T.background,
   },
-  tabBtnActive: { backgroundColor: '#ECFDF5' },
-  tabBtnText: { fontSize: 11, fontWeight: '600', color: '#6F6F73' },
-  tabBtnTextActive: { color: '#1F7A52' },
+  tabBtnActive: { backgroundColor: T.accentMuted },
+  tabBtnText: { fontSize: 11, fontWeight: '600', color: T.textSecondary },
+  tabBtnTextActive: { color: T.accent },
   emptyTab: { paddingVertical: 32, alignItems: 'center' },
-  emptyTabText: { fontSize: 13, color: '#BDBDBD', fontWeight: '500' },
+  emptyTabText: { fontSize: 13, color: T.textMuted, fontWeight: '500' },
 
   mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   mediaItem: {
-    width: GRID_ITEM_SIZE, height: GRID_ITEM_SIZE, borderRadius: 8, overflow: 'hidden',
-    backgroundColor: '#F4F4F5',
+    width: '31.5%', aspectRatio: 1, borderRadius: 8, overflow: 'hidden',
+    backgroundColor: T.inputBg,
   },
-  mediaItemSelected: { borderWidth: 3, borderColor: '#1F7A52' },
+  mediaItemSelected: { borderWidth: 3, borderColor: T.accent },
   mediaImage: { width: '100%', height: '100%' },
   mediaCheck: {
     position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11,
-    backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center',
   },
 
   listWrap: { gap: 6 },
   listItem: {
     flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10,
-    borderRadius: 12, backgroundColor: '#FAFAF8',
+    borderRadius: 12, backgroundColor: T.background,
   },
-  listItemSelected: { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#1F7A52' },
+  listItemSelected: { backgroundColor: T.accentMuted, borderWidth: 1, borderColor: T.accent },
   listIcon: {
-    width: 36, height: 36, borderRadius: 10, backgroundColor: '#ECFDF5',
+    width: 36, height: 36, borderRadius: 10, backgroundColor: T.accentMuted,
     alignItems: 'center', justifyContent: 'center',
   },
-  listItemTitle: { fontSize: 14, fontWeight: '600', color: '#141414' },
-  listItemDate: { fontSize: 11, color: '#6F6F73', marginTop: 2 },
+  listItemTitle: { fontSize: 14, fontWeight: '600', color: T.textPrimary },
+  listItemDate: { fontSize: 11, color: T.textSecondary, marginTop: 2 },
 
   selectionBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    padding: 10, backgroundColor: '#ECFDF5', borderRadius: 14, marginTop: 8,
+    padding: 10, backgroundColor: T.accentMuted, borderRadius: 14, marginTop: 8,
   },
-  selectionText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#1F7A52' },
-  selectionBtn: { padding: 8, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  selectionText: { flex: 1, fontSize: 13, fontWeight: '600', color: T.accent },
+  selectionBtn: { padding: 8, borderRadius: 10, backgroundColor: T.card },
   selectionBtnPrimary: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 14, backgroundColor: '#1F7A52',
+    paddingHorizontal: 14, backgroundColor: T.accent,
   },
-  selectionBtnText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  selectionBtnText: { fontSize: 13, fontWeight: '700', color: T.onAccent },
 
-  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32, gap: 14 },
-  sheetHandle: { width: 40, height: 4, backgroundColor: '#ECECE8', borderRadius: 2, alignSelf: 'center' },
+  sheetOverlay: { flex: 1, backgroundColor: T.overlay, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32, gap: 14 },
+  sheetHandle: { width: 40, height: 4, backgroundColor: T.surfaceActive, borderRadius: 2, alignSelf: 'center' },
   sheetTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 24, fontWeight: '900', color: '#141414', letterSpacing: 1,
+    fontSize: 24, fontWeight: '900', color: T.textPrimary, letterSpacing: 1,
   },
-  forwardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F5' },
+  forwardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border },
   forwardAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  forwardAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  forwardName: { fontSize: 15, fontWeight: '600', color: '#141414' },
-});
+  forwardAvatarText: { color: T.onAccent, fontWeight: '700', fontSize: 14 },
+  forwardName: { fontSize: 15, fontWeight: '600', color: T.textPrimary }
+}));

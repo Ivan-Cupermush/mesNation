@@ -4,11 +4,10 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
-  StyleSheet,
   Platform,
   ActivityIndicator,
   StatusBar,
-  Alert,
+  Alert
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +16,7 @@ import { Star, Plus, FileText, BookOpen, UserRound, Paperclip } from 'lucide-rea
 import { CalendarView } from '../../components/CalendarView';
 import { api, Note, DayWithNotes } from '../../services/api';
 
+import { T, themed } from '../../theme/runtime';
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -147,7 +147,7 @@ export default function NotesScreen({ navigation }: any) {
       >
         <View style={styles.noteHeader}>
           <View style={styles.noteIconWrap}>
-            <BookOpen size={20} color="#1F7A52" strokeWidth={2.2} />
+            <BookOpen size={20} color={T.accent} strokeWidth={2.2} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.noteTitle} numberOfLines={1}>
@@ -159,7 +159,7 @@ export default function NotesScreen({ navigation }: any) {
           </View>
           {item.is_favorite && (
             <View style={styles.favoriteBadge}>
-              <Star size={16} color="#F59E0B" fill="#F59E0B" strokeWidth={2.2} />
+              <Star size={16} color={T.warning} fill={T.warning} strokeWidth={2.2} />
             </View>
           )}
         </View>
@@ -168,7 +168,7 @@ export default function NotesScreen({ navigation }: any) {
         </Text>
         {item.files_count ? (
           <View style={styles.filesBadge}>
-            <Paperclip size={13} color="#6F6F73" strokeWidth={2.2} />
+            <Paperclip size={13} color={T.textSecondary} strokeWidth={2.2} />
             <Text style={styles.filesBadgeText}>{item.files_count}</Text>
           </View>
         ) : null}
@@ -178,7 +178,7 @@ export default function NotesScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
 
       {/* Header */}
       <View style={styles.header}>
@@ -193,7 +193,7 @@ export default function NotesScreen({ navigation }: any) {
           onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
           activeOpacity={0.7}
         >
-          <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+          <UserRound size={20} color={T.accent} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -225,8 +225,8 @@ export default function NotesScreen({ navigation }: any) {
             >
               <Star
                 size={18}
-                color={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
-                fill={filter === 'favorite' ? '#FFFFFF' : '#F59E0B'}
+                color={filter === 'favorite' ? T.onAccent : T.warning}
+                fill={filter === 'favorite' ? T.onAccent : T.warning}
                 strokeWidth={2.2}
               />
             </TouchableOpacity>
@@ -238,12 +238,12 @@ export default function NotesScreen({ navigation }: any) {
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1F7A52" />
+            <ActivityIndicator size="large" color={T.accent} />
           </View>
         ) : notes.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconWrap}>
-              <FileText size={32} color="#9CA3AF" strokeWidth={1.8} />
+              <FileText size={32} color={T.textMuted} strokeWidth={1.8} />
             </View>
             <Text style={styles.emptyTitle}>Нет заметок</Text>
             <Text style={styles.emptySubtitle}>
@@ -269,16 +269,16 @@ export default function NotesScreen({ navigation }: any) {
         onPress={handleCreateNote}
         activeOpacity={0.85}
       >
-        <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
+        <Plus size={28} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   filesBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  filesBadgeText: { fontSize: 12, color: '#6F6F73', fontWeight: '600' },
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  filesBadgeText: { fontSize: 12, color: T.textSecondary, fontWeight: '600' },
+  container: { flex: 1, backgroundColor: T.background },
 
   // ===== HEADER =====
   header: {
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 40,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: -0.5,
     lineHeight: 44,
   },
@@ -301,17 +301,17 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
     fontSize: 18,
     fontStyle: 'italic',
-    color: '#6F6F73',
+    color: T.textSecondary,
     marginTop: 4,
   },
   profileBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -336,11 +336,11 @@ const styles = StyleSheet.create({
   listTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#141414',
+    color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   listCountBadge: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: T.successSoft,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
@@ -348,24 +348,24 @@ const styles = StyleSheet.create({
   listCountText: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#1F7A52',
+    color: T.accent,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   filterBtn: {
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
     shadowRadius: 24,
     elevation: 4,
   },
   filterBtnActive: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: T.warning,
   },
 
   // ===== STATES =====
@@ -375,15 +375,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 48,
   },
   emptyIconWrap: {
-    width: 72, height: 72, borderRadius: 20, backgroundColor: '#F3F4F6',
+    width: 72, height: 72, borderRadius: 20, backgroundColor: T.inputBg,
     justifyContent: 'center', alignItems: 'center', marginBottom: 8,
   },
   emptyTitle: {
-    fontSize: 18, fontWeight: '700', color: '#141414', marginTop: 16,
+    fontSize: 18, fontWeight: '700', color: T.textPrimary, marginTop: 16,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   emptySubtitle: {
-    fontSize: 14, color: '#6F6F73', marginTop: 8,
+    fontSize: 14, color: T.textSecondary, marginTop: 8,
     textAlign: 'center', lineHeight: 20, fontWeight: '500',
   },
 
@@ -394,10 +394,10 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   noteCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
     shadowRadius: 24,
@@ -409,28 +409,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   noteIconWrap: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: '#D1FAE5',
+    width: 44, height: 44, borderRadius: 14, backgroundColor: T.successSoft,
     justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
   noteTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 2,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   noteDate: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
   favoriteBadge: {
-    width: 36, height: 36, borderRadius: 12, backgroundColor: '#FEF3C7',
+    width: 36, height: 36, borderRadius: 12, backgroundColor: T.warningSoft,
     justifyContent: 'center', alignItems: 'center', marginLeft: 12,
   },
   notePreview: {
     fontSize: 14,
-    color: '#6F6F73',
+    color: T.textSecondary,
     lineHeight: 20,
     fontWeight: '500',
   },
@@ -443,13 +443,13 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#1F7A52',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
-  },
-});
+  }
+}));

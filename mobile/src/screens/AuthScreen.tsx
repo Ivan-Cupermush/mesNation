@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
-  Platform, Alert, ActivityIndicator, StatusBar, TouchableOpacity,
+  View, Text, ScrollView, KeyboardAvoidingView,
+  Alert, ActivityIndicator, StatusBar, TouchableOpacity
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
@@ -10,6 +10,7 @@ import { SERVER_URL } from '../utils';
 import { setToken } from '../services/http';
 import CompanySetupScreen from './CompanySetupScreen';
 
+import { themed } from '../theme/runtime';
 type Screen = 'loading' | 'welcome' | 'login' | 'setup';
 
 export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token: string, user: any) => void }) {
@@ -136,7 +137,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
       />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -191,7 +192,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { padding: 20, paddingBottom: 40, flexGrow: 1, justifyContent: 'center' },
@@ -203,5 +204,5 @@ const styles = StyleSheet.create({
   loginHero: { alignItems: 'center', marginBottom: 32 },
   loginTitle: { fontSize: 28, fontWeight: '700', marginTop: 16 },
   companyBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginTop: 12 },
-  form: { marginTop: 8 },
-});
+  form: { marginTop: 8 }
+}));

@@ -1,13 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, Platform,
-  ActivityIndicator, Alert, TextInput,
+  View, Text, FlatList, TouchableOpacity, Platform,
+  ActivityIndicator, Alert, TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, UserPlus, Check, Search } from 'lucide-react-native';
 import { getToken, SERVER_URL } from '../utils';
 
+import { T, themed } from '../theme/runtime';
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 const hashColor = (s: string) => {
   const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -72,10 +73,10 @@ export default function AddMembersScreen({ route, navigation }: any) {
     : users;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ДОБАВИТЬ УЧАСТНИКОВ</Text>
         <View style={{ width: 40 }} />
@@ -83,11 +84,11 @@ export default function AddMembersScreen({ route, navigation }: any) {
 
       <View style={styles.searchWrap}>
         <View style={styles.searchBar}>
-          <Search size={18} color="#6F6F73" strokeWidth={2} />
+          <Search size={18} color={T.textSecondary} strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
             placeholder="Поиск людей..."
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             value={search}
             onChangeText={setSearch}
           />
@@ -95,10 +96,10 @@ export default function AddMembersScreen({ route, navigation }: any) {
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
+        <View style={styles.loadingWrap}><ActivityIndicator size="large" color={T.accent} /></View>
       ) : filtered.length === 0 ? (
         <View style={styles.emptyCard}>
-          <UserPlus size={32} color="#BDBDBD" strokeWidth={1.5} />
+          <UserPlus size={32} color={T.textMuted} strokeWidth={1.5} />
           <Text style={styles.emptyTitle}>Все уже в чате</Text>
           <Text style={styles.emptySubtitle}>Нет пользователей вне этого чата</Text>
         </View>
@@ -119,13 +120,13 @@ export default function AddMembersScreen({ route, navigation }: any) {
               <TouchableOpacity
                 onPress={() => addMember(item.id)}
                 disabled={addingId === item.id}
-                style={[styles.addBtn, addingId === item.id && { backgroundColor: '#D1FAE5' }]}
+                style={[styles.addBtn, addingId === item.id && { backgroundColor: T.successSoft }]}
                 activeOpacity={0.7}
               >
                 {addingId === item.id ? (
-                  <Check size={18} color="#1F7A52" strokeWidth={2.5} />
+                  <Check size={18} color={T.accent} strokeWidth={2.5} />
                 ) : (
-                  <UserPlus size={18} color="#FFFFFF" strokeWidth={2} />
+                  <UserPlus size={18} color={T.onAccent} strokeWidth={2} />
                 )}
               </TouchableOpacity>
             </View>
@@ -136,40 +137,40 @@ export default function AddMembersScreen({ route, navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ECECE8',
+    paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: T.border,
   },
   headerBackBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   headerTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1,
+    fontSize: 22, fontWeight: '900', color: T.textPrimary, letterSpacing: 1,
   },
   searchWrap: { paddingHorizontal: 16, paddingVertical: 12 },
   searchBar: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: T.card,
     borderRadius: 16, paddingHorizontal: 14, height: 44, gap: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
   },
-  searchInput: { flex: 1, fontSize: 15, color: '#141414', fontWeight: '500', padding: 0 },
+  searchInput: { flex: 1, fontSize: 15, color: T.textPrimary, fontWeight: '500', padding: 0 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 16, gap: 10, paddingBottom: 30 },
   userCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#FFFFFF', borderRadius: 18, padding: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 12, elevation: 2,
+    backgroundColor: T.card, borderRadius: 18, padding: 14,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 12, elevation: 2,
   },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  userName: { fontSize: 15, fontWeight: '700', color: '#141414' },
-  userUsername: { fontSize: 12, color: '#6F6F73', marginTop: 1 },
+  avatarText: { color: T.onAccent, fontWeight: '700', fontSize: 14 },
+  userName: { fontSize: 15, fontWeight: '700', color: T.textPrimary },
+  userUsername: { fontSize: 12, color: T.textSecondary, marginTop: 1 },
   addBtn: {
-    width: 40, height: 40, borderRadius: 14, backgroundColor: '#1F7A52',
+    width: 40, height: 40, borderRadius: 14, backgroundColor: T.accent,
     alignItems: 'center', justifyContent: 'center',
   },
-  emptyCard: { marginHorizontal: 16, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 32, alignItems: 'center', gap: 8 },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#141414', marginTop: 4 },
-  emptySubtitle: { fontSize: 12, color: '#6F6F73', textAlign: 'center' },
-});
+  emptyCard: { marginHorizontal: 16, backgroundColor: T.card, borderRadius: 22, padding: 32, alignItems: 'center', gap: 8 },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: T.textPrimary, marginTop: 4 },
+  emptySubtitle: { fontSize: 12, color: T.textSecondary, textAlign: 'center' }
+}));

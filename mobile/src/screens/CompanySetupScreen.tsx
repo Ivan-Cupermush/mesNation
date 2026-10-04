@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
-  Platform, Alert, ActivityIndicator, StatusBar,
+  View, Text, ScrollView, KeyboardAvoidingView,
+  Alert, ActivityIndicator, StatusBar
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button';
 import { SERVER_URL } from '../utils';
 import { setToken } from '../services/http';
 
+import { themed } from '../theme/runtime';
 export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess: (token: string, user: any) => void }) {
   const { colors, isDark } = useTheme();
   const [companyName, setCompanyName] = useState('');
@@ -82,7 +83,7 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
       />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -185,7 +186,7 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
   hero: { alignItems: 'center', marginTop: 40, marginBottom: 32 },
@@ -193,5 +194,5 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 15, textAlign: 'center', marginTop: 8, lineHeight: 22 },
   form: { marginTop: 8 },
   sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 8 },
-  footerText: { fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 },
-});
+  footerText: { fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 }
+}));

@@ -3,16 +3,15 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   Modal,
   Pressable,
   Image,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
 import { User, LogOut, Settings, ChevronRight } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
 
+import { T, themed } from '../theme/runtime';
 interface ProfileButtonProps {
   onLogout: () => void;
   onProfilePress?: () => void;
@@ -147,11 +146,11 @@ export default function ProfileButton({ onLogout, onProfilePress, user }: Profil
                 onPress={handleProfilePress}
                 activeOpacity={0.7}
               >
-                <View style={[styles.menuIconWrap, { backgroundColor: '#EEF2FF' }]}>
-                  <User size={16} color="#6366F1" strokeWidth={2} />
+                <View style={[styles.menuIconWrap, { backgroundColor: T.violetSoft }]}>
+                  <User size={16} color={T.violet} strokeWidth={2} />
                 </View>
                 <Text style={styles.menuItemText}>Мой профиль</Text>
-                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
               </TouchableOpacity>
             )}
 
@@ -161,11 +160,11 @@ export default function ProfileButton({ onLogout, onProfilePress, user }: Profil
               onPress={handleLogoutPress}
               activeOpacity={0.7}
             >
-              <View style={[styles.menuIconWrap, { backgroundColor: '#FEE2E2' }]}>
-                <LogOut size={16} color="#DC2626" strokeWidth={2} />
+              <View style={[styles.menuIconWrap, { backgroundColor: T.dangerSoft }]}>
+                <LogOut size={16} color={T.danger} strokeWidth={2} />
               </View>
-              <Text style={[styles.menuItemText, { color: '#DC2626' }]}>Выйти</Text>
-              <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+              <Text style={[styles.menuItemText, { color: T.danger }]}>Выйти</Text>
+              <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -174,13 +173,13 @@ export default function ProfileButton({ onLogout, onProfilePress, user }: Profil
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   avatarButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -199,7 +198,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: {
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontWeight: '700',
     fontSize: 14,
   },
@@ -212,10 +211,10 @@ const styles = StyleSheet.create({
   menu: {
     position: 'absolute',
     width: 280,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 20,
     padding: 8,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
     shadowRadius: 24,
@@ -248,31 +247,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuAvatarText: {
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontWeight: '700',
     fontSize: 15,
   },
   menuName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 2,
   },
   menuRole: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '600',
   },
   menuEmail: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: T.textMuted,
     fontWeight: '500',
     marginTop: 1,
   },
 
   menuDivider: {
     height: 1,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: T.inputBg,
     marginVertical: 6,
     marginHorizontal: 8,
   },
@@ -295,6 +294,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
-    color: '#141414',
-  },
-});
+    color: T.textPrimary,
+  }
+}));

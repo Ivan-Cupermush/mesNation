@@ -1,4 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import { forbidden } from '../lib/errors';
+import { hasSubordinateNodes } from '../services/access';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -65,7 +67,7 @@ router.get('/health', async (req: Request, res: Response) => {
       ready: ollamaOk && dbOk && vectorOk,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -73,14 +75,14 @@ router.get('/health', async (req: Request, res: Response) => {
 // УПРАВЛЕНИЕ ДОКУМЕНТАМИ (только для админов)
 // ============================================================
 
-// Middleware проверки роли админа
-async function requireAdmin(req: Request, res: Response, next: Function) {
-  const userId = (req as any).userId;
-  const result = await pool.query('SELECT role_id FROM users WHERE id = $1', [userId]);
-  
-  // role_id: 1=сотрудник, 2=руководитель, 3=админ
-  if (result.rows.length === 0 || result.rows[0].role_id < 3) {
-    return res.status(403).json({ error: 'Только администратор может управлять базой знаний' });
+/**
+ * Управлять базой знаний может директор и руководители (у кого есть подчинённые).
+ * Раньше проверялось role_id >= 3 — это id узла дерева, а не уровень прав,
+ * поэтому директор (id 1) загружать не мог, а случайные роли — могли.
+ */
+async function requireAdmin(req: Request, _res: Response, next: NextFunction) {
+  if (!(await hasSubordinateNodes((req as any).userId))) {
+    throw forbidden('Управлять базой знаний могут директор и руководители');
   }
   next();
 }
@@ -144,7 +146,7 @@ router.post('/documents', requireAdmin, upload.single('file'), async (req: Reque
     });
   } catch (error: any) {
     console.error('Ошибка загрузки документа:', error);
-    res.status(500).json({ error: error.message || 'Ошибка загрузки' });
+    throw error;
   }
 });
 
@@ -174,14 +176,14 @@ router.get('/documents', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
 // DELETE /api/knowledge/documents/:id — удалить документ
 router.delete('/documents/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const docId = parseInt(req.params.id);
+    const docId = Number(req.params.id);
 
     // Получаем имя файла для удаления с диска
     const docRes = await pool.query(
@@ -204,7 +206,7 @@ router.delete('/documents/:id', requireAdmin, async (req: Request, res: Response
 
     res.json({ success: true, message: 'Документ удалён' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -359,7 +361,7 @@ ${context}
 
   } catch (error: any) {
     console.error('Ошибка чата:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обработки запроса' });
+    throw error;
   }
 });
 
@@ -386,7 +388,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 
     res.json(result.rows);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -394,7 +396,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const sessionId = parseInt(req.params.id);
+    const sessionId = Number(req.params.id);
 
     // Проверяем доступ
     const checkRes = await pool.query(
@@ -415,7 +417,7 @@ router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
 
     res.json(result.rows);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -423,7 +425,7 @@ router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const sessionId = parseInt(req.params.id);
+    const sessionId = Number(req.params.id);
 
     const result = await pool.query(
       'DELETE FROM chat_sessions WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -436,7 +438,7 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -444,7 +446,7 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
 router.post('/messages/:id/feedback', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const messageId = parseInt(req.params.id);
+    const messageId = Number(req.params.id);
     const { feedback, comment } = req.body;
 
     if (!['positive', 'negative'].includes(feedback)) {
@@ -472,7 +474,7 @@ router.post('/messages/:id/feedback', async (req: Request, res: Response) => {
 
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 
@@ -501,7 +503,7 @@ router.get('/stats', requireAdmin, async (req: Request, res: Response) => {
       messages_by_role: messagesByRole,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    throw error;
   }
 });
 

@@ -1,5 +1,5 @@
 import fs from 'fs';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 
 export interface ParseResult {
@@ -18,13 +18,14 @@ export async function parseDocument(
 ): Promise<ParseResult> {
   // PDF
   if (mimeType === 'application/pdf') {
-    const buffer = fs.readFileSync(filePath);
-    const data = await pdfParse(buffer);
-    return {
-      text: data.text,
-      pageCount: data.numpages,
-      metadata: data.info,
-    };
+    // pdf-parse v2: вместо функции — класс PDFParse (старый вызов падал с TypeError).
+    const parser = new PDFParse({ data: fs.readFileSync(filePath) });
+    try {
+      const result = await parser.getText();
+      return { text: result.text, pageCount: result.total };
+    } finally {
+      await parser.destroy();
+    }
   }
 
   // DOCX

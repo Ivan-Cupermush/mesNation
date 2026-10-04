@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { Pool } from 'pg';
 import multer from 'multer';
+import pool from '../db/pool';
+import { AuthRequest } from '../middleware/auth';
+import { badRequest, forbidden, notFound } from '../lib/errors';
+import { isSubordinate, isDirector } from '../services/access';
 import xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
-import { requireManagerOf } from '../middleware/requireManagerOf';
 
 const router = Router();
 
@@ -13,15 +15,8 @@ if (!fs.existsSync(importsDir)) {
   fs.mkdirSync(importsDir, { recursive: true });
 }
 
-const upload = multer({ dest: importsDir });
+const upload = multer({ dest: importsDir, limits: { fileSize: 20 * 1024 * 1024 } });
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
-  database: process.env.DB_NAME || 'mesnation',
-});
 
 // ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
 
@@ -30,26 +25,32 @@ const pool = new Pool({
  * Возвращает true, если targetUserId в поддереве userId.
  */
 async function isManagerOf(managerId: number, targetUserId: number): Promise<boolean> {
-  const rolesResult = await pool.query(
-    `SELECT 
-       (SELECT role_id FROM users WHERE id = $1) as manager_role,
-       (SELECT role_id FROM users WHERE id = $2) as target_role`,
-    [managerId, targetUserId]
-  );
-  const { manager_role, target_role } = rolesResult.rows[0];
-  if (!manager_role || !target_role) return false;
+  return isSubordinate(managerId, targetUserId);
+}
 
-  const subtreeResult = await pool.query(
-    `WITH RECURSIVE subtree AS (
-       SELECT id FROM role_tree WHERE id = $1
-       UNION
-       SELECT rt.id FROM role_tree rt
-       INNER JOIN subtree s ON rt.parent_id = s.id
-     )
-     SELECT id FROM subtree`,
-    [manager_role]
+
+/**
+ * Ищет сотрудника по имени из отчёта: сначала точное совпадение имени или
+ * логина (без учёта регистра), затем — частичное, но только если оно
+ * единственное. Раньше бралось первое ILIKE-совпадение, и «Иван» мог
+ * обновить KPI «Иванова».
+ */
+async function findUserByName(name: string): Promise<{ id: number; display_name: string; username: string } | null> {
+  const clean = name.trim().replace(/\s+/g, ' ');
+  if (!clean) return null;
+  const exact = await pool.query(
+    `SELECT id, display_name, username FROM users
+     WHERE is_active AND (LOWER(TRIM(display_name)) = LOWER($1) OR LOWER(username) = LOWER($1))`,
+    [clean],
   );
-  return subtreeResult.rows.some((r: any) => r.id === target_role);
+  if (exact.rows.length === 1) return exact.rows[0];
+  if (exact.rows.length > 1) return null;
+  const partial = await pool.query(
+    `SELECT id, display_name, username FROM users
+     WHERE is_active AND display_name ILIKE '%' || $1 || '%' LIMIT 2`,
+    [clean],
+  );
+  return partial.rows.length === 1 ? partial.rows[0] : null;
 }
 
 // ===================== ЦЕЛИ ПРОДАЖ =====================
@@ -61,7 +62,7 @@ router.get('/targets', async (req: Request, res: Response) => {
     
     const result = await pool.query(
       `SELECT st.*, 
-              ROUND((st.current_value / st.target_value * 100)::numeric, 1) as progress_percent
+              ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1) as progress_percent
        FROM sales_targets st
        WHERE st.user_id = $1 
          AND st.is_personal_monthly_target = FALSE
@@ -83,7 +84,7 @@ router.get('/targets/my-monthly', async (req: Request, res: Response) => {
     
     const result = await pool.query(
       `SELECT *, 
-              ROUND((current_value / target_value * 100)::numeric, 1) as progress_percent
+              ROUND((current_value / NULLIF(target_value, 0) * 100)::numeric, 1) as progress_percent
        FROM sales_targets 
        WHERE user_id = $1 
          AND is_personal_monthly_target = TRUE
@@ -108,7 +109,7 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
     
     // Получить поддерево ролей руководителя
     const managerRoleResult = await pool.query(
-      'SELECT role_id FROM users WHERE id = $1',
+      'SELECT role_node_id AS role_id FROM user_role_assignments WHERE user_id = $1',
       [managerId]
     );
     const managerRoleId = managerRoleResult.rows[0]?.role_id;
@@ -137,13 +138,13 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
       `SELECT u.id as user_id, u.username, u.display_name,
               st.id as target_id, st.product_name, st.metric_type,
               st.target_value, st.current_value,
-              ROUND((st.current_value / st.target_value * 100)::numeric, 1) as progress_percent,
+              ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1) as progress_percent,
               st.is_personal_monthly_target, st.period_start, st.period_end
        FROM users u
        LEFT JOIN sales_targets st ON st.user_id = u.id 
          AND st.period_start <= CURRENT_DATE 
          AND st.period_end >= CURRENT_DATE
-       WHERE u.role_id = ANY($1)
+       WHERE u.is_active AND u.id IN (SELECT user_id FROM user_role_assignments WHERE role_node_id = ANY($1))
        ORDER BY u.display_name, st.created_at DESC`,
       [subordinateRoleIds]
     );
@@ -156,7 +157,7 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
 });
 
 // POST /api/kpi/sales/targets — создать СЕБЕ товарный KPI (любой юзер)
-router.post('/targets_disabled', async (req: Request, res: Response) => {
+router.post('/targets', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const {
@@ -205,8 +206,7 @@ router.post('/targets_disabled', async (req: Request, res: Response) => {
 // POST /api/kpi/sales/targets/personal-monthly — назначить личный план подчинённому
 // С проверкой иерархии через role_tree
 router.post(
-  '/targets/personal-monthly_disabled',
-  requireManagerOf((req) => req.body.user_id),
+  '/targets/personal-monthly',
   async (req: Request, res: Response) => {
     try {
       const managerId = (req as any).userId;
@@ -220,6 +220,9 @@ router.post(
       
       if (!user_id) {
         return res.status(400).json({ error: 'Не указан пользователь' });
+      }
+      if (!(await isManagerOf(managerId, Number(user_id)))) {
+        return res.status(403).json({ error: 'Назначать план можно только своим подчинённым' });
       }
       
       if (!target_value || target_value <= 0) {
@@ -267,7 +270,7 @@ router.post(
 router.patch('/targets/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const targetId = parseInt(req.params.id);
+    const targetId = Number(req.params.id);
     const { current_value, target_value, description } = req.body;
     
     const check = await pool.query(
@@ -332,7 +335,7 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
 router.delete('/targets/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const targetId = parseInt(req.params.id);
+    const targetId = Number(req.params.id);
     
     // Проверка: владелец ИЛИ руководитель
     const check = await pool.query(
@@ -417,6 +420,10 @@ router.post('/transactions', async (req: Request, res: Response) => {
     
     if (!product_name) {
       return res.status(400).json({ error: 'Название товара обязательно' });
+    }
+    if (target_id) {
+      const own = await pool.query('SELECT 1 FROM sales_targets WHERE id = $1 AND user_id = $2', [target_id, userId]);
+      if (!own.rows.length) return res.status(403).json({ error: 'Эта цель вам не принадлежит' });
     }
     
     const client = await pool.connect();
@@ -712,7 +719,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     
     const targetsResult = await pool.query(
       `SELECT *, 
-              ROUND((current_value / target_value * 100)::numeric, 1) as progress_percent
+              ROUND((current_value / NULLIF(target_value, 0) * 100)::numeric, 1) as progress_percent
        FROM sales_targets 
        WHERE user_id = $1 
          AND period_start <= CURRENT_DATE 
@@ -724,7 +731,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     
     const personalTargetResult = await pool.query(
       `SELECT *,
-              ROUND((current_value / target_value * 100)::numeric, 1) as progress_percent
+              ROUND((current_value / NULLIF(target_value, 0) * 100)::numeric, 1) as progress_percent
        FROM sales_targets 
        WHERE user_id = $1
          AND is_personal_monthly_target = TRUE
@@ -773,7 +780,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
     
     // Получить роль руководителя
     const managerRoleResult = await pool.query(
-      'SELECT role_id FROM users WHERE id = $1',
+      'SELECT role_node_id AS role_id FROM user_role_assignments WHERE user_id = $1',
       [managerId]
     );
     const managerRoleId = managerRoleResult.rows[0]?.role_id;
@@ -812,7 +819,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
                'metric_type', st.metric_type,
                'target_value', st.target_value,
                'current_value', st.current_value,
-               'progress_percent', ROUND((st.current_value / st.target_value * 100)::numeric, 1),
+               'progress_percent', ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1),
                'period_start', st.period_start,
                'period_end', st.period_end
              )
@@ -823,7 +830,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
        LEFT JOIN sales_targets st ON st.user_id = u.id 
          AND st.period_start <= CURRENT_DATE 
          AND st.period_end >= CURRENT_DATE
-       WHERE u.role_id = ANY($1)
+       WHERE u.is_active AND u.id IN (SELECT user_id FROM user_role_assignments WHERE role_node_id = ANY($1))
        GROUP BY u.id, u.username, u.display_name
        ORDER BY u.display_name`,
       [subordinateRoleIds]
@@ -837,7 +844,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
 });
 
 // POST /api/kpi/sales/targets/assign — назначить KPI подчинённому
-router.post('/targets/assign_disabled', async (req: Request, res: Response) => {
+router.post('/targets/assign', async (req: Request, res: Response) => {
   try {
     const managerId = (req as any).userId;
     const {
@@ -897,6 +904,7 @@ router.post('/targets/assign_disabled', async (req: Request, res: Response) => {
 
 // ===================== ОБНОВЛЕНИЕ KPI ИЗ ОТЧЕТА ПРОДАЖ =====================
 router.post('/import-report', upload.single('file'), async (req: Request, res: Response) => {
+  const requesterId: number = (req as any).userId;
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'Нет файла' });
@@ -967,21 +975,17 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
       const ep = Math.round(perManager[name].ep * 100) / 100;
       const noEp = Math.round((total - ep) * 100) / 100;
 
-      const cleanName = name.trim();
-      const userRes = await pool.query(
-        `SELECT id, display_name, username FROM users 
-         WHERE TRIM(display_name) = $1 OR TRIM(username) = $1 
-         OR display_name ILIKE '%' || $1 || '%' 
-         LIMIT 1`,
-        [cleanName]
-      );
-
-      if (userRes.rows.length === 0) {
-        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Пользователь не найден' });
+      const found = await findUserByName(name);
+      if (!found) {
+        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Сотрудник не найден однозначно' });
         continue;
       }
-
-      const uid = userRes.rows[0].id;
+      if (!(await isManagerOf(requesterId, found.id))) {
+        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Нет прав: не ваш подчинённый' });
+        continue;
+      }
+      const userRes = { rows: [found] };
+      const uid = found.id;
 
       const r1 = await pool.query(
         `UPDATE sales_targets 
@@ -996,7 +1000,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
         `UPDATE sales_targets 
          SET current_value = $1, updated_at = NOW() 
          WHERE user_id = $2 
-           AND (product_name ILIKE '%есть подод%' OR product_name ILIKE '%естьповод%')
+           AND (product_name ILIKE '%есть повод%' OR product_name ILIKE '%естьповод%')
            AND period_start <= $3 AND period_end >= $3`,
         [ep, uid, periodStart]
       );
@@ -1022,6 +1026,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
 
 
 router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res: Response) => {
+  const requesterId: number = (req as any).userId;
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'Нет файла' });
@@ -1072,12 +1077,11 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
         }
       }
 
-      const userRes = await pool.query(
-        "SELECT id, display_name, username FROM users WHERE display_name ILIKE '%' || $1 || '%' OR username ILIKE $1 LIMIT 1",
-        [employee]
-      );
-      if (!userRes.rows.length) { results.push({ employee, error: 'сотрудник не найден' }); continue; }
-      const uid = userRes.rows[0].id;
+      const found = await findUserByName(employee);
+      if (!found) { results.push({ employee, error: 'сотрудник не найден однозначно' }); continue; }
+      if (!(await isManagerOf(requesterId, found.id))) { results.push({ employee, error: 'нет прав: не ваш подчинённый' }); continue; }
+      const userRes = { rows: [found] };
+      const uid = found.id;
 
       let created = 0, updated = 0;
       for (const name of Object.keys(kpis)) {
@@ -1106,103 +1110,75 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
   }
 });
 
-router.post('/import-report', upload.single('file'), async (req: Request, res: Response) => {
-  try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
 
-    const workbook = xlsx.readFile(file.path);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+// ===================== СТАТИСТИКА СОТРУДНИКА =====================
 
-    const parseNum = (v: any): number => {
-      if (typeof v === 'number') return v;
-      const n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
+/**
+ * GET /api/kpi/sales/employee/:userId/stats — карточка сотрудника для руководителя.
+ * Доступна самому сотруднику, его руководителям и директору.
+ */
+router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) throw badRequest('Некорректный ID сотрудника');
+  const me = req.userId!;
+  if (me !== userId && !(await isSubordinate(me, userId))) throw forbidden('Статистика доступна только по своим подчинённым');
+  const period = req.query.period === 'week' ? '7 days' : req.query.period === 'quarter' ? '3 months' : '1 month';
 
-    const results: any[] = [];
-    let currentManager = '';
-    let managerTotal = 0;
-    let epTotal = 0;
-    let parsingManagers = false;
+  const [userResult, kpisResult, tasksResult, summaryResult, txResult] = await Promise.all([
+    pool.query(
+      `SELECT u.id, u.username, u.display_name, u.email, u.avatar_url, u.is_active, rt.name AS role_name, rt.id AS role_id
+       FROM users u LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
+       LEFT JOIN role_tree rt ON rt.id = ura.role_node_id WHERE u.id = $1`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT st.*, ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1) AS progress_percent
+       FROM sales_targets st WHERE st.user_id = $1 AND st.period_start <= CURRENT_DATE AND st.period_end >= CURRENT_DATE
+       ORDER BY st.created_at DESC`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT t.id, t.title, t.status_new AS status, t.importance AS priority,
+              COALESCE(t.executor_deadline, t.hard_deadline) AS deadline,
+              (t.status_new IN ('new','in_progress','rejected','overdue')
+                AND COALESCE(t.executor_deadline, t.hard_deadline) < NOW()) AS is_overdue
+       FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id
+       WHERE ta.user_id = $1 AND t.status_new <> 'archived'
+       ORDER BY COALESCE(t.executor_deadline, t.hard_deadline) ASC NULLS LAST LIMIT 50`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total_amount, COALESCE(SUM(quantity), 0) AS total_quantity,
+              COUNT(*)::int AS total_transactions
+       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= CURRENT_DATE - $2::interval`,
+      [userId, period],
+    ),
+    pool.query(
+      `SELECT id, product_name, quantity, amount, transaction_date, client_name, notes
+       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= CURRENT_DATE - $2::interval
+       ORDER BY transaction_date DESC, id DESC LIMIT 200`,
+      [userId, period],
+    ),
+  ]);
+  if (!userResult.rows.length) throw notFound('Сотрудник не найден');
 
-    for (const r of rows) {
-      const cells = (r as any[]).map((c) => String(c ?? '').trim());
-      const first = cells[0] || '';
-      const lastVal = parseNum(cells[cells.length - 1]);
-
-      if (first.toLowerCase().includes('по менеджерам')) {
-        parsingManagers = true;
-        continue;
-      }
-      if (first.toLowerCase().includes('итого')) {
-        break;
-      }
-
-      if (parsingManagers) {
-        if (first !== '') {
-          if (currentManager) {
-            results.push({ manager: currentManager, total: managerTotal, ep: epTotal });
-          }
-          currentManager = first;
-          managerTotal = lastVal;
-          epTotal = 0;
-        } else {
-          const rowStr = cells.join(' ').toLowerCase();
-          if (rowStr.includes('естьповод') || rowStr.includes('есть повод')) {
-            epTotal += lastVal;
-          }
-        }
-      }
-    }
-    if (currentManager) {
-      results.push({ manager: currentManager, total: managerTotal, ep: epTotal });
-    }
-
-    const updatedResults = [];
-    for (const resItem of results) {
-      const noEp = Math.round((resItem.total - resItem.ep) * 100) / 100;
-      const ep = Math.round(resItem.ep * 100) / 100;
-      
-      const userRes = await pool.query(
-        `SELECT id, display_name, username FROM users 
-         WHERE TRIM(display_name) = $1 OR TRIM(username) = $1 
-         OR display_name ILIKE '%' || $1 || '%' LIMIT 1`,
-        [resItem.manager]
-      );
-
-      if (userRes.rows.length === 0) {
-        updatedResults.push({ manager: resItem.manager, status: 'not_found' });
-        continue;
-      }
-
-      const uid = userRes.rows[0].id;
-      await pool.query(
-        `UPDATE sales_targets SET current_value = $1, updated_at = NOW() 
-         WHERE user_id = $2 AND (product_name ILIKE '%без еп%' OR product_name ILIKE '%без еп%')`,
-        [noEp, uid]
-      );
-      await pool.query(
-        `UPDATE sales_targets SET current_value = $1, updated_at = NOW() 
-         WHERE user_id = $2 AND (product_name ILIKE '%есть подод%' OR product_name ILIKE '%естьповод%')`,
-        [ep, uid]
-      );
-
-      updatedResults.push({ 
-        manager: resItem.manager, 
-        db_name: userRes.rows[0].display_name, 
-        total: resItem.total, 
-        noEp, 
-        ep, 
-        status: 'updated' 
-      });
-    }
-
-    try { fs.unlinkSync(file.path); } catch (e) {}
-    res.json({ success: true, results: updatedResults });
-  } catch (error) {
-    console.error('Ошибка импорта отчёта:', error);
-    res.status(500).json({ error: 'Ошибка обработки файла' });
-  }
+  const kpis = kpisResult.rows.map((k) => ({
+    ...k,
+    progress: Math.min(100, Math.round((Number(k.current_value) / Math.max(Number(k.target_value) || 1, 1)) * 100)),
+  }));
+  const tasks = tasksResult.rows;
+  res.json({
+    user: userResult.rows[0],
+    kpi: kpis[0] || null,
+    kpis,
+    tasks,
+    taskStats: {
+      total: tasks.length,
+      completed: tasks.filter((t) => t.status === 'done').length,
+      in_progress: tasks.filter((t) => t.status === 'in_progress').length,
+      overdue: tasks.filter((t) => t.is_overdue).length,
+    },
+    summary: summaryResult.rows[0],
+    transactions: txResult.rows,
+  });
 });

@@ -1,439 +1,385 @@
-import { Router, Request, Response } from 'express';
-import pool from '../db/pool';
+import { Router, Response } from 'express';
+import path from 'path';
+import sharp from 'sharp';
+import { z } from 'zod';
+import pool, { withTransaction } from '../db/pool';
+import { AuthRequest } from '../middleware/auth';
+import { id, paramId, validate } from '../lib/validate';
+import { badRequest, forbidden, notFound } from '../lib/errors';
+import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
+import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
+import { MESSAGE_SELECT, serializeMessage } from '../services/messages';
+import { emitToChat, emitToUser } from '../realtime/socket';
 
+/** Монтируется на /api/chats (после authenticate). */
 const router = Router();
 
-interface AuthRequest extends Request {
-  userId?: number;
-  username?: string;
-}
+const ADMIN_PERMISSIONS = ['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages', 'add_admins'] as const;
+const DEFAULT_ADMIN_PERMISSIONS = ['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages'];
 
-// Если пользователь не админ – может всё. Если админ – проверяем permissions
-async function checkChatPermission(chatId: number, userId: number, permission: string): Promise<boolean> {
-  const result = await pool.query(
-    'SELECT permissions FROM chat_admins WHERE chat_id = $1 AND user_id = $2',
-    [chatId, userId]
+/** Участники чата. Деактивированные сотрудники не показываются. */
+async function loadMembers(chatId: number) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.username, u.display_name, u.avatar_url,
+            CASE WHEN c.created_by = u.id THEN 'creator'
+                 WHEN ca.user_id IS NOT NULL THEN 'admin'
+                 ELSE 'member' END AS role,
+            ca.permissions, cm.joined_at
+     FROM chat_members cm
+     JOIN users u ON u.id = cm.user_id
+     JOIN chats c ON c.id = cm.chat_id
+     LEFT JOIN chat_admins ca ON ca.chat_id = cm.chat_id AND ca.user_id = u.id
+     WHERE cm.chat_id = $1 AND u.is_active = TRUE
+     ORDER BY (c.created_by = u.id) DESC, (ca.user_id IS NOT NULL) DESC, COALESCE(u.display_name, u.username)`,
+    [chatId],
   );
-  if (result.rows.length === 0) return true; // не админ
-  const perms = result.rows[0].permissions || [];
-  return perms.includes(permission);
+  return rows;
 }
 
-router.post('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const { name, type, user_ids, is_supergroup } = req.body;
-    const userId = req.userId;
-
-    if (!type || !['private', 'group'].includes(type)) {
-      return res.status(400).json({ error: 'Тип чата обязателен: private или group' });
-    }
-
-    if (type === 'group' && !name) {
-      return res.status(400).json({ error: 'Название группы обязательно' });
-    }
-
-    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
-      return res.status(400).json({ error: 'Список участников обязателен' });
-    }
-
-    if (type === 'private') {
-      if (user_ids.length !== 1) {
-        return res.status(400).json({ error: 'Приватный чат должен иметь ровно одного собеседника' });
-      }
-      if (user_ids[0] === userId) {
-        return res.status(400).json({ error: 'Нельзя создать чат с самим собой' });
-      }
-
-      const existing = await pool.query(
-        `SELECT c.id FROM chats c
-         JOIN chat_members m1 ON c.id = m1.chat_id AND m1.user_id = $1
-         JOIN chat_members m2 ON c.id = m2.chat_id AND m2.user_id = $2
-         WHERE c.type = 'private'`,
-        [userId, user_ids[0]]
-      );
-      if (existing.rows.length > 0) {
-        return res.json(existing.rows[0]);
-      }
-    }
-
-    const result = await pool.query(
-      'INSERT INTO chats (name, type, created_by, is_supergroup) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name || null, type, userId, is_supergroup || false]
-    );
-    const chat = result.rows[0];
-
-    const members = [userId, ...user_ids];
-    for (const uid of members) {
-      await pool.query(
-        'INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [chat.id, uid]
-      );
-    }
-
-    res.status(201).json(chat);
-  } catch (err) {
-    console.error('Ошибка создания чата:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+/**
+ * Карточка чата для конкретного пользователя: для личного чата имя и
+ * аватар берутся у собеседника.
+ */
+function presentChat(chat: any, members: any[], userId: number) {
+  const out = { ...chat, members, members_count: members.length };
+  if (chat.type === 'private') {
+    const peer = members.find((m) => m.id !== userId);
+    out.peer = peer || null;
+    out.name = peer ? peer.display_name || peer.username : chat.name || 'Удалённый пользователь';
+    out.avatar_url = peer?.avatar_url ?? null;
   }
+  return out;
+}
+
+// ---------- Создание и список ----------
+
+const createSchema = z.object({
+  type: z.enum(['private', 'group'], { error: 'Тип чата: private или group' }),
+  name: z.string().trim().max(255).optional(),
+  user_ids: z.array(id).min(1, 'Список участников обязателен').max(1000),
+  is_supergroup: z.boolean().optional(),
+});
+
+router.post('/', validate(createSchema), async (req: AuthRequest, res: Response) => {
+  const { type, name, user_ids, is_supergroup } = req.body as z.infer<typeof createSchema>;
+  const me = req.userId!;
+  const others = Array.from(new Set(user_ids.filter((u) => u !== me)));
+
+  if (type === 'group' && !name) throw badRequest('Название группы обязательно');
+  if (type === 'private' && others.length !== 1) throw badRequest('В личном чате ровно один собеседник');
+  if (others.length === 0) throw badRequest('Добавьте хотя бы одного участника');
+
+  const active = await pool.query('SELECT id FROM users WHERE id = ANY($1::int[]) AND is_active', [others]);
+  if (active.rows.length !== others.length) throw badRequest('Некоторые пользователи не найдены или деактивированы');
+
+  if (type === 'private') {
+    const existing = await pool.query(
+      `SELECT c.id FROM chats c
+       JOIN chat_members m1 ON m1.chat_id = c.id AND m1.user_id = $1
+       JOIN chat_members m2 ON m2.chat_id = c.id AND m2.user_id = $2
+       WHERE c.type = 'private' AND c.deleted_at IS NULL
+       LIMIT 1`,
+      [me, others[0]],
+    );
+    if (existing.rows.length) {
+      const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [existing.rows[0].id])).rows[0];
+      return res.json(presentChat(chat, await loadMembers(chat.id), me));
+    }
+  }
+
+  const chat = await withTransaction(async (client) => {
+    const c = (
+      await client.query(
+        'INSERT INTO chats (name, type, created_by, is_supergroup) VALUES ($1, $2, $3, $4) RETURNING *',
+        [type === 'group' ? name : null, type, me, type === 'group' ? !!is_supergroup : false],
+      )
+    ).rows[0];
+    await client.query(
+      `INSERT INTO chat_members (chat_id, user_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING`,
+      [c.id, [me, ...others]],
+    );
+    return c;
+  });
+  const result = presentChat(chat, await loadMembers(chat.id), me);
+  for (const uid of others) emitToUser(uid, 'chat_created', result);
+  res.status(201).json(result);
 });
 
 router.get('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    
-    const chatResult = await pool.query(
-      `SELECT c.id, c.name, c.type, c.is_supergroup, c.created_by, c.created_at
-       FROM chats c
-       JOIN chat_members cm ON c.id = cm.chat_id
-       WHERE cm.user_id = $1
-       ORDER BY c.created_at DESC`,
-      [userId]
-    );
-    
-    const chats = chatResult.rows;
-    
-    for (const chat of chats) {
-      const membersResult = await pool.query(
-        `SELECT u.id, u.username, u.display_name,
-         CASE WHEN c.created_by = u.id THEN 'creator'
-              WHEN ca.user_id IS NOT NULL THEN 'admin'
-              ELSE 'member'
-         END AS role
-         FROM chat_members cm
-         JOIN users u ON cm.user_id = u.id
-         JOIN chats c ON c.id = cm.chat_id
-         LEFT JOIN chat_admins ca ON ca.chat_id = cm.chat_id AND ca.user_id = u.id
-         WHERE cm.chat_id = $1`,
-        [chat.id]
-      );
-      chat.members = membersResult.rows;
-      
-      const msgResult = await pool.query(
-        `SELECT id, text, sender_id, created_at FROM messages 
-         WHERE chat_id = $1 
-           AND (topic_id IS NULL OR topic_id = 0)
-           AND (deleted_for_all IS NOT TRUE)
-           AND NOT ($2::int = ANY(deleted_for_user_ids))
-         ORDER BY created_at DESC LIMIT 1`,
-        [chat.id, userId]
-      );
-      chat.last_message = msgResult.rows[0] || null;
-    }
-    
-    res.json(chats);
-  } catch (err) {
-    console.error('Ошибка получения чатов:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const me = req.userId!;
+  // Один запрос вместо 2N: участники и последнее сообщение собираются сразу.
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.type, c.is_supergroup, c.created_by, c.created_at, c.avatar_url,
+            COALESCE((
+              SELECT json_agg(json_build_object(
+                       'id', u.id, 'username', u.username, 'display_name', u.display_name,
+                       'avatar_url', u.avatar_url,
+                       'role', CASE WHEN c.created_by = u.id THEN 'creator'
+                                    WHEN ca.user_id IS NOT NULL THEN 'admin' ELSE 'member' END))
+              FROM chat_members cm2
+              JOIN users u ON u.id = cm2.user_id AND u.is_active
+              LEFT JOIN chat_admins ca ON ca.chat_id = c.id AND ca.user_id = u.id
+              WHERE cm2.chat_id = c.id), '[]') AS members,
+            (SELECT row_to_json(lm) FROM (
+               SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
+                      COALESCE(u.display_name, u.username) AS sender_name
+               FROM messages m LEFT JOIN users u ON u.id = m.sender_id
+               WHERE m.chat_id = c.id::text AND m.deleted_for_all IS NOT TRUE
+                 AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))
+                 AND (m.topic_id IS NULL OR c.is_supergroup)
+               ORDER BY m.created_at DESC LIMIT 1) lm) AS last_message
+     FROM chats c
+     JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = $1
+     WHERE c.deleted_at IS NULL
+     ORDER BY COALESCE((SELECT MAX(created_at) FROM messages WHERE chat_id = c.id::text), c.created_at) DESC`,
+    [me],
+  );
+  res.json(rows.map((c) => presentChat(c, c.members, me)));
 });
 
-router.post('/:id/members', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const { user_ids } = req.body;
-    const userId = req.userId;
+router.get('/:id', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [chatId])).rows[0];
+  res.json(presentChat(chat, await loadMembers(chatId), req.userId!));
+});
 
-    if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
-      return res.status(400).json({ error: 'Список участников обязателен' });
-    }
+// ---------- Участники ----------
 
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Чат не найден' });
-    }
-    const chat = chatResult.rows[0];
+router.get('/:id/members', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  res.json(await loadMembers(chatId));
+});
 
-    if (chat.type !== 'group') {
-      return res.status(400).json({ error: 'В приватный чат нельзя добавлять участников' });
-    }
+const membersSchema = z.object({ user_ids: z.array(id).min(1, 'Список участников обязателен').max(1000) });
 
-    if (!(await checkChatPermission(chatId, userId!, 'add_users'))) {
-      return res.status(403).json({ error: 'Нет прав на добавление участников' });
-    }
-
-    for (const uid of user_ids) {
-      await pool.query(
-        'INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [chatId, uid]
-      );
-    }
-
-    const membersResult = await pool.query(
-      'SELECT u.id, u.username, u.display_name FROM chat_members cm JOIN users u ON cm.user_id = u.id WHERE cm.chat_id = $1',
-      [chatId]
-    );
-
-    res.json(membersResult.rows);
-  } catch (err) {
-    console.error('Ошибка добавления участников:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+router.post('/:id/members', validate(membersSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  const rights = await assertChatPermission(chatId, req.userId!, 'add_users', 'Нет прав на добавление участников');
+  if (rights.type !== 'group') throw badRequest('В личный чат нельзя добавлять участников');
+  const { user_ids } = req.body as z.infer<typeof membersSchema>;
+  const active = await pool.query('SELECT id FROM users WHERE id = ANY($1::int[]) AND is_active', [user_ids]);
+  await pool.query(
+    `INSERT INTO chat_members (chat_id, user_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING`,
+    [chatId, active.rows.map((r) => r.id)],
+  );
+  const members = await loadMembers(chatId);
+  emitToChat(chatId, 'members_changed', { chatId, members });
+  res.json(members);
 });
 
 router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const memberId = parseInt(req.params.userId as string);
-    const userId = req.userId;
-
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
-
-    if (chat.created_by !== userId && !(await checkChatPermission(chatId, userId!, 'add_users'))) {
-      return res.status(403).json({ error: 'Нет прав на удаление участников' });
-    }
-
-    if (memberId === userId) {
-      return res.status(400).json({ error: 'Нельзя удалить самого себя. Используйте выход из чата.' });
-    }
-
-    await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Ошибка удаления участника:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const chatId = paramId(req);
+  const memberId = paramId(req, 'userId');
+  if (memberId === req.userId) throw badRequest('Чтобы выйти из чата, используйте «Покинуть чат»');
+  const rights = await assertChatPermission(chatId, req.userId!, 'ban_users', 'Нет прав на удаление участников');
+  if (memberId === rights.createdBy) throw forbidden('Создателя чата удалить нельзя');
+  await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
+  await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
+  emitToChat(chatId, 'members_changed', { chatId, members: await loadMembers(chatId) });
+  emitToUser(memberId, 'removed_from_chat', { chatId });
+  res.json({ success: true });
 });
 
-router.patch('/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const { name, is_supergroup, keep_topic_id } = req.body;
-    const userId = req.userId;
+// ---------- Изменение, выход, удаление ----------
 
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
+const patchSchema = z.object({
+  name: z.string().trim().min(1, 'Название не может быть пустым').max(255).optional(),
+  is_supergroup: z.boolean().optional(),
+  keep_topic_id: id.nullish(),
+  merge: z.boolean().optional(),
+});
 
-    if (!(await checkChatPermission(chatId, userId!, 'change_info'))) {
-      return res.status(403).json({ error: 'Нет прав на изменение чата' });
-    }
+router.patch('/:id', validate(patchSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  const rights = await assertChatPermission(chatId, req.userId!, 'change_info', 'Нет прав на изменение чата');
+  const { name, is_supergroup, keep_topic_id, merge } = req.body as z.infer<typeof patchSchema>;
+  if (rights.type !== 'group' && (name !== undefined || is_supergroup !== undefined)) {
+    throw badRequest('Личный чат нельзя переименовать или сделать супергруппой');
+  }
 
-    if (name !== undefined) {
-      await pool.query('UPDATE chats SET name = $1 WHERE id = $2', [name, chatId]);
-    }
-
-    if (is_supergroup !== undefined && chat.type === 'group') {
-      if (is_supergroup) {
-        await pool.query('UPDATE chats SET is_supergroup = true WHERE id = $1', [chatId]);
-      } else {
-        const topicToKeep = keep_topic_id ? parseInt(keep_topic_id) : null;
-        const merge = req.body.merge !== false;
-
-        if (topicToKeep) {
-          const topicResult = await pool.query('SELECT title FROM topics WHERE id = $1', [topicToKeep]);
-          const topicTitle = topicResult.rows[0]?.title || '';
-
-          if (topicTitle) {
-            const newGroupName = `${chat.name || 'Группа'} (${topicTitle})`;
-            await pool.query('UPDATE chats SET name = $1 WHERE id = $2', [newGroupName, chatId]);
-          }
-
-          if (merge) {
-            await pool.query('UPDATE messages SET topic_id = NULL WHERE chat_id = $1 AND topic_id = $2', [chatId, topicToKeep]);
-          } else {
-            await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id = $2', [chatId, topicToKeep]);
-          }
-          await pool.query('DELETE FROM topics WHERE chat_id = $1 AND id != $2', [chatId, topicToKeep]);
-          await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL AND topic_id != $2', [chatId, topicToKeep]);
-          await pool.query('DELETE FROM topics WHERE id = $1', [topicToKeep]);
-        } else {
-          await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
-          await pool.query('DELETE FROM messages WHERE chat_id = $1 AND topic_id IS NOT NULL', [chatId]);
-        }
-
-        await pool.query('UPDATE chats SET is_supergroup = false WHERE id = $1', [chatId]);
+  await withTransaction(async (client) => {
+    if (name !== undefined) await client.query('UPDATE chats SET name = $1 WHERE id = $2', [name, chatId]);
+    if (is_supergroup === true) {
+      await client.query('UPDATE chats SET is_supergroup = TRUE WHERE id = $1', [chatId]);
+    } else if (is_supergroup === false) {
+      // Сообщения топиков НЕ удаляются: они остаются в базе и снова станут
+      // видны, если группу опять сделать супергруппой. Выбранный топик
+      // (keep_topic_id + merge) переносится в общий чат.
+      if (keep_topic_id && merge !== false) {
+        await client.query('UPDATE messages SET topic_id = NULL WHERE chat_id = $1 AND topic_id = $2', [
+          String(chatId),
+          keep_topic_id,
+        ]);
       }
+      await client.query('UPDATE chats SET is_supergroup = FALSE WHERE id = $1', [chatId]);
     }
-
-    const updated = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    res.json(updated.rows[0]);
-  } catch (err) {
-    console.error('Ошибка изменения чата:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  });
+  const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [chatId])).rows[0];
+  const result = presentChat(chat, await loadMembers(chatId), req.userId!);
+  emitToChat(chatId, 'chat_updated', result);
+  res.json(result);
 });
 
+/**
+ * Выход из чата или удаление группы её создателем.
+ * Удаление мягкое: чат пропадает у всех, но переписка остаётся в базе.
+ */
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const userId = req.userId;
-
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
-
-    const memberCheck = await pool.query(
-      'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
-      [chatId, userId]
-    );
-    if (memberCheck.rows.length === 0) return res.status(403).json({ error: 'Вы не участник этого чата' });
-
-    if (chat.type === 'group' && chat.created_by === userId) {
-      await pool.query('DELETE FROM messages WHERE chat_id = $1', [chatId]);
-      await pool.query('DELETE FROM topics WHERE chat_id = $1', [chatId]);
-      await pool.query('DELETE FROM chat_members WHERE chat_id = $1', [chatId]);
-      await pool.query('DELETE FROM chats WHERE id = $1', [chatId]);
-      res.json({ success: true, action: 'deleted' });
-    } else {
-      await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, userId]);
-      res.json({ success: true, action: 'left' });
-    }
-  } catch (err) {
-    console.error('Ошибка удаления чата:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  const chatId = paramId(req);
+  const rights = await getChatRights(chatId, req.userId!);
+  if (!rights.isMember) throw forbidden('Вы не участник этого чата');
+  if (rights.type === 'group' && rights.isCreator && req.query.leave !== 'true') {
+    await pool.query('UPDATE chats SET deleted_at = NOW() WHERE id = $1', [chatId]);
+    emitToChat(chatId, 'chat_deleted', { chatId });
+    return res.json({ success: true, action: 'deleted' });
   }
+  await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, req.userId]);
+  await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, req.userId]);
+  emitToChat(chatId, 'members_changed', { chatId, members: await loadMembers(chatId) });
+  res.json({ success: true, action: 'left' });
 });
 
-// Администраторы
+// ---------- Администраторы ----------
+
 router.get('/:id/admins', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const result = await pool.query(
-      `SELECT u.id, u.username, u.display_name, u.avatar_url, ca.promoted_at, ca.permissions
-       FROM chat_admins ca JOIN users u ON ca.user_id = u.id
-       WHERE ca.chat_id = $1 ORDER BY ca.promoted_at`,
-      [chatId]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Ошибка получения админов:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const { rows } = await pool.query(
+    `SELECT u.id, u.username, u.display_name, u.avatar_url, ca.promoted_at, ca.permissions
+     FROM chat_admins ca JOIN users u ON u.id = ca.user_id
+     WHERE ca.chat_id = $1 AND u.is_active ORDER BY ca.promoted_at`,
+    [chatId],
+  );
+  res.json(rows);
 });
 
-router.post('/:id/admins', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const { user_id, permissions } = req.body;
-    const userId = req.userId;
-
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
-
-    const isCreator = chat.created_by === userId;
-    let hasPermission = isCreator;
-    if (!isCreator) {
-      hasPermission = await checkChatPermission(chatId, userId!, 'add_admins');
-    }
-    if (!hasPermission) return res.status(403).json({ error: 'Нет прав на добавление администраторов' });
-
-    const member = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, user_id]);
-    if (member.rows.length === 0) return res.status(400).json({ error: 'Пользователь не является участником' });
-
-    const defaultPerms = ['change_info', 'delete_messages', 'ban_users', 'add_users', 'pin_messages'];
-    const finalPerms = permissions || defaultPerms;
-
-    await pool.query(
-      `INSERT INTO chat_admins (chat_id, user_id, promoted_by, permissions)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (chat_id, user_id) DO UPDATE SET permissions = $4, promoted_by = $3`,
-      [chatId, user_id, userId, finalPerms]
-    );
-    res.status(201).json({ success: true });
-  } catch (err) {
-    console.error('Ошибка назначения админа:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+const adminSchema = z.object({
+  user_id: id,
+  permissions: z.array(z.enum(ADMIN_PERMISSIONS)).optional(),
 });
 
-router.patch('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const adminId = parseInt(req.params.userId as string);
-    const { permissions } = req.body;
-    const userId = req.userId;
+router.post('/:id/admins', validate(adminSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  const { user_id, permissions } = req.body as z.infer<typeof adminSchema>;
+  const rights = await assertChatPermission(chatId, req.userId!, 'add_admins', 'Назначать администраторов может создатель или администратор с этим правом');
+  if (rights.type !== 'group') throw badRequest('В личном чате нет администраторов');
+  const member = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, user_id]);
+  if (!member.rows.length) throw badRequest('Пользователь не является участником');
+  await pool.query(
+    `INSERT INTO chat_admins (chat_id, user_id, promoted_by, permissions) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (chat_id, user_id) DO UPDATE SET permissions = $4, promoted_by = $3`,
+    [chatId, user_id, req.userId, permissions || DEFAULT_ADMIN_PERMISSIONS],
+  );
+  res.status(201).json({ success: true });
+});
 
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
+const adminPermsSchema = z.object({ permissions: z.array(z.enum(ADMIN_PERMISSIONS)) });
 
-    const isCreator = chat.created_by === userId;
-    let hasPermission = isCreator;
-    if (!isCreator) {
-      hasPermission = await checkChatPermission(chatId, userId!, 'add_admins');
-    }
-    if (!hasPermission) return res.status(403).json({ error: 'Нет прав на изменение прав администраторов' });
-
-    await pool.query(
-      'UPDATE chat_admins SET permissions = $1 WHERE chat_id = $2 AND user_id = $3',
-      [permissions, chatId, adminId]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Ошибка изменения прав:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+router.patch('/:id/admins/:userId', validate(adminPermsSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  const adminId = paramId(req, 'userId');
+  await assertChatPermission(chatId, req.userId!, 'add_admins', 'Нет прав на изменение прав администраторов');
+  const { rowCount } = await pool.query(
+    'UPDATE chat_admins SET permissions = $1 WHERE chat_id = $2 AND user_id = $3',
+    [req.body.permissions, chatId, adminId],
+  );
+  if (!rowCount) throw notFound('Администратор не найден');
+  res.json({ success: true });
 });
 
 router.delete('/:id/admins/:userId', async (req: AuthRequest, res: Response) => {
-  try {
-    const chatId = parseInt(req.params.id as string);
-    const adminId = parseInt(req.params.userId as string);
-    const userId = req.userId;
-
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    const chat = chatResult.rows[0];
-
-    const isCreator = chat.created_by === userId;
-    let canRemove = isCreator || adminId === userId;
-    if (!isCreator && adminId !== userId) {
-      canRemove = await checkChatPermission(chatId, userId!, 'add_admins');
-    }
-    if (!canRemove) return res.status(403).json({ error: 'Нет прав на снятие этого администратора' });
-
-    await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, adminId]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Ошибка снятия админа:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  const chatId = paramId(req);
+  const adminId = paramId(req, 'userId');
+  if (adminId !== req.userId) {
+    await assertChatPermission(chatId, req.userId!, 'add_admins', 'Нет прав на снятие администратора');
+  } else {
+    await assertChatMember(chatId, req.userId!);
   }
+  await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, adminId]);
+  res.json({ success: true });
 });
 
+// ---------- Медиа и статистика всего чата ----------
 
-// ========== АВАТАР ГРУППЫ (премиум-редизайн) ==========
-import multerChatAvatar from 'multer';
-import fsChatAvatar from 'fs';
-import pathChatAvatar from 'path';
+const MEDIA_FILTERS: Record<string, string> = {
+  media: 'm.thumb_url IS NOT NULL',
+  images: 'm.thumb_url IS NOT NULL',
+  files: 'm.file_url IS NOT NULL AND m.thumb_url IS NULL',
+  links: "m.text ~* 'https?://'",
+  polls: 'm.poll_id IS NOT NULL',
+};
 
-const chatAvatarDir = pathChatAvatar.join(__dirname, '../../uploads/avatars');
-if (!fsChatAvatar.existsSync(chatAvatarDir)) {
-  fsChatAvatar.mkdirSync(chatAvatarDir, { recursive: true });
-}
-
-const chatAvatarUpload = multerChatAvatar({
-  storage: multerChatAvatar.diskStorage({
-    destination: (req: any, file: any, cb: any) => cb(null, chatAvatarDir),
-    filename: (req: any, file: any, cb: any) => {
-      const ext = file.originalname.split('.').pop() || 'jpg';
-      cb(null, `chat_${req.params.id}_${Date.now()}.${ext}`);
-    },
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 },
+router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.media})::int AS media,
+            COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.files})::int AS files,
+            COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.links})::int AS links,
+            COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.polls})::int AS polls,
+            COUNT(*)::int AS messages
+     FROM messages m WHERE m.chat_id = $1 AND m.deleted_for_all IS NOT TRUE`,
+    [String(chatId)],
+  );
+  const s = rows[0];
+  res.json({ ...s, total_images: s.media, total_files: s.files + s.media, members: (await loadMembers(chatId)).length });
 });
 
-// POST /api/chats/:id/avatar — смена аватара группы (только создатель)
+const mediaQuery = z.object({
+  type: z.enum(['media', 'images', 'files', 'links', 'polls']).default('media'),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  before: id.optional(),
+  topic_id: id.optional(),
+});
+
+/** Медиа, файлы, ссылки и опросы чата — постранично (для экрана «Медиа»). */
+router.get('/:id/messages', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const q = mediaQuery.parse(req.query);
+  const params: unknown[] = [String(chatId), q.limit];
+  let where = `m.chat_id = $1 AND m.deleted_for_all IS NOT TRUE AND ${MEDIA_FILTERS[q.type]}`;
+  if (q.before) {
+    params.push(q.before);
+    where += ` AND m.id < $${params.length}`;
+  }
+  if (q.topic_id) {
+    params.push(q.topic_id);
+    where += ` AND m.topic_id = $${params.length}`;
+  }
+  const { rows } = await pool.query(
+    `SELECT ${MESSAGE_SELECT} FROM messages m LEFT JOIN users u ON u.id = m.sender_id
+     WHERE ${where} ORDER BY m.id DESC LIMIT $2`,
+    params,
+  );
+  res.json(rows.map(serializeMessage));
+});
+
+// ---------- Аватар группы ----------
+
+const chatAvatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 10, imagesOnly: true, prefix: 'chat_' });
+
 router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  const file = req.file;
+  if (!file) throw badRequest('Файл не получен');
   try {
-    const chatId = parseInt(req.params.id as string);
-    const userId = req.userId;
-    if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
-
-    const chatResult = await pool.query('SELECT * FROM chats WHERE id = $1', [chatId]);
-    if (chatResult.rows.length === 0) return res.status(404).json({ error: 'Чат не найден' });
-    if (chatResult.rows[0].created_by !== userId) {
-      return res.status(403).json({ error: 'Только создатель может менять аватар группы' });
-    }
-
-    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
-    await pool.query('UPDATE chats SET avatar_url = $1 WHERE id = $2', [avatarUrl, chatId]);
-    res.json({ success: true, avatar_url: avatarUrl });
+    const chatId = paramId(req);
+    const rights = await assertChatPermission(chatId, req.userId!, 'change_info', 'Нет прав на изменение группы');
+    if (rights.type !== 'group') throw badRequest('Аватар можно задать только группе');
+    const outName = path.basename(file.filename, path.extname(file.filename)) + '.jpg';
+    await sharp(file.path).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(path.join(UPLOAD_DIRS.avatars, outName));
+    removeFile(file.path);
+    const url = `/uploads/avatars/${outName}`;
+    const prev = await pool.query('SELECT avatar_url FROM chats WHERE id = $1', [chatId]);
+    await pool.query('UPDATE chats SET avatar_url = $1 WHERE id = $2', [url, chatId]);
+    if (prev.rows[0]?.avatar_url) removeFile(urlToDiskPath(prev.rows[0].avatar_url));
+    emitToChat(chatId, 'chat_updated', { id: chatId, avatar_url: url });
+    res.json({ success: true, avatar_url: url });
   } catch (err) {
-    console.error('Ошибка аватара группы:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    removeFile(file.path);
+    throw err;
   }
 });
 

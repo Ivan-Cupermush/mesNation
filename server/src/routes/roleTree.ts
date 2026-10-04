@@ -1,294 +1,237 @@
-import { Router, Request, Response } from 'express';
-import pool from '../db/pool';
+import { Router, Response } from 'express';
 import bcrypt from 'bcrypt';
+import { PoolClient } from 'pg';
+import { z } from 'zod';
+import pool, { withTransaction } from '../db/pool';
+import { AuthRequest, requireDirector } from '../middleware/auth';
+import { id, paramId, validate } from '../lib/validate';
+import { badRequest, conflict, notFound } from '../lib/errors';
+import { logger } from '../lib/logger';
+import { getAssignableUsers, getSubtreeNodeIds } from '../services/access';
+import { emailSchema, passwordSchema, usernameSchema } from './auth';
 
-
-// ===== Хелпер: если в поддереве пусто — отдаём всех пользователей =====
-async function getUsersInSubtreeWithFallback(nodeId: number): Promise<any[]> {
-  const subtreeRes = await pool.query(
-    `WITH RECURSIVE subtree AS (
-       SELECT id FROM role_tree WHERE id = $1
-       UNION ALL
-       SELECT rt.id FROM role_tree rt
-       INNER JOIN subtree s ON rt.parent_id = s.id
-     )
-     SELECT u.id, u.username, u.display_name, u.avatar_url, rt.name as role_name
-     FROM users u
-     JOIN user_role_assignments ura ON ura.user_id = u.id
-     JOIN role_tree rt ON rt.id = ura.role_node_id
-     WHERE ura.role_node_id IN (SELECT id FROM subtree)`,
-    [nodeId]
-  );
-  if (subtreeRes.rows.length > 0) return subtreeRes.rows;
-  // Фолбэк: если в поддереве пусто (например, директор один в системе) — все пользователи
-  const all = await pool.query(
-    `SELECT u.id, u.username, u.display_name, u.avatar_url, rt.name as role_name
-     FROM users u
-     LEFT JOIN role_tree rt ON rt.id = u.role_id`
-  );
-  return all.rows;
-}
-
+/**
+ * Дерево ролей (иерархия должностей). Монтируется на /api/role-tree.
+ * Читать дерево может любой сотрудник, изменять — только директор.
+ */
 const router = Router();
 
-interface AuthRequest extends Request {
-  userId?: number;
-  username?: string;
+const NODE_SELECT = `
+  WITH RECURSIVE t AS (
+    SELECT id, 0 AS depth FROM role_tree WHERE parent_id IS NULL
+    UNION ALL
+    SELECT rt.id, t.depth + 1 FROM role_tree rt JOIN t ON rt.parent_id = t.id WHERE t.depth < 100
+  )
+  SELECT rt.*, t.depth, (rt.parent_id IS NULL) AS is_root,
+         (SELECT COUNT(*)::int FROM user_role_assignments ura JOIN users u ON u.id = ura.user_id
+          WHERE ura.role_node_id = rt.id AND u.is_active) AS users_count
+  FROM role_tree rt LEFT JOIN t ON t.id = rt.id`;
+
+/** Пересчитывает колонку level по фактической структуре (после переноса/удаления узлов). */
+async function recomputeLevels(client: PoolClient) {
+  await client.query(`
+    WITH RECURSIVE t AS (
+      SELECT id, 0 AS depth FROM role_tree WHERE parent_id IS NULL
+      UNION ALL
+      SELECT rt.id, t.depth + 1 FROM role_tree rt JOIN t ON rt.parent_id = t.id WHERE t.depth < 100
+    )
+    UPDATE role_tree SET level = t.depth FROM t WHERE role_tree.id = t.id AND role_tree.level IS DISTINCT FROM t.depth`);
 }
 
-// Middleware: проверка что пользователь — директор
-async function requireDirector(req: AuthRequest, res: Response, next: Function) {
-  try {
-    const result = await pool.query(
-      `SELECT rt.name FROM users u
-       JOIN role_tree rt ON u.role_id = rt.id
-       WHERE u.id = $1`,
-      [req.userId]
-    );
-    if (result.rows.length === 0 || result.rows[0].name !== 'director') {
-      return res.status(403).json({ error: 'Только директор может редактировать дерево прав' });
-    }
-    next();
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-}
-
-// Рекурсивный CTE для получения всего поддерева
-async function getSubtreeIds(nodeId: number): Promise<number[]> {
-  const result = await pool.query(
-    `WITH RECURSIVE subtree AS (
-       SELECT id FROM role_tree WHERE id = $1
-       UNION ALL
-       SELECT rt.id FROM role_tree rt
-       INNER JOIN subtree s ON rt.parent_id = s.id
-     )
-     SELECT id FROM subtree`,
-    [nodeId]
-  );
-  return result.rows.map((r: any) => r.id);
-}
-
-// GET /api/role-tree — получить всё дерево
-router.get('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const result = await pool.query(
-      `SELECT rt.*, 
-              (SELECT COUNT(*) FROM user_role_assignments ura WHERE ura.role_node_id = rt.id) as users_count
-       FROM role_tree rt
-       ORDER BY rt.level, rt.id`
-    );
-    res.json(result.rows);
-  } catch (e) {
-    console.error('Ошибка получения дерева:', e);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+router.get('/', async (_req, res) => {
+  const { rows } = await pool.query(`${NODE_SELECT} ORDER BY t.depth NULLS LAST, rt.id`);
+  res.json(rows);
 });
 
-// GET /api/role-tree/:id/subtree — получить поддерево
+/** Кому текущий пользователь может ставить задачи (для веб-клиента). */
+router.get('/subtree-users', async (req: AuthRequest, res: Response) => {
+  res.json(await getAssignableUsers(req.userId!));
+});
+
 router.get('/:id/subtree', async (req: AuthRequest, res: Response) => {
-  try {
-    const nodeId = parseInt(req.params.id);
-    const ids = await getSubtreeIds(nodeId);
-    const result = await pool.query(
-      'SELECT * FROM role_tree WHERE id = ANY($1) ORDER BY level, id',
-      [ids]
-    );
-    res.json(result.rows);
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const ids = await getSubtreeNodeIds(paramId(req));
+  const { rows } = await pool.query(`${NODE_SELECT} WHERE rt.id = ANY($1::int[]) ORDER BY t.depth, rt.id`, [ids]);
+  res.json(rows);
 });
 
-// POST /api/role-tree — создать новый узел (только директор)
-router.post('/', requireDirector, async (req: AuthRequest, res: Response) => {
-  try {
-    const { name, parent_id, description, color, icon } = req.body;
-    if (!name) return res.status(400).json({ error: 'Название обязательно' });
-    
-    let level = 0;
-    if (parent_id) {
-      const parent = await pool.query('SELECT level FROM role_tree WHERE id = $1', [parent_id]);
-      if (parent.rows.length === 0) return res.status(404).json({ error: 'Родительский узел не найден' });
-      level = parent.rows[0].level + 1;
-    }
-    
-    const result = await pool.query(
-      `INSERT INTO role_tree (name, parent_id, description, level, color, icon, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name, parent_id || null, description, level, color || '#6366F1', icon || '👤', req.userId]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (e) {
-    console.error('Ошибка создания узла:', e);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+const USER_SELECT = `
+  SELECT u.id, u.username, u.email, u.display_name, u.avatar_url, u.is_active,
+         rt.id AS role_node_id, rt.name AS role_name
+  FROM users u
+  JOIN user_role_assignments ura ON ura.user_id = u.id
+  JOIN role_tree rt ON rt.id = ura.role_node_id`;
+
+/** Люди, привязанные непосредственно к узлу (без поддерева). */
+router.get('/:id/users', async (req: AuthRequest, res: Response) => {
+  const includeInactive = req.query.include_inactive === 'true';
+  const { rows } = await pool.query(
+    `${USER_SELECT} WHERE rt.id = $1 ${includeInactive ? '' : 'AND u.is_active'}
+     ORDER BY COALESCE(u.display_name, u.username)`,
+    [paramId(req)],
+  );
+  res.json(rows);
 });
 
-// PATCH /api/role-tree/:id — обновить узел (только директор)
-router.patch('/:id', requireDirector, async (req: AuthRequest, res: Response) => {
-  try {
-    const id = parseInt(req.params.id);
-    const { name, description, color, icon, parent_id } = req.body;
-    
-    if (parent_id) {
-      const subtree = await getSubtreeIds(id);
-      if (subtree.includes(parent_id)) {
-        return res.status(400).json({ error: 'Нельзя переместить узел в своё поддерево' });
-      }
-    }
-    
-    const result = await pool.query(
-      `UPDATE role_tree SET name = COALESCE($1, name), description = COALESCE($2, description),
-       color = COALESCE($3, color), icon = COALESCE($4, icon), parent_id = COALESCE($5, parent_id)
-       WHERE id = $6 RETURNING *`,
-      [name, description, color, icon, parent_id, id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
-    res.json(result.rows[0]);
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// DELETE /api/role-tree/:id — удалить узел (дети перепривязываются к родителю)
-router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) => {
-  try {
-    const id = parseInt(req.params.id);
-    
-    // 1. Получаем узел
-    const node = await pool.query('SELECT * FROM role_tree WHERE id = $1', [id]);
-    if (node.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
-    
-    // 2. Нельзя удалить корень
-    if (node.rows[0].name === 'director' || node.rows[0].parent_id === null) {
-      return res.status(400).json({ error: 'Нельзя удалить корень дерева' });
-    }
-    
-    // 3. Проверка: есть ли пользователи В ЭТОМ узле (именно в этом, не в поддереве!)
-    const usersCheck = await pool.query(
-      'SELECT COUNT(*) as cnt FROM user_role_assignments WHERE role_node_id = $1',
-      [id]
-    );
-    if (parseInt(usersCheck.rows[0].cnt) > 0) {
-      return res.status(400).json({ 
-        error: `Нельзя удалить: к роли "${node.rows[0].name}" привязаны пользователи (${usersCheck.rows[0].cnt} шт). Сначала переназначьте их на другую роль.` 
-      });
-    }
-    
-    // 4. Перепривязываем ВСЕХ детей к родителю удаляемого узла
-    const parentId = node.rows[0].parent_id;
-    await pool.query(
-      'UPDATE role_tree SET parent_id = $1 WHERE parent_id = $2',
-      [parentId, id]
-    );
-    
-    // 5. Удаляем сам узел
-    await pool.query('DELETE FROM role_tree WHERE id = $1', [id]);
-    
-    res.json({ 
-      success: true, 
-      message: 'Роль удалена, дети перепривязаны к родителю' 
-    });
-  } catch (e) {
-    console.error('Ошибка удаления:', e);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// POST /api/role-tree/users/:userId/assign — назначить роль пользователю
-router.post('/users/:userId/assign', requireDirector, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = parseInt(req.params.userId);
-    const { role_node_id } = req.body;
-    
-    if (!role_node_id) return res.status(400).json({ error: 'Укажите role_node_id' });
-    
-    const node = await pool.query('SELECT id FROM role_tree WHERE id = $1', [role_node_id]);
-    if (node.rows.length === 0) return res.status(404).json({ error: 'Узел не найден' });
-    
-    await pool.query('UPDATE users SET role_id = $1 WHERE id = $2', [role_node_id, userId]);
-    
-    await pool.query(
-      `INSERT INTO user_role_assignments (user_id, role_node_id, assigned_by)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE SET role_node_id = $2, assigned_by = $3, assigned_at = NOW()`,
-      [userId, role_node_id, req.userId]
-    );
-    
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// GET /api/role-tree/users/in-subtree/:nodeId — получить пользователей из поддерева
+/** Люди всего поддерева узла. */
 router.get('/users/in-subtree/:nodeId', async (req: AuthRequest, res: Response) => {
-  try {
-    const nodeId = parseInt(req.params.nodeId);
-    const subtree = await getSubtreeIds(nodeId);
-    const result = await pool.query(
-      `SELECT u.id, u.username, u.display_name, u.avatar_url, rt.name as role_name
-       FROM users u
-       JOIN user_role_assignments ura ON ura.user_id = u.id
-       JOIN role_tree rt ON rt.id = ura.role_node_id
-       WHERE ura.role_node_id = ANY($1)
-       ORDER BY u.display_name`,
-      [subtree]
-    );
-    res.json(result.rows);
-  } catch (e) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const ids = await getSubtreeNodeIds(paramId(req, 'nodeId'));
+  const { rows } = await pool.query(
+    `${USER_SELECT} WHERE rt.id = ANY($1::int[]) AND u.is_active ORDER BY COALESCE(u.display_name, u.username)`,
+    [ids],
+  );
+  res.json(rows);
 });
 
-// POST /api/role-tree/users — создать пользователя с выбором роли (только директор)
-router.post('/users', requireDirector, async (req: AuthRequest, res: Response) => {
-  try {
-    const { username, email, password, display_name, role_node_id } = req.body;
-    
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Логин, email и пароль обязательны' });
+const nodeSchema = z.object({
+  name: z.string().trim().min(1, 'Название обязательно').max(100, 'Название слишком длинное'),
+  parent_id: id,
+  description: z.string().trim().max(1000).nullish(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Цвет в формате #RRGGBB').optional(),
+  icon: z.string().max(16).optional(),
+});
+
+router.post('/', requireDirector, validate(nodeSchema), async (req: AuthRequest, res: Response) => {
+  const { name, parent_id, description, color, icon } = req.body as z.infer<typeof nodeSchema>;
+  const node = await withTransaction(async (client) => {
+    const parent = await client.query('SELECT level FROM role_tree WHERE id = $1', [parent_id]);
+    if (!parent.rows.length) throw notFound('Родительская роль не найдена');
+    const created = (
+      await client.query(
+        `INSERT INTO role_tree (name, parent_id, description, level, color, icon, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [name, parent_id, description ?? null, (parent.rows[0].level ?? 0) + 1, color || '#6366F1', icon || '👤', req.userId],
+      )
+    ).rows[0];
+    await recomputeLevels(client);
+    return created;
+  });
+  const { rows } = await pool.query(`${NODE_SELECT} WHERE rt.id = $1`, [node.id]);
+  res.status(201).json(rows[0]);
+});
+
+const patchSchema = nodeSchema.partial();
+
+router.patch('/:id', requireDirector, validate(patchSchema), async (req: AuthRequest, res: Response) => {
+  const nodeId = paramId(req);
+  const { name, description, color, icon, parent_id } = req.body as z.infer<typeof patchSchema>;
+  await withTransaction(async (client) => {
+    // Блокируем дерево на время изменения, чтобы параллельные переносы не создали цикл.
+    await client.query('SELECT pg_advisory_xact_lock(4242002)');
+    const node = (await client.query('SELECT * FROM role_tree WHERE id = $1', [nodeId])).rows[0];
+    if (!node) throw notFound('Роль не найдена');
+    if (parent_id !== undefined && parent_id !== node.parent_id) {
+      if (node.parent_id === null) throw badRequest('Корень дерева (директора) перенести нельзя');
+      const sub = await getSubtreeNodeIds(nodeId);
+      if (sub.includes(parent_id)) throw badRequest('Нельзя перенести роль внутрь её собственного поддерева');
+      const parent = await client.query('SELECT 1 FROM role_tree WHERE id = $1', [parent_id]);
+      if (!parent.rows.length) throw notFound('Родительская роль не найдена');
     }
-    if (!role_node_id) {
-      return res.status(400).json({ error: 'Роль обязательна' });
-    }
-    
-    const node = await pool.query('SELECT id FROM role_tree WHERE id = $1', [role_node_id]);
-    if (node.rows.length === 0) {
-      return res.status(404).json({ error: 'Узел не найден' });
-    }
-    
-    const existing = await pool.query(
-      'SELECT id FROM users WHERE email = $1 OR username = $2',
-      [email, username]
+    await client.query(
+      `UPDATE role_tree SET name = COALESCE($1, name), description = COALESCE($2, description),
+              color = COALESCE($3, color), icon = COALESCE($4, icon), parent_id = COALESCE($5, parent_id)
+       WHERE id = $6`,
+      [name ?? null, description ?? null, color ?? null, icon ?? null, parent_id ?? null, nodeId],
     );
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Пользователь с таким email или логином уже существует' });
+    await recomputeLevels(client);
+  });
+  const { rows } = await pool.query(`${NODE_SELECT} WHERE rt.id = $1`, [nodeId]);
+  res.json(rows[0]);
+});
+
+/** Удаление роли: дети переходят к родителю. Роль с людьми удалить нельзя. */
+router.delete('/:id', requireDirector, async (req: AuthRequest, res: Response) => {
+  const nodeId = paramId(req);
+  await withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(4242002)');
+    const node = (await client.query('SELECT * FROM role_tree WHERE id = $1', [nodeId])).rows[0];
+    if (!node) throw notFound('Роль не найдена');
+    if (node.parent_id === null) throw badRequest('Корень дерева удалить нельзя');
+    const users = await client.query(
+      `SELECT COUNT(*)::int AS n FROM user_role_assignments WHERE role_node_id = $1`,
+      [nodeId],
+    );
+    if (users.rows[0].n > 0) {
+      throw badRequest(`К роли «${node.name}» привязано сотрудников: ${users.rows[0].n} (включая деактивированных). Сначала перенесите их.`);
     }
-    
-    const password_hash = await bcrypt.hash(password, 10);
-    
-    const result = await pool.query(
-      `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-       VALUES ($1, $2, $3, $4, $5, $1)
-       RETURNING id, username, email, display_name, avatar_url, role_id`,
-      [username, email, password_hash, display_name || username, role_node_id]
-    );
-    
-    const user = result.rows[0];
-    
-    await pool.query(
-      `INSERT INTO user_role_assignments (user_id, role_node_id, assigned_by)
-       VALUES ($1, $2, $3)`,
-      [user.id, role_node_id, req.userId]
-    );
-    
-    res.status(201).json(user);
-  } catch (e: any) {
-    console.error('Ошибка создания пользователя:', e);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+    await client.query('UPDATE role_tree SET parent_id = $1 WHERE parent_id = $2', [node.parent_id, nodeId]);
+    await client.query('UPDATE users SET role_id = NULL WHERE role_id = $1', [nodeId]);
+    await client.query('DELETE FROM role_tree WHERE id = $1', [nodeId]);
+    await recomputeLevels(client);
+  });
+  res.json({ success: true, message: 'Роль удалена, дочерние роли перешли к родителю' });
+});
+
+/** Привязывает пользователя к узлу (единый источник + синхронизация users.role_id). */
+async function assignNode(client: PoolClient, userId: number, nodeId: number, actorId: number) {
+  await client.query(
+    `INSERT INTO user_role_assignments (user_id, role_node_id, assigned_by) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE SET role_node_id = $2, assigned_by = $3, assigned_at = NOW()`,
+    [userId, nodeId, actorId],
+  );
+  await client.query('UPDATE users SET role_id = $1 WHERE id = $2', [nodeId, userId]);
+}
+
+const assignSchema = z.object({ role_node_id: id });
+
+router.post('/users/:userId/assign', requireDirector, validate(assignSchema), async (req: AuthRequest, res: Response) => {
+  const userId = paramId(req, 'userId');
+  const { role_node_id } = req.body as z.infer<typeof assignSchema>;
+  await withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(4242002)');
+    const node = (await client.query('SELECT parent_id FROM role_tree WHERE id = $1', [role_node_id])).rows[0];
+    if (!node) throw notFound('Роль не найдена');
+    const user = (await client.query('SELECT id FROM users WHERE id = $1', [userId])).rows[0];
+    if (!user) throw notFound('Пользователь не найден');
+    const current = (
+      await client.query(
+        `SELECT rt.parent_id FROM user_role_assignments ura JOIN role_tree rt ON rt.id = ura.role_node_id WHERE ura.user_id = $1`,
+        [userId],
+      )
+    ).rows[0];
+    if (current && current.parent_id === null && node.parent_id !== null) {
+      const directors = await client.query(
+        `SELECT COUNT(*)::int AS n FROM user_role_assignments ura
+         JOIN role_tree rt ON rt.id = ura.role_node_id JOIN users u ON u.id = ura.user_id
+         WHERE rt.parent_id IS NULL AND u.is_active`,
+      );
+      if (directors.rows[0].n <= 1) throw badRequest('Нельзя убрать единственного директора с позиции директора');
+    }
+    await assignNode(client, userId, role_node_id, req.userId!);
+  });
+  logger.info({ actor: req.userId, userId, role_node_id }, 'Сотрудник перенесён на другую роль');
+  res.json({ success: true });
+});
+
+const createUserSchema = z.object({
+  username: usernameSchema,
+  email: emailSchema,
+  password: passwordSchema,
+  display_name: z.string().trim().max(255).optional(),
+  role_node_id: id,
+});
+
+router.post('/users', requireDirector, validate(createUserSchema), async (req: AuthRequest, res: Response) => {
+  const body = req.body as z.infer<typeof createUserSchema>;
+  const user = await withTransaction(async (client) => {
+    const node = await client.query('SELECT 1 FROM role_tree WHERE id = $1', [body.role_node_id]);
+    if (!node.rows.length) throw notFound('Роль не найдена');
+    const dup = await client.query('SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = $2', [
+      body.username,
+      body.email,
+    ]);
+    if (dup.rows.length) throw conflict('Пользователь с таким логином или email уже существует');
+    const created = (
+      await client.query(
+        `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
+         VALUES ($1, $2, $3, $4, $5, $1) RETURNING id, username, email, display_name, avatar_url, is_active`,
+        [body.username, body.email, await bcrypt.hash(body.password, 10), body.display_name || body.username, body.role_node_id],
+      )
+    ).rows[0];
+    await assignNode(client, created.id, body.role_node_id, req.userId!);
+    return created;
+  });
+  logger.info({ actor: req.userId, userId: user.id }, 'Создан сотрудник');
+  res.status(201).json({ ...user, role_node_id: body.role_node_id });
 });
 
 export default router;

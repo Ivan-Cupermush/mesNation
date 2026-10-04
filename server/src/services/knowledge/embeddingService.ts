@@ -1,6 +1,7 @@
 import { Ollama } from 'ollama';
+import { env } from '../../config/env';
 
-const ollama = new Ollama({ host: 'http://localhost:11434' });
+const ollama = new Ollama({ host: env.OLLAMA_HOST });
 
 const EMBEDDING_MODEL = 'nomic-embed-text';
 const GENERATION_MODEL = 'llama3.2:3b';

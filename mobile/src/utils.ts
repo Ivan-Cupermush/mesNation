@@ -1,4 +1,4 @@
-﻿import * as RNFS from 'react-native-fs';
+import * as RNFS from 'react-native-fs';
 
 export const SERVER_URL = 'https://offixcrm.ru';
 const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;

@@ -1,0 +1,11 @@
+# Нормализуем окончания строк: в репозитории всегда LF
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.jar binary
+*.png binary
+*.jpg binary
+*.keystore binary
+*.jks binary
+*.dump binary
+gradlew text eol=lf

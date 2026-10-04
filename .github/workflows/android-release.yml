@@ -3,11 +3,10 @@ name: Android Release (Offix)
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
     paths:
       - 'mobile/**'
-      - '.github/workflows/**'
-  push:
-    tags: [ 'v*' ]
+      - '.github/workflows/android-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -29,11 +28,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
 
       - name: Install node dependencies
         working-directory: mobile
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Decode keystore from secrets
         working-directory: mobile/android/app

@@ -1,4 +1,5 @@
 import pool from '../db/pool';
+import { logger } from '../lib/logger';
 
 export interface OverdueInfo {
   executor_overdue: Array<{ id: number; title: string; deadline: string; assignee_ids: number[] }>;
@@ -51,19 +52,19 @@ export async function checkOverdueTasks(): Promise<OverdueInfo> {
 
     const total = executorResults.length + reviewerOverdue.rows.length;
     if (total > 0) {
-      console.log(`⏰ Проверка дедлайнов: ${executorResults.length} просрочено исполнителями, ${reviewerOverdue.rows.length} просрочено на проверке`);
+      logger.info(`⏰ Проверка дедлайнов: ${executorResults.length} просрочено исполнителями, ${reviewerOverdue.rows.length} просрочено на проверке`);
     }
     return info;
   } catch (e) {
-    console.error('Ошибка проверки дедлайнов:', e);
+    logger.error({ err: e }, 'Ошибка проверки дедлайнов');
     throw e;
   }
 }
 
 export function startDeadlineChecker(intervalMs: number = 60 * 60 * 1000) {
-  console.log(`⏰ Запущена периодическая проверка дедлайнов (интервал: ${intervalMs / 1000 / 60} мин)`);
-  checkOverdueTasks().catch(e => console.error('Ошибка первичной проверки:', e));
+  logger.info(`⏰ Запущена периодическая проверка дедлайнов (интервал: ${intervalMs / 1000 / 60} мин)`);
+  checkOverdueTasks().catch(e => logger.error({ err: e }, 'Ошибка первичной проверки дедлайнов'));
   setInterval(() => {
-    checkOverdueTasks().catch(e => console.error('Ошибка периодической проверки:', e));
+    checkOverdueTasks().catch(e => logger.error({ err: e }, 'Ошибка периодической проверки дедлайнов'));
   }, intervalMs);
 }

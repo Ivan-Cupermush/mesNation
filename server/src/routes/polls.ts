@@ -29,6 +29,8 @@ const createSchema = z
     allows_multiple: z.boolean().optional(),
     is_quiz: z.boolean().optional(),
     correct_option_index: z.number().int().min(0).nullish(),
+    // Пояснение к викторине: показывается после ответа (как в Telegram).
+    explanation: z.string().trim().max(200).nullish(),
   })
   .refine((p) => !p.is_quiz || (p.correct_option_index != null && p.correct_option_index < p.options.length), {
     message: 'В викторине отметьте правильный ответ',
@@ -40,9 +42,19 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
   const poll = await withTransaction(async (client) => {
     const created = (
       await client.query(
-        `INSERT INTO polls (chat_id, topic_id, creator_id, question, is_anonymous, allows_multiple, is_quiz, correct_option_index)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [p.chat_id, p.topic_id ?? null, req.userId, p.question, !!p.is_anonymous, !!p.allows_multiple && !p.is_quiz, !!p.is_quiz, p.is_quiz ? p.correct_option_index : null],
+        `INSERT INTO polls (chat_id, topic_id, creator_id, question, is_anonymous, allows_multiple, is_quiz, correct_option_index, explanation)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [
+          p.chat_id,
+          p.topic_id ?? null,
+          req.userId,
+          p.question,
+          !!p.is_anonymous,
+          !!p.allows_multiple && !p.is_quiz,
+          !!p.is_quiz,
+          p.is_quiz ? p.correct_option_index : null,
+          p.is_quiz ? p.explanation || null : null,
+        ],
       )
     ).rows[0];
     for (let i = 0; i < p.options.length; i++) {
@@ -102,10 +114,10 @@ router.delete('/:id/vote', async (req: AuthRequest, res: Response) => {
 
 router.post('/:id/close', async (req: AuthRequest, res: Response) => {
   const poll = await loadPollForMember(paramId(req), req.userId!);
-  if (poll.creator_id !== req.userId) throw forbidden('Только автор может закрыть опрос');
-  await pool.query('UPDATE polls SET is_closed = TRUE WHERE id = $1', [poll.id]);
+  if (poll.creator_id !== req.userId) throw forbidden('Только автор может остановить опрос');
+  await pool.query('UPDATE polls SET is_closed = TRUE, closed_at = NOW() WHERE id = $1', [poll.id]);
   emitToChat(poll.chat_id, 'poll_updated', { poll_id: poll.id });
-  res.json({ success: true });
+  res.json(await getPollResults(poll.id, req.userId!));
 });
 
 router.get('/:id/results', async (req: AuthRequest, res: Response) => {

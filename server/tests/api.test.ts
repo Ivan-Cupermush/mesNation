@@ -252,8 +252,9 @@ describe('сокеты и сообщения', () => {
     await as(c.mgr1).delete(`/api/messages/${ack.message.id}?scope=me`);
     await new Promise((r) => setTimeout(r, 200));
     expect(leaked).toBe(false);
-    expect((await as(c.mgr2).get(`/api/messages/${chatId}`)).body).toHaveLength(1);
-    expect((await as(c.mgr1).get(`/api/messages/${chatId}`)).body).toHaveLength(0);
+    const regular = (r: any) => (r.body as any[]).filter((m) => m.content_type !== 'service');
+    expect(regular(await as(c.mgr2).get(`/api/messages/${chatId}`))).toHaveLength(1);
+    expect(regular(await as(c.mgr1).get(`/api/messages/${chatId}`))).toHaveLength(0);
 
     a.close();
     b.close();
@@ -420,5 +421,94 @@ describe('безопасность сессий', () => {
     expect(actions.has('login')).toBe(true);
     expect(actions.has('login_failed')).toBe(true);
     expect(actions.has('password_reset')).toBe(true);
+  });
+});
+
+describe('мессенджер как в Telegram', () => {
+  it('участник группы не может исключать и переименовывать, админ — может', async () => {
+    const g = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Права', user_ids: [c.mgr2.id, c.bk.id] });
+    const gid = g.body.id;
+    expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(403);
+    expect((await as(c.mgr2).patch(`/api/chats/${gid}`, { name: 'Хаос' })).status).toBe(403);
+    expect((await as(c.mgr2).post(`/api/chats/${gid}/members`, { user_ids: [c.acc.id] })).status).toBe(200);
+    const info = await as(c.mgr2).get(`/api/chats/${gid}`);
+    expect(info.body.my_rights).toMatchObject({ can_add_users: true, can_ban_users: false, can_change_info: false });
+    expect((await as(c.mgr1).post(`/api/chats/${gid}/admins`, { user_id: c.mgr2.id })).status).toBeLessThan(300);
+    expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(200);
+    const texts = ((await as(c.mgr1).get(`/api/messages/${gid}`)).body as any[])
+      .filter((m) => m.content_type === 'service')
+      .map((m) => m.text);
+    expect(texts.some((t) => t.includes('создаёт группу'))).toBe(true);
+    expect(texts.some((t) => t.includes('исключает'))).toBe(true);
+  });
+
+  it('непрочитанные и отметка «прочитано»', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.acc.id] });
+    const id = chat.body.id;
+    const m1 = await as(c.mgr1).upload('/api/upload', 'file', Buffer.from('x'), 'a.txt').field('chatId', String(id));
+    expect(m1.status).toBe(201);
+    let list = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === id).unread_count).toBe(1);
+    expect((await as(c.mgr1).get(`/api/chats/${id}`)).body.peer_last_read_id).toBeLessThan(m1.body.id);
+    await as(c.acc).post(`/api/chats/${id}/read`, { message_id: m1.body.id });
+    list = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === id).unread_count).toBe(0);
+    expect((await as(c.mgr1).get(`/api/chats/${id}`)).body.peer_last_read_id).toBe(m1.body.id);
+  });
+
+  it('удаление личного чата скрывает его только у себя, новое сообщение возвращает', async () => {
+    const chat = await as(c.mgr2).post('/api/chats', { type: 'private', user_ids: [c.acc.id] });
+    const id = chat.body.id;
+    expect((await as(c.mgr2).delete(`/api/chats/${id}`)).body.action).toBe('hidden');
+    expect(((await as(c.mgr2).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(false);
+    expect(((await as(c.acc).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(true);
+    await as(c.acc).upload('/api/upload', 'file', Buffer.from('y'), 'b.txt').field('chatId', String(id));
+    expect(((await as(c.mgr2).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(true);
+  });
+
+  it('владелец уходит — права переходят администратору', async () => {
+    const g = await as(c.acc).post('/api/chats', { type: 'group', name: 'Наследство', user_ids: [c.bk.id, c.mgr1.id] });
+    await as(c.acc).post(`/api/chats/${g.body.id}/admins`, { user_id: c.mgr1.id });
+    expect((await as(c.acc).delete(`/api/chats/${g.body.id}?leave=true`)).body.action).toBe('left');
+    const info = await as(c.mgr1).get(`/api/chats/${g.body.id}`);
+    expect(info.body.created_by).toBe(c.mgr1.id);
+    expect(info.body.my_rights.is_creator).toBe(true);
+  });
+
+  it('фото: размеры, превью и альбом', async () => {
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 800, height: 400, channels: 3, background: '#1F7A52' } }).png().toBuffer();
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Фото', user_ids: [c.mgr2.id] });
+    const send = () =>
+      as(c.mgr1).upload('/api/upload', 'file', png, 'p.png').field('chatId', String(chat.body.id)).field('media_group_id', 'album-1');
+    const [a, b] = [await send(), await send()];
+    expect(a.body).toMatchObject({ media_kind: 'photo', media_width: 800, media_height: 400, media_group_id: 'album-1' });
+    expect(b.body.thumb_url).toMatch(/^\/uploads\/thumbs\//);
+    const asFile = await as(c.mgr1)
+      .upload('/api/upload', 'file', png, 'p.png')
+      .field('chatId', String(chat.body.id))
+      .field('as_file', 'true');
+    expect(asFile.body).toMatchObject({ media_kind: 'file', thumb_url: null, media_group_id: null });
+  });
+
+  it('викторина с пояснением, остановка опроса', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Квиз', user_ids: [c.mgr2.id] });
+    const p = await as(c.mgr1).post('/api/polls', {
+      chat_id: chat.body.id, question: '2+2?', options: ['3', '4'], is_quiz: true, correct_option_index: 1, explanation: 'Арифметика',
+    });
+    expect(p.status).toBe(201);
+    expect(p.body.poll.explanation).toBe('Арифметика'); // автор видит
+    const before = await as(c.mgr2).get(`/api/polls/${p.body.poll.id}`);
+    expect(before.body.poll.explanation).toBeNull();
+    const voted = await as(c.mgr2).post(`/api/polls/${p.body.poll.id}/vote`, { option_ids: [before.body.poll.options[0].id] });
+    expect(voted.body.poll.explanation).toBe('Арифметика');
+    const closed = await as(c.mgr1).post(`/api/polls/${p.body.poll.id}/close`);
+    expect(closed.body.poll.is_closed).toBe(true);
+  });
+
+  it('статус в сети', async () => {
+    const r = await as(c.mgr1).get(`/api/users/presence?ids=${c.mgr2.id},${c.acc.id}`);
+    expect(r.body).toHaveLength(2);
+    expect(r.body[0]).toHaveProperty('online');
   });
 });

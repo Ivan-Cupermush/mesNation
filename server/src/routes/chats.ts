@@ -8,7 +8,7 @@ import { id, paramId, validate } from '../lib/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
 import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
-import { MESSAGE_SELECT, serializeMessage } from '../services/messages';
+import { MESSAGE_SELECT, createServiceMessage, serializeMessage, userName } from '../services/messages';
 import { emitToChat, emitToUser } from '../realtime/socket';
 
 /** Монтируется на /api/chats (после authenticate). */
@@ -82,6 +82,7 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
       [me, others[0]],
     );
     if (existing.rows.length) {
+      await pool.query('UPDATE chat_members SET hidden_at = NULL WHERE chat_id = $1 AND user_id = $2', [existing.rows[0].id, me]);
       const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [existing.rows[0].id])).rows[0];
       return res.json(presentChat(chat, await loadMembers(chat.id), me));
     }
@@ -100,6 +101,9 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
     );
     return c;
   });
+  if (type === 'group') {
+    await createServiceMessage(chat.id, me, `${await userName(me)} создаёт группу «${name}»`);
+  }
   const result = presentChat(chat, await loadMembers(chat.id), me);
   for (const uid of others) emitToUser(uid, 'chat_created', result);
   res.status(201).json(result);
@@ -127,10 +131,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                WHERE m.chat_id = c.id::text AND m.deleted_for_all IS NOT TRUE
                  AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))
                  AND (m.topic_id IS NULL OR c.is_supergroup)
-               ORDER BY m.created_at DESC LIMIT 1) lm) AS last_message
+               ORDER BY m.created_at DESC LIMIT 1) lm) AS last_message,
+            (SELECT COUNT(*)::int FROM messages m
+             WHERE m.chat_id = c.id::text AND m.id > cm.last_read_message_id AND m.sender_id <> $1
+               AND m.deleted_for_all IS NOT TRUE AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))) AS unread_count,
+            cm.last_read_message_id AS my_last_read_id,
+            (SELECT COALESCE(MAX(o.last_read_message_id), 0) FROM chat_members o
+             WHERE o.chat_id = c.id AND o.user_id <> $1) AS peer_last_read_id
      FROM chats c
      JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = $1
-     WHERE c.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL AND cm.hidden_at IS NULL
      ORDER BY COALESCE((SELECT MAX(created_at) FROM messages WHERE chat_id = c.id::text), c.created_at) DESC`,
     [me],
   );
@@ -141,7 +151,47 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   const chatId = paramId(req);
   await assertChatMember(chatId, req.userId!);
   const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [chatId])).rows[0];
-  res.json(presentChat(chat, await loadMembers(chatId), req.userId!));
+  const rights = await getChatRights(chatId, req.userId!);
+  const my_rights = {
+    is_creator: rights.isCreator,
+    is_admin: rights.isAdmin,
+    can_change_info: rights.can('change_info'),
+    can_add_users: rights.can('add_users'),
+    can_ban_users: rights.can('ban_users'),
+    can_delete_messages: rights.can('delete_messages'),
+    can_pin_messages: rights.can('pin_messages'),
+    can_add_admins: rights.can('add_admins'),
+  };
+  res.json({ ...presentChat(chat, await loadMembers(chatId), req.userId!), ...(await readMarks(chatId, req.userId!)), my_rights });
+});
+
+async function readMarks(chatId: number, userId: number) {
+  const { rows } = await pool.query(
+    `SELECT
+       (SELECT last_read_message_id FROM chat_members WHERE chat_id = $1 AND user_id = $2) AS my_last_read_id,
+       (SELECT COALESCE(MAX(last_read_message_id), 0) FROM chat_members WHERE chat_id = $1 AND user_id <> $2) AS peer_last_read_id`,
+    [chatId, userId],
+  );
+  return rows[0];
+}
+
+const readSchema = z.object({ message_id: id });
+
+/** Отметить чат прочитанным до сообщения message_id (включительно). */
+router.post('/:id/read', validate(readSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const { message_id } = req.body as z.infer<typeof readSchema>;
+  const { rows } = await pool.query(
+    `UPDATE chat_members SET last_read_message_id = GREATEST(last_read_message_id,
+        LEAST($1, (SELECT COALESCE(MAX(id), 0) FROM messages WHERE chat_id = $2::text)))
+     WHERE chat_id = $2 AND user_id = $3 RETURNING last_read_message_id`,
+    [message_id, chatId, req.userId],
+  );
+  const last = rows[0].last_read_message_id;
+  emitToChat(chatId, 'messages_read', { chat_id: chatId, user_id: req.userId, message_id: last });
+  emitToUser(req.userId!, 'chat_activity', { chat_id: chatId });
+  res.json({ last_read_message_id: last });
 });
 
 // ---------- Участники ----------
@@ -160,10 +210,19 @@ router.post('/:id/members', validate(membersSchema), async (req: AuthRequest, re
   if (rights.type !== 'group') throw badRequest('В личный чат нельзя добавлять участников');
   const { user_ids } = req.body as z.infer<typeof membersSchema>;
   const active = await pool.query('SELECT id FROM users WHERE id = ANY($1::int[]) AND is_active', [user_ids]);
-  await pool.query(
-    `INSERT INTO chat_members (chat_id, user_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING`,
-    [chatId, active.rows.map((r) => r.id)],
+  const added = await pool.query(
+    `INSERT INTO chat_members (chat_id, user_id, last_read_message_id)
+     SELECT $1, uid, (SELECT COALESCE(MAX(id), 0) FROM messages WHERE chat_id = $3) FROM unnest($2::int[]) AS uid
+     ON CONFLICT DO NOTHING RETURNING user_id`,
+    [chatId, active.rows.map((r) => r.id), String(chatId)],
   );
+  if (added.rows.length) {
+    const names = await Promise.all(added.rows.map((r) => userName(r.user_id)));
+    await createServiceMessage(chatId, req.userId!, `${await userName(req.userId!)} добавляет: ${names.join(', ')}`);
+    const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [chatId])).rows[0];
+    const members = await loadMembers(chatId);
+    for (const r of added.rows) emitToUser(r.user_id, 'chat_created', presentChat(chat, members, r.user_id));
+  }
   const members = await loadMembers(chatId);
   emitToChat(chatId, 'members_changed', { chatId, members });
   res.json(members);
@@ -175,6 +234,12 @@ router.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) =>
   if (memberId === req.userId) throw badRequest('Чтобы выйти из чата, используйте «Покинуть чат»');
   const rights = await assertChatPermission(chatId, req.userId!, 'ban_users', 'Нет прав на удаление участников');
   if (memberId === rights.createdBy) throw forbidden('Создателя чата удалить нельзя');
+  // Админ не может исключить другого админа — только владелец.
+  const isAdminTarget = await pool.query('SELECT 1 FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
+  if (isAdminTarget.rows.length && !rights.isCreator) throw forbidden('Администратора может исключить только владелец группы');
+  const inChat = await pool.query('SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
+  if (!inChat.rows.length) throw notFound('Участник не найден');
+  await createServiceMessage(chatId, req.userId!, `${await userName(req.userId!)} исключает ${await userName(memberId)}`);
   await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
   await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, memberId]);
   emitToChat(chatId, 'members_changed', { chatId, members: await loadMembers(chatId) });
@@ -216,6 +281,10 @@ router.patch('/:id', validate(patchSchema), async (req: AuthRequest, res: Respon
       await client.query('UPDATE chats SET is_supergroup = FALSE WHERE id = $1', [chatId]);
     }
   });
+  const actor = await userName(req.userId!);
+  if (name !== undefined && name !== rights.name) await createServiceMessage(chatId, req.userId!, `${actor} меняет название группы на «${name}»`);
+  if (is_supergroup === true && !rights.isSupergroup) await createServiceMessage(chatId, req.userId!, `${actor} включает темы — группа стала супергруппой`);
+  if (is_supergroup === false && rights.isSupergroup) await createServiceMessage(chatId, req.userId!, `${actor} выключает темы`);
   const chat = (await pool.query('SELECT * FROM chats WHERE id = $1', [chatId])).rows[0];
   const result = presentChat(chat, await loadMembers(chatId), req.userId!);
   emitToChat(chatId, 'chat_updated', result);
@@ -230,13 +299,36 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const chatId = paramId(req);
   const rights = await getChatRights(chatId, req.userId!);
   if (!rights.isMember) throw forbidden('Вы не участник этого чата');
-  if (rights.type === 'group' && rights.isCreator && req.query.leave !== 'true') {
+  if (rights.type === 'private') {
+    // Личная переписка не удаляется у собеседника — чат скрывается только у себя.
+    await pool.query('UPDATE chat_members SET hidden_at = NOW() WHERE chat_id = $1 AND user_id = $2', [chatId, req.userId]);
+    return res.json({ success: true, action: 'hidden' });
+  }
+  if (rights.isCreator && req.query.leave !== 'true') {
     await pool.query('UPDATE chats SET deleted_at = NOW() WHERE id = $1', [chatId]);
     emitToChat(chatId, 'chat_deleted', { chatId });
     return res.json({ success: true, action: 'deleted' });
   }
+  await createServiceMessage(chatId, req.userId!, `${await userName(req.userId!)} покидает группу`);
   await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, req.userId]);
   await pool.query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [chatId, req.userId]);
+  if (rights.isCreator) {
+    // Владелец уходит: права переходят старшему администратору, иначе самому давнему участнику.
+    const heir = await pool.query(
+      `SELECT cm.user_id FROM chat_members cm JOIN users u ON u.id = cm.user_id AND u.is_active
+       LEFT JOIN chat_admins ca ON ca.chat_id = cm.chat_id AND ca.user_id = cm.user_id
+       WHERE cm.chat_id = $1 ORDER BY (ca.user_id IS NULL), ca.promoted_at, cm.joined_at LIMIT 1`,
+      [chatId],
+    );
+    if (heir.rows.length) {
+      const heirId = heir.rows[0].user_id;
+      await pool.query('UPDATE chats SET created_by = $1 WHERE id = $2', [heirId, chatId]);
+      await pool.query('DELETE FROM chat_admins WHERE chat_id = $1 AND user_id = $2', [chatId, heirId]);
+      await createServiceMessage(chatId, heirId, `${await userName(heirId)} теперь владелец группы`);
+    } else {
+      await pool.query('UPDATE chats SET deleted_at = NOW() WHERE id = $1', [chatId]);
+    }
+  }
   emitToChat(chatId, 'members_changed', { chatId, members: await loadMembers(chatId) });
   res.json({ success: true, action: 'left' });
 });
@@ -304,9 +396,9 @@ router.delete('/:id/admins/:userId', async (req: AuthRequest, res: Response) => 
 // ---------- Медиа и статистика всего чата ----------
 
 const MEDIA_FILTERS: Record<string, string> = {
-  media: 'm.thumb_url IS NOT NULL',
-  images: 'm.thumb_url IS NOT NULL',
-  files: 'm.file_url IS NOT NULL AND m.thumb_url IS NULL',
+  media: "(m.media_kind IN ('photo', 'video') OR (m.media_kind IS NULL AND m.thumb_url IS NOT NULL))",
+  images: "(m.media_kind = 'photo' OR (m.media_kind IS NULL AND m.thumb_url IS NOT NULL))",
+  files: "m.file_url IS NOT NULL AND (m.media_kind = 'file' OR (m.media_kind IS NULL AND m.thumb_url IS NULL))",
   links: "m.text ~* 'https?://'",
   polls: 'm.poll_id IS NOT NULL',
 };
@@ -375,6 +467,7 @@ router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRe
     const prev = await pool.query('SELECT avatar_url FROM chats WHERE id = $1', [chatId]);
     await pool.query('UPDATE chats SET avatar_url = $1 WHERE id = $2', [url, chatId]);
     if (prev.rows[0]?.avatar_url) removeFile(urlToDiskPath(prev.rows[0].avatar_url));
+    await createServiceMessage(chatId, req.userId!, `${await userName(req.userId!)} меняет фото группы`);
     emitToChat(chatId, 'chat_updated', { id: chatId, avatar_url: url });
     res.json({ success: true, avatar_url: url });
   } catch (err) {

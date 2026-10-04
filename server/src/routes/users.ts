@@ -8,9 +8,22 @@ import { getAssignableUsers, getUserNode, isDirector, isSubordinate } from '../s
 import { loadProfile } from './auth';
 import { generatePassword, hashPassword, passwordSchema } from '../lib/passwords';
 import { audit, revokeSessions } from '../services/audit';
+import { isOnline } from '../realtime/socket';
 
 /** Монтируется на /api/users (после authenticate). */
 const router = Router();
+
+/** Кто из сотрудников сейчас в сети и когда был последний раз. */
+router.get('/presence', async (req: AuthRequest, res: Response) => {
+  const ids = String(req.query.ids || '')
+    .split(',')
+    .map((x) => Number(x))
+    .filter((x) => Number.isInteger(x) && x > 0)
+    .slice(0, 500);
+  if (!ids.length) return res.json([]);
+  const { rows } = await pool.query('SELECT id, last_seen_at FROM users WHERE id = ANY($1::int[])', [ids]);
+  res.json(rows.map((r) => ({ user_id: r.id, online: isOnline(r.id), last_seen_at: r.last_seen_at })));
+});
 
 const USER_LIST_SELECT = `
   SELECT u.id, u.username, u.email, u.display_name, u.avatar_url, u.is_active,

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
   Alert, ActivityIndicator, TextInput, Modal, ScrollView, Platform, Image,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
-import { SERVER_URL } from '../../utils';
+import { publicFileUrl } from '../../services/http';
 import { fuzzyMatch } from '../../utils/fuzzySearch';
 import TreeGraphView from '../../components/TreeGraphView';
 import { ChevronLeft, Move, X, Lock, Search } from 'lucide-react-native';
@@ -31,7 +32,8 @@ const hashColor = (s: string) => {
 };
 
 export default function RoleTreeEditorScreen({ navigation }: any) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const route = useRoute<any>();
   const [nodes, setNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +53,6 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const [editColor, setEditColor] = useState(COLORS[0]);
   const [editIcon, setEditIcon] = useState(ICONS[0]);
   const [nodeUsers, setNodeUsers] = useState<any[]>([]);       // прямые члены роли
-  const [subtreeCount, setSubtreeCount] = useState(0);         // сколько в подграфе
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userQuery, setUserQuery] = useState('');
 
@@ -71,31 +72,18 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   useEffect(() => {
     loadTree();
-    // Автофокус на узле пользователя (из EmployeesScreen)
-    const focusUserId = route.params?.focusUserId;
-    if (focusUserId) {
-      (async () => {
-        try {
-          const tree = await api.getRoleTree();
-          const root = (tree || []).find((n: any) => !n.parent_id);
-          if (!root) return;
-          const users = await api.getUsersInSubtree(root.id).catch(() => []);
-          const u = (users || []).find((x: any) => x.id === focusUserId);
-          if (u && u.role_name) {
-            const targetNode = (tree || []).find((n: any) => n.name === u.role_name);
-            if (targetNode) {
-              // Небольшая задержка чтобы tree отрендерилось
-              setTimeout(() => {
-                handleNodePress(targetNode);
-              }, 400);
-            }
-          }
-          // Сбросить params чтобы при возврате не триггерилось снова
-          navigation.setParams({ focusUserId: undefined });
-        } catch (e) {}
-      })();
-    }
-  }, [route.params?.focusUserId]);
+  }, []);
+
+  // Переход из «Сотрудников»: открываем узел этого сотрудника по id узла
+  // (раньше узел искался по названию роли и открывался со старым списком узлов).
+  const focusNodeId: number | undefined = route.params?.focusNodeId;
+  useEffect(() => {
+    if (!focusNodeId || nodes.length === 0) return;
+    const target = nodes.find((n: any) => n.id === focusNodeId);
+    if (target) handleNodePress(target);
+    navigation.setParams({ focusNodeId: undefined, focusUserId: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNodeId, nodes]);
 
   // === Добавление ребёнка ===
   const handleAddChild = (parentNode: any) => {
@@ -128,27 +116,15 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
     }
   };
 
-  // === Прямые члены роли: подграф узла МИНУС подграфы детей ===
+  // === Прямые члены роли — один запрос к серверу ===
   const loadNodeUsers = async (node: any) => {
     setNodeUsers([]);
-    setSubtreeCount(0);
     setLoadingUsers(true);
     try {
-      const children = nodes.filter((n: any) => n.parent_id === node.id);
-      const results = await Promise.all([
-        api.getUsersInSubtree(node.id),
-        ...children.map((c: any) => api.getUsersInSubtree(c.id)),
-      ]);
-      const sub = Array.isArray(results[0]) ? results[0] : [];
-      const kidIds = new Set<number>();
-      results.slice(1).forEach((list: any) =>
-        (Array.isArray(list) ? list : []).forEach((u: any) => kidIds.add(u.id))
-      );
-      setSubtreeCount(sub.length);
-      setNodeUsers(sub.filter((u: any) => !kidIds.has(u.id)));
-    } catch (e) {
+      setNodeUsers(await api.getRoleUsers(node.id));
+    } catch (e: any) {
       setNodeUsers([]);
-      setSubtreeCount(0);
+      Alert.alert('Не удалось загрузить сотрудников роли', e?.message || '');
     } finally {
       setLoadingUsers(false);
     }
@@ -192,7 +168,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   // === Удаление узла ===
   const handleDelete = () => {
     if (!editingNode) return;
-    if (editingNode.name === 'director' || editingNode.parent_id === null) {
+    if (editingNode.is_root || editingNode.parent_id === null) {
       Alert.alert('Нельзя удалить', 'Корень дерева (директор) удалить нельзя');
       return;
     }
@@ -232,7 +208,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   // === Старт переноса человека на дерево ===
   const startMoveUser = (user: any) => {
     // 🔒 Позицию директора нельзя переназначить
-    if (editingNode?.name === 'director') {
+    if (editingNode?.is_root) {
       Alert.alert('Нельзя', 'Позицию директора нельзя переназначить');
       return;
     }
@@ -244,7 +220,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const handleMoveTarget = (node: any) => {
     if (!moveUser) return;
     // 🔒 Директор как цель тоже недоступен
-    if (node.name === 'director') {
+    if (node.is_root) {
       Alert.alert('Нельзя', 'Позицию директора нельзя переназначить');
       return;
     }
@@ -289,12 +265,12 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
 
       {/* ===== HEADER ===== */}
       <View style={[styles.header, {
         borderBottomColor: colors.border,
-        paddingTop: (StatusBar.currentHeight || 24) + 8,
+        paddingTop: insets.top + 8,
       }]}>
         <TouchableOpacity onPress={() => (moveUser ? setMoveUser(null) : navigation.goBack())} style={styles.backBtn} activeOpacity={0.7}>
           <ChevronLeft size={22} color="#1F7A52" strokeWidth={2.5} />
@@ -459,7 +435,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
               {/* ===== ЛЮДИ: прямые члены роли + счётчик подграфа ===== */}
               <Text style={[styles.label, { color: colors.textSecondary }]}>
-                ЛЮДИ В РОЛИ ({nodeUsers.length}) · В ПОДГРАФЕ ({subtreeCount})
+                ЛЮДИ В РОЛИ ({nodeUsers.length})
               </Text>
               {nodeUsers.length > 0 && (
                 <View style={[styles.userSearchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -510,7 +486,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                   >
                     <View style={[styles.userAvatar, { backgroundColor: user.avatar_url ? '#ECECE8' : hashColor(user.display_name || user.username) }]}>
                       {user.avatar_url ? (
-                        <Image source={{ uri: SERVER_URL + user.avatar_url }} style={styles.userAvatarImg} />
+                        <Image source={{ uri: publicFileUrl(user.avatar_url)! }} style={styles.userAvatarImg} />
                       ) : (
                         <Text style={styles.userAvatarText}>
                           {(user.display_name || user.username || '?').charAt(0).toUpperCase()}
@@ -525,7 +501,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                         {user.role_name || 'Без роли'}
                       </Text>
                     </View>
-                    {editingNode?.name === 'director' ? (
+                    {editingNode?.is_root ? (
                       <View style={styles.userLockIcon}>
                         <Lock size={16} color="#9CA3AF" strokeWidth={2.2} />
                       </View>
@@ -538,13 +514,6 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 ))
               )}
 
-              {editingNode?.users_count > 0 && (
-                <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-                  <Text style={{ color: '#92400E', fontSize: 13 }}>
-                    ⚠️ В подграфе этой роли людей: <Text style={{ fontWeight: '700' }}>{editingNode.users_count}</Text>
-                  </Text>
-                </View>
-              )}
             </ScrollView>
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -563,7 +532,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 </Text>
               </TouchableOpacity>
             </View>
-            {editingNode && editingNode.parent_id !== null && editingNode.name !== 'director' && (
+            {editingNode && !editingNode.is_root && (
               <TouchableOpacity
                 onPress={handleDelete}
                 disabled={saving}

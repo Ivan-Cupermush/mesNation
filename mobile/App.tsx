@@ -231,6 +231,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
       <SettingsStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ title: 'Дерево прав', headerShown: false }} />
       <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
       <SettingsStack.Screen name="Employees" component={EmployeesScreen} options={{ title: 'Сотрудники', headerShown: false }} />
+      <SettingsStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }

@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
   ScrollView, ActivityIndicator, Image, TextInput, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
-import { api } from '../../services/api';
-import { SERVER_URL } from '../../utils';
+import { api, Employee } from '../../services/api';
+import { publicFileUrl } from '../../services/http';
 import { ChevronLeft, Search, Users, X, SearchX, TreePine } from 'lucide-react-native';
 import { fuzzyMatch, translit } from '../../utils/fuzzySearch';
 
@@ -46,10 +47,12 @@ const searchScore = (emp: any, q: string): { score: number; rank: number } => {
 
 export default function EmployeesScreen({ navigation }: any) {
   const { colors } = useTheme();
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active');
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 200);
@@ -58,33 +61,27 @@ export default function EmployeesScreen({ navigation }: any) {
 
   const loadEmployees = async () => {
     try {
-      const [users, tree] = await Promise.all([
-        api.getAllUsersWithRoles(),
-        api.getRoleTree(),
-      ]);
-      let roleMap: Record<number, string> = {};
-      const root = (tree || []).find((n: any) => !n.parent_id);
-      if (root) {
-        const sub = await api.getUsersInSubtree(root.id).catch(() => []);
-        (sub || []).forEach((u: any) => { roleMap[u.id] = u.role_name; });
-      }
-      const merged = (users || []).map((u: any) => ({
-        ...u,
-        role_name: u.role_name || roleMap[u.id] || null,
-      }));
-      setEmployees(merged);
+      // Роли, email и статус приходят сразу с сервера (раньше роль была видна только у директора).
+      setEmployees(await api.getUsers(true));
+      setError(null);
     } catch (e: any) {
-      console.error('Ошибка загрузки сотрудников:', e);
+      setError(e?.message || 'Не удалось загрузить сотрудников');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadEmployees(); }, []);
+  useFocusEffect(useCallback(() => { loadEmployees(); }, []));
+
+  const visible = useMemo(
+    () => employees.filter((e) => (statusFilter === 'all' ? true : statusFilter === 'active' ? e.is_active : !e.is_active)),
+    [employees, statusFilter],
+  );
+  const inactiveCount = employees.filter((e) => !e.is_active).length;
 
   const { nameMatches, contentMatches } = useMemo(() => {
     if (!debounced) return { nameMatches: [], contentMatches: [] };
-    const scored = employees
+    const scored = visible
       .map((emp) => {
         const s = searchScore(emp, debounced);
         return { emp, score: s.score, rank: s.rank };
@@ -95,9 +92,9 @@ export default function EmployeesScreen({ navigation }: any) {
       nameMatches: scored.filter((x) => x.score < 10).map((x) => x.emp),
       contentMatches: scored.filter((x) => x.score >= 10).map((x) => x.emp),
     };
-  }, [debounced, employees]);
+  }, [debounced, visible]);
 
-  const totalFound = debounced ? nameMatches.length + contentMatches.length : employees.length;
+  const totalFound = debounced ? nameMatches.length + contentMatches.length : visible.length;
 
   // Подсветка совпадений (с учётом транслита показываем оригинал)
   const highlight = (text: string, baseStyle: any) => {
@@ -131,24 +128,12 @@ export default function EmployeesScreen({ navigation }: any) {
   };
 
   const openProfile = (employee: any) => {
-    navigation.navigate('ChatTab', {
-      screen: 'UserProfile',
-      params: {
-        userId: employee.id,
-        username: employee.username,
-        displayName: employee.display_name || employee.username,
-        avatarUrl: employee.avatar_url,
-        role: employee.role_name,
-      },
-    });
+    navigation.navigate('UserProfile', { userId: employee.id });
   };
 
   // Перейти в дерево ролей и сфокусироваться на узле этого сотрудника
   const openUserInTree = (employee: any) => {
-    navigation.navigate('SettingsTab', {
-      screen: 'RoleTreeEditor',
-      params: { focusUserId: employee.id },
-    });
+    navigation.navigate('RoleTreeEditor', { focusUserId: employee.id, focusNodeId: employee.role_node_id });
   };
 
   const renderEmployee = (emp: any) => {
@@ -157,22 +142,30 @@ export default function EmployeesScreen({ navigation }: any) {
     return (
       <TouchableOpacity
         key={emp.id}
-        style={[styles.employeeCard, { backgroundColor: colors.surface }]}
+        style={[styles.employeeCard, { backgroundColor: colors.surface }, !emp.is_active && styles.inactiveCard]}
         activeOpacity={0.7}
         onPress={() => openProfile(emp)}
       >
         <View style={[styles.avatar, { backgroundColor: emp.avatar_url ? '#ECECE8' : hashColor(name) }]}>
           {emp.avatar_url ? (
-            <Image source={{ uri: SERVER_URL + emp.avatar_url }} style={styles.avatarImg} />
+            <Image source={{ uri: publicFileUrl(emp.avatar_url)! }} style={styles.avatarImg} />
           ) : (
             <Text style={styles.avatarText}>{initials(name)}</Text>
           )}
         </View>
         <View style={{ flex: 1 }}>
           {highlight(name, [styles.employeeName, { color: colors.textPrimary }])}
-          <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
-            {highlight(role, [styles.roleBadgeText, { color: '#1F7A52' }])}
+          <View style={styles.badgesRow}>
+            <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
+              {highlight(role, [styles.roleBadgeText, { color: '#1F7A52' }])}
+            </View>
+            {!emp.is_active && (
+              <View style={[styles.roleBadge, { backgroundColor: '#FEE2E2' }]}>
+                <Text style={[styles.roleBadgeText, { color: '#DC2626' }]}>неактивен</Text>
+              </View>
+            )}
           </View>
+          {emp.email ? highlight(emp.email, [styles.emailText, { color: colors.textSecondary }]) : null}
         </View>
         <TouchableOpacity
           onPress={() => openUserInTree(emp)}
@@ -234,16 +227,39 @@ export default function EmployeesScreen({ navigation }: any) {
         </Text>
       </View>
 
+      <View style={styles.statusChips}>
+        {([
+          ['active', 'Активные'],
+          ['inactive', `Неактивные${inactiveCount ? ` (${inactiveCount})` : ''}`],
+          ['all', 'Все'],
+        ] as const).map(([id, label]) => (
+          <TouchableOpacity
+            key={id}
+            onPress={() => setStatusFilter(id)}
+            style={[styles.statusChip, statusFilter === id && styles.statusChipActive]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.statusChipText, statusFilter === id && styles.statusChipTextActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {error ? (
+        <TouchableOpacity onPress={loadEmployees} style={styles.errorBox}>
+          <Text style={styles.errorText}>{error} · Повторить</Text>
+        </TouchableOpacity>
+      ) : null}
+
       <View style={styles.countBar}>
         <Users size={14} color={colors.textSecondary} strokeWidth={2} />
         <Text style={[styles.countText, { color: colors.textSecondary }]}>
-          {debounced ? `Найдено: ${totalFound} из ${employees.length}` : `Всего: ${employees.length}`}
+          {debounced ? `Найдено: ${totalFound} из ${visible.length}` : `Всего: ${visible.length}`}
         </Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {!debounced ? (
-          employees.map(renderEmployee)
+          visible.map(renderEmployee)
         ) : totalFound === 0 ? (
           <View style={styles.emptyState}>
             <SearchX size={40} color={colors.textMuted} strokeWidth={1.5} />
@@ -275,6 +291,16 @@ export default function EmployeesScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  inactiveCard: { opacity: 0.6 },
+  badgesRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  emailText: { fontSize: 12, marginTop: 4 },
+  statusChips: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingBottom: 10 },
+  statusChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F3F4F6' },
+  statusChipActive: { backgroundColor: '#1F7A52' },
+  statusChipText: { fontSize: 13, fontWeight: '600', color: '#6F6F73' },
+  statusChipTextActive: { color: '#FFFFFF' },
+  errorBox: { marginHorizontal: 20, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2' },
+  errorText: { color: '#DC2626', fontSize: 13, fontWeight: '600' },
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {

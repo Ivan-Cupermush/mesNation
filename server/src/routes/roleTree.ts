@@ -1,14 +1,14 @@
 import { Router, Response } from 'express';
-import bcrypt from 'bcrypt';
 import { PoolClient } from 'pg';
 import { z } from 'zod';
 import pool, { withTransaction } from '../db/pool';
 import { AuthRequest, requireDirector } from '../middleware/auth';
 import { id, paramId, validate } from '../lib/validate';
 import { badRequest, conflict, notFound } from '../lib/errors';
-import { logger } from '../lib/logger';
 import { getAssignableUsers, getSubtreeNodeIds } from '../services/access';
-import { emailSchema, passwordSchema, usernameSchema } from './auth';
+import { emailSchema, usernameSchema } from './auth';
+import { hashPassword, passwordSchema } from '../lib/passwords';
+import { audit } from '../services/audit';
 
 /**
  * Дерево ролей (иерархия должностей). Монтируется на /api/role-tree.
@@ -198,7 +198,7 @@ router.post('/users/:userId/assign', requireDirector, validate(assignSchema), as
     }
     await assignNode(client, userId, role_node_id, req.userId!);
   });
-  logger.info({ actor: req.userId, userId, role_node_id }, 'Сотрудник перенесён на другую роль');
+  await audit('role_assigned', { actorId: req.userId, targetId: userId, ip: req.ip, meta: { role_node_id } });
   res.json({ success: true });
 });
 
@@ -224,13 +224,13 @@ router.post('/users', requireDirector, validate(createUserSchema), async (req: A
       await client.query(
         `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
          VALUES ($1, $2, $3, $4, $5, $1) RETURNING id, username, email, display_name, avatar_url, is_active`,
-        [body.username, body.email, await bcrypt.hash(body.password, 10), body.display_name || body.username, body.role_node_id],
+        [body.username, body.email, await hashPassword(body.password), body.display_name || body.username, body.role_node_id],
       )
     ).rows[0];
     await assignNode(client, created.id, body.role_node_id, req.userId!);
     return created;
   });
-  logger.info({ actor: req.userId, userId: user.id }, 'Создан сотрудник');
+  await audit('user_created', { actorId: req.userId, targetId: user.id, ip: req.ip });
   res.status(201).json({ ...user, role_node_id: body.role_node_id });
 });
 

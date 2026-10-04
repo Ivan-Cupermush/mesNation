@@ -13,17 +13,42 @@ export interface AuthRequest extends Request {
 export interface TokenPayload {
   userId: number;
   username: string;
+  /** Версия токенов пользователя на момент выдачи (см. users.token_version). */
+  tv?: number;
 }
 
 export function signUserToken(payload: TokenPayload): string {
-  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] });
+  return jwt.sign(payload, env.JWT_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  });
+}
+
+/** Выдаёт токен входа с актуальной версией из базы. */
+export async function issueUserToken(userId: number): Promise<string> {
+  const { rows } = await pool.query('SELECT username, token_version FROM users WHERE id = $1', [userId]);
+  return signUserToken({ userId, username: rows[0].username, tv: rows[0].token_version });
 }
 
 export function verifyUserToken(token: string): TokenPayload {
-  const payload = jwt.verify(token, env.JWT_SECRET) as Partial<TokenPayload> & { purpose?: string };
+  const payload = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as Partial<TokenPayload> & {
+    purpose?: string;
+  };
   // Токены одноразового доступа к файлам не должны работать как токен входа.
   if (payload.purpose || typeof payload.userId !== 'number') throw new Error('wrong token type');
-  return { userId: payload.userId, username: payload.username || '' };
+  return { userId: payload.userId, username: payload.username || '', tv: payload.tv ?? 0 };
+}
+
+/**
+ * Проверяет, что сессия ещё действует: пользователь есть, активен и токен
+ * не отозван. Возвращает текст ошибки или null.
+ */
+export async function checkSession(payload: TokenPayload): Promise<'not_found' | 'inactive' | 'revoked' | null> {
+  const { rows } = await pool.query('SELECT is_active, token_version FROM users WHERE id = $1', [payload.userId]);
+  if (rows.length === 0) return 'not_found';
+  if (!rows[0].is_active) return 'inactive';
+  if ((payload.tv ?? 0) !== rows[0].token_version) return 'revoked';
+  return null;
 }
 
 export function extractBearer(header: string | undefined): string | null {
@@ -46,9 +71,10 @@ export async function authenticate(req: AuthRequest, _res: Response, next: NextF
   } catch {
     throw unauthorized('Сессия истекла, войдите заново');
   }
-  const { rows } = await pool.query('SELECT is_active FROM users WHERE id = $1', [payload.userId]);
-  if (rows.length === 0) throw unauthorized('Пользователь не найден');
-  if (!rows[0].is_active) throw forbidden('Учётная запись деактивирована');
+  const problem = await checkSession(payload);
+  if (problem === 'not_found') throw unauthorized('Пользователь не найден');
+  if (problem === 'inactive') throw forbidden('Учётная запись деактивирована');
+  if (problem === 'revoked') throw unauthorized('Сессия завершена, войдите заново');
   req.userId = payload.userId;
   req.username = payload.username;
   next();

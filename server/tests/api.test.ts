@@ -289,8 +289,9 @@ describe('сотрудники: активность и пароли', () => {
 
   it('сброс пароля возвращает новый пароль один раз', async () => {
     const r = await as(c.dir).post(`/api/users/${c.mgr2.id}/reset-password`);
-    expect(r.body.password).toMatch(/^[A-Za-z0-9]{10}$/);
-    expect((await as().post('/api/auth/login', { username: 'mgr2', password: r.body.password })).status).toBe(200);
+    expect(r.body.password).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect((await as(c.mgr2).get('/api/auth/me')).status).toBe(401); // старая сессия завершена
+    c.mgr2 = await login(app, 'mgr2', r.body.password);
   });
 });
 
@@ -378,5 +379,46 @@ describe('название компании', () => {
     const r = await as(c.dir).patch('/api/company', { company_name: 'ООО «Новое имя»' });
     expect(r.body.company_name).toBe('ООО «Новое имя»');
     expect((await as(c.mgr1).get('/api/auth/me')).body.company_name).toBe('ООО «Новое имя»');
+  });
+});
+
+describe('безопасность сессий', () => {
+  it('смена пароля завершает другие сессии и выдаёт новый токен', async () => {
+    const u = await as(c.dir).post('/api/role-tree/users', {
+      username: 'sess', email: 'sess@test.ru', password: 'first-pass-1', role_node_id: c.nodes.mgrNode,
+    });
+    expect(u.status).toBe(201);
+    const phone = await login(app, 'sess', 'first-pass-1');
+    const laptop = await login(app, 'sess', 'first-pass-1');
+    expect((await as(phone).post('/api/auth/change-password', { current_password: 'first-pass-1', new_password: 'short' })).status).toBe(400);
+    const r = await as(phone).post('/api/auth/change-password', { current_password: 'first-pass-1', new_password: 'second-pass-2' });
+    expect(r.status).toBe(200);
+    expect((await as(laptop).get('/api/auth/me')).status).toBe(401);
+    expect((await as({ ...phone, token: r.body.token }).get('/api/auth/me')).status).toBe(200);
+  });
+
+  it('«выйти на всех устройствах» отзывает токены, сброс пароля админом тоже', async () => {
+    const a = await login(app, 'sess', 'second-pass-2');
+    expect((await as(a).post('/api/auth/logout-all')).status).toBe(200);
+    expect((await as(a).get('/api/auth/me')).status).toBe(401);
+    const b = await login(app, 'sess', 'second-pass-2');
+    const reset = await as(c.dir).post(`/api/users/${b.id}/reset-password`);
+    expect(reset.status).toBe(200);
+    expect((await as(b).get('/api/auth/me')).status).toBe(401);
+  });
+
+  it('распространённые пароли не принимаются', async () => {
+    const r = await as(c.dir).post('/api/role-tree/users', {
+      username: 'weak', email: 'weak@test.ru', password: '12345678', role_node_id: c.nodes.mgrNode,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('события безопасности пишутся в журнал', async () => {
+    const { rows } = await pool.query("SELECT action FROM audit_log WHERE action IN ('login', 'login_failed', 'password_reset')");
+    const actions = new Set(rows.map((r) => r.action));
+    expect(actions.has('login')).toBe(true);
+    expect(actions.has('login_failed')).toBe(true);
+    expect(actions.has('password_reset')).toBe(true);
   });
 });

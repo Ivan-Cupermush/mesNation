@@ -419,7 +419,10 @@ export const api = {
     request<{ company_name: string }>('/api/company', { method: 'PATCH', body: JSON.stringify({ company_name }) }),
 
   changePassword: (current_password: string, new_password: string) =>
-    httpRequest<{ success: boolean }>('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
+    httpRequest<{ success: boolean; token?: string }>('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
+
+  /** Завершить все сессии (на всех устройствах, включая это). */
+  logoutAll: () => httpRequest<{ success: boolean }>('/api/auth/logout-all', { method: 'POST', body: {} }),
 
   // ==================== СОТРУДНИКИ ====================
   getUsers: (includeInactive = false) =>

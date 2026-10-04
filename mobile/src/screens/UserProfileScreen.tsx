@@ -124,7 +124,7 @@ export default function UserProfileScreen({ navigation }: any) {
   };
 
   const setManualPassword = async () => {
-    if (newPassword.length < 6) return Alert.alert('Слишком короткий пароль', 'Минимум 6 символов');
+    if (newPassword.length < 8) return Alert.alert('Слишком короткий пароль', 'Минимум 8 символов');
     setBusy(true);
     try {
       showNewPassword((await api.resetUserPassword(userId, newPassword)).password);

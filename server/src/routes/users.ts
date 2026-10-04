@@ -1,14 +1,13 @@
 import { Router, Response } from 'express';
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { paramId, validate } from '../lib/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
-import { logger } from '../lib/logger';
 import { getAssignableUsers, getUserNode, isDirector, isSubordinate } from '../services/access';
-import { loadProfile, passwordSchema } from './auth';
+import { loadProfile } from './auth';
+import { generatePassword, hashPassword, passwordSchema } from '../lib/passwords';
+import { audit, revokeSessions } from '../services/audit';
 
 /** Монтируется на /api/users (после authenticate). */
 const router = Router();
@@ -83,18 +82,13 @@ router.patch('/:id/active', validate(activeSchema), async (req: AuthRequest, res
     [is_active, req.userId, userId],
   );
   if (!rowCount) throw notFound('Пользователь не найден');
-  logger.info({ actor: req.userId, userId, is_active }, 'Изменён статус сотрудника');
+  if (!is_active) await revokeSessions(userId);
+  await audit(is_active ? 'user_activated' : 'user_deactivated', { actorId: req.userId, targetId: userId, ip: req.ip });
   res.json(await loadProfile(userId));
 });
 
 const resetSchema = z.object({ password: passwordSchema.optional() });
 
-/** Человекочитаемый пароль без похожих символов (0/O, 1/l). */
-function generatePassword(length = 10): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.randomBytes(length);
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
-}
 
 /**
  * Сброс пароля сотруднику. Пароли хранятся только в виде хеша, поэтому
@@ -105,12 +99,14 @@ router.post('/:id/reset-password', validate(resetSchema), async (req: AuthReques
   const userId = paramId(req);
   if (!(await canManage(req.userId!, userId))) throw forbidden('Можно управлять только своими подчинёнными');
   const password = (req.body as z.infer<typeof resetSchema>).password || generatePassword();
-  const { rowCount } = await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
-    await bcrypt.hash(password, 10),
+  const { rowCount } = await pool.query('UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2', [
+    await hashPassword(password),
     userId,
   ]);
   if (!rowCount) throw notFound('Пользователь не найден');
-  logger.info({ actor: req.userId, userId }, 'Пароль сотрудника сброшен');
+  // Старый пароль мог быть скомпрометирован — завершаем все сессии сотрудника.
+  await revokeSessions(userId);
+  await audit('password_reset', { actorId: req.userId, targetId: userId, ip: req.ip });
   res.json({ password });
 });
 

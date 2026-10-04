@@ -1,4 +1,5 @@
 import * as RNFS from 'react-native-fs';
+import * as Keychain from 'react-native-keychain';
 import { SERVER_URL } from '../config';
 
 /**
@@ -10,7 +11,16 @@ import { SERVER_URL } from '../config';
  * - ошибки приходят как ApiError с понятным текстом и HTTP-статусом.
  */
 
-const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;
+// Раньше токен лежал открытым текстом в файле. Теперь он хранится в
+// Android Keystore / iOS Keychain (шифрование AES-GCM ключом устройства),
+// а старый файл переносится и удаляется при первом запуске.
+const LEGACY_TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;
+const KEYCHAIN_SERVICE = 'offix.session';
+const KEYCHAIN_OPTIONS = {
+  service: KEYCHAIN_SERVICE,
+  storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+  accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
 const DEFAULT_TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
 
@@ -35,28 +45,45 @@ export class ApiError extends Error {
 
 // ---------- Токен ----------
 
+async function readLegacyToken(): Promise<string | null> {
+  try {
+    if (!(await RNFS.exists(LEGACY_TOKEN_PATH))) return null;
+    const token = (await RNFS.readFile(LEGACY_TOKEN_PATH, 'utf8')).trim();
+    await RNFS.unlink(LEGACY_TOKEN_PATH).catch(() => undefined);
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getToken(): Promise<string | null> {
   if (cachedToken !== undefined) return cachedToken;
   try {
-    cachedToken = (await RNFS.exists(TOKEN_PATH)) ? await RNFS.readFile(TOKEN_PATH, 'utf8') : null;
+    const creds = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
+    cachedToken = creds ? creds.password : null;
   } catch {
     cachedToken = null;
   }
-  return cachedToken;
+  if (!cachedToken) {
+    const legacy = await readLegacyToken();
+    if (legacy) await setToken(legacy);
+  }
+  return cachedToken ?? null;
 }
 
 export async function setToken(token: string): Promise<void> {
   cachedToken = token;
-  await RNFS.writeFile(TOKEN_PATH, token, 'utf8');
+  try {
+    await Keychain.setGenericPassword('session', token, KEYCHAIN_OPTIONS);
+  } catch {
+    // Хранилище недоступно (редкие прошивки) — токен живёт до перезапуска приложения.
+  }
 }
 
 export async function clearToken(): Promise<void> {
   cachedToken = null;
-  try {
-    await RNFS.unlink(TOKEN_PATH);
-  } catch {
-    // файла уже нет
-  }
+  await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE }).catch(() => undefined);
+  await RNFS.unlink(LEGACY_TOKEN_PATH).catch(() => undefined);
 }
 
 /** Подписка на «сессия больше не действительна». Возвращает функцию отписки. */

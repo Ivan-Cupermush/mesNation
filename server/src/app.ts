@@ -6,7 +6,8 @@ import crypto from 'crypto';
 import { corsOrigins } from './config/env';
 import { logger } from './lib/logger';
 import { errorHandler, notFoundHandler } from './lib/errors';
-import { authenticate, requireDirector } from './middleware/auth';
+import { AuthRequest, authenticate, requireDirector } from './middleware/auth';
+import { audit } from './services/audit';
 import { z } from 'zod';
 import { validate } from './lib/validate';
 import pool from './db/pool';
@@ -74,6 +75,7 @@ export function createApp() {
     validate(z.object({ company_name: z.string().trim().min(1, 'Название компании обязательно').max(200) })),
     async (req, res) => {
       await setCompanyName(req.body.company_name);
+      await audit('company_renamed', { actorId: (req as AuthRequest).userId, ip: req.ip });
       res.json({ company_name: await getCompanyName() });
     },
   );

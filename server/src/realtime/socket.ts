@@ -4,7 +4,7 @@ import { z } from 'zod';
 import pool from '../db/pool';
 import { corsOrigins } from '../config/env';
 import { logger } from '../lib/logger';
-import { verifyUserToken } from '../middleware/auth';
+import { checkSession, verifyUserToken } from '../middleware/auth';
 import { isChatMember } from '../services/access';
 import { createMessage } from '../services/messages';
 
@@ -23,6 +23,11 @@ export function getIO(): Server {
 /** Безопасная рассылка: в тестах и скриптах сокета может не быть. */
 export function emitToChat(chatId: number | string, event: string, payload: unknown) {
   io?.to(chatRoom(chatId)).emit(event, payload);
+}
+
+/** Разрывает все соединения пользователя (после отзыва сессий). */
+export function disconnectUser(userId: number) {
+  io?.in(userRoom(userId)).disconnectSockets(true);
 }
 
 export function emitToUser(userId: number, event: string, payload: unknown) {
@@ -52,9 +57,9 @@ export function initSocket(server: HttpServer): Server {
     try {
       const token = socket.handshake.auth?.token;
       if (typeof token !== 'string') return next(new Error('unauthorized'));
-      const { userId } = verifyUserToken(token);
-      const { rows } = await pool.query('SELECT is_active FROM users WHERE id = $1', [userId]);
-      if (!rows[0]?.is_active) return next(new Error('unauthorized'));
+      const payload = verifyUserToken(token);
+      const { userId } = payload;
+      if (await checkSession(payload)) return next(new Error('unauthorized'));
       socket.data.userId = userId;
       next();
     } catch {

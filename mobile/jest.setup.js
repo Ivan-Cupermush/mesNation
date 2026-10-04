@@ -26,3 +26,13 @@ jest.mock('socket.io-client', () => ({
 }));
 global.fetch = jest.fn(async () => ({ ok: false, status: 0, text: async () => '' }));
 jest.mock('@react-native-clipboard/clipboard', () => require('@react-native-clipboard/clipboard/jest/clipboard-mock.js'));
+jest.mock('react-native-keychain', () => {
+  let stored = false;
+  return {
+    STORAGE_TYPE: { AES_GCM_NO_AUTH: 'KeystoreAESGCM_NoAuth' },
+    ACCESSIBLE: { AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AccessibleAfterFirstUnlockThisDeviceOnly' },
+    setGenericPassword: jest.fn(async (username, password) => { stored = { username, password }; return true; }),
+    getGenericPassword: jest.fn(async () => stored),
+    resetGenericPassword: jest.fn(async () => { stored = false; return true; }),
+  };
+});

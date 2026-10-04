@@ -26,7 +26,12 @@ import {
   AtSign,
   Shield,
   Crown,
+  KeyRound,
+  MonitorSmartphone,
+  Building2,
 } from 'lucide-react-native';
+import ChangePasswordModal from '../components/ChangePasswordModal';
+import { api } from '../services/api';
 import { getToken, SERVER_URL } from '../utils';
 import { pick } from '@react-native-documents/picker';
 
@@ -55,6 +60,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [saving, setSaving] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const loadProfile = useCallback(async () => {
     const token = await getToken();
@@ -186,6 +192,31 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
     }
   };
 
+  const handleLogoutAll = () => {
+    Alert.alert(
+      'Выйти на всех устройствах?',
+      'Сессии на всех телефонах и компьютерах будут завершены, включая это устройство. Используйте, если потеряли телефон или подозреваете, что кто-то знает ваш пароль.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Выйти везде',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.logoutAll();
+            } catch (e: any) {
+              if (e?.status !== 401) {
+                Alert.alert('Ошибка', e?.message || 'Не удалось завершить сессии');
+                return;
+              }
+            }
+            onLogout?.();
+          },
+        },
+      ],
+    );
+  };
+
   const handleLogout = () => {
     Alert.alert('Выйти из аккаунта?', 'Нужно будет войти заново', [
       { text: 'Отмена', style: 'cancel' },
@@ -205,10 +236,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
 
   const name = profile?.display_name || profile?.username || '';
   const roleName = profile?.role_name || 'Сотрудник';
-  const isAdmin =
-    roleName === 'director' ||
-    roleName === 'admin' ||
-    (roleName || '').toLowerCase().includes('руководитель');
+  const isAdmin = !!profile?.is_director;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -329,6 +357,45 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           </TouchableOpacity>
         </View>
 
+        {/* ===== КОМПАНИЯ ===== */}
+        {!!profile?.company_name && (
+          <View style={styles.card}>
+            <View style={styles.infoRow}>
+              <View style={[styles.infoIconWrap, { backgroundColor: '#E3F1EA' }]}>
+                <Building2 size={16} color="#1F7A52" strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoLabel}>Компания</Text>
+                <Text style={styles.infoValue}>{profile.company_name}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ===== БЕЗОПАСНОСТЬ ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.infoRow} onPress={() => setPasswordOpen(true)} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: '#FEF3C7' }]}>
+              <KeyRound size={16} color="#D97706" strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Сменить пароль</Text>
+              <Text style={styles.infoLabel}>Другие устройства выйдут из аккаунта</Text>
+            </View>
+            <ChevronLeft size={16} color="#BDBDBD" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+          <View style={styles.infoDivider} />
+          <TouchableOpacity style={styles.infoRow} onPress={handleLogoutAll} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: '#FEE2E2' }]}>
+              <MonitorSmartphone size={16} color="#DC2626" strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Выйти на всех устройствах</Text>
+              <Text style={styles.infoLabel}>Если потеряли телефон</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
         {/* ===== АККАУНТ ===== */}
         <View style={styles.card}>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutRow} activeOpacity={0.7}>
@@ -341,6 +408,8 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <ChangePasswordModal visible={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       {/* ===== МОДАЛКА РЕДАКТИРОВАНИЯ ===== */}
       <Modal visible={showEditModal} transparent animationType="slide">

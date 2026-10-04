@@ -54,6 +54,21 @@ async function findUserByName(name: string): Promise<{ id: number; display_name:
   return partial.rows.length === 1 ? partial.rows[0] : null;
 }
 
+/**
+ * Число из ячейки Excel: «1 234,50 ₽», «1234.5», «1,234.50» → число.
+ * Одна запятая без точки — десятичный разделитель (русская запись);
+ * раньше «1 234,50» читалось как 123450.
+ */
+function parseRuNumber(val: any): number {
+  if (typeof val === 'number') return val;
+  let str = String(val ?? '').replace(/[\s\u00a0]/g, '');
+  if (!str) return 0;
+  if (str.includes(',') && !str.includes('.')) str = str.replace(',', '.');
+  else str = str.replace(/,/g, '');
+  const num = parseFloat(str.replace(/[^\d.-]/g, ''));
+  return isNaN(num) ? 0 : num;
+}
+
 /** Число из запроса: undefined/'' → fallback, мусор → NaN (проверяется вызывающим). */
 function num(v: any, fallback?: number): number {
   if (v === undefined || v === null || v === '') return fallback as number;
@@ -419,6 +434,8 @@ router.get('/transactions', async (req: Request, res: Response) => {
       query += ` AND transaction_date >= DATE_TRUNC('month', CURRENT_DATE)`;
     } else if (period === 'week') {
       query += ` AND transaction_date >= CURRENT_DATE - INTERVAL '7 days'`;
+    } else if (period === 'quarter') {
+      query += ` AND transaction_date >= DATE_TRUNC('quarter', CURRENT_DATE)`;
     }
     
     query += ' ORDER BY transaction_date DESC, created_at DESC LIMIT 100';
@@ -601,6 +618,12 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const { importId, mapping } = req.body;
+    if (!Number.isInteger(Number(importId)) || Number(importId) <= 0) {
+      return res.status(400).json({ error: 'Некорректный импорт' });
+    }
+    if (!mapping || typeof mapping !== 'object' || !mapping.product_name) {
+      return res.status(400).json({ error: 'Укажите колонку с названием товара' });
+    }
     
     const importCheck = await pool.query(
       'SELECT * FROM sales_imports WHERE id = $1 AND user_id = $2',
@@ -609,6 +632,10 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
     
     if (importCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Импорт не найден' });
+    }
+    // Повторное подтверждение (двойное нажатие, повтор запроса) задвоило бы продажи.
+    if (importCheck.rows[0].status === 'completed') {
+      return res.status(409).json({ error: 'Этот файл уже импортирован' });
     }
     
     const filePath = path.join(importsDir, `${importId}.xlsx`);
@@ -640,11 +667,7 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
       return new Date(str);
     };
     
-    const parseNumber = (val: any): number => {
-      if (!val) return 0;
-      const num = parseFloat(String(val).replace(/[^\d.-]/g, ''));
-      return isNaN(num) ? 0 : num;
-    };
+    const parseNumber = parseRuNumber;
     
     const transactions: any[] = [];
     const errors: string[] = [];
@@ -661,11 +684,17 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
         continue;
       }
       
+      const date = mapping.transaction_date ? parseDate(row[mapping.transaction_date]) : new Date();
+      if (Number.isNaN(date.getTime())) {
+        errors.push(`Строка ${i + 2}: не удалось прочитать дату`);
+        continue;
+      }
+      
       transactions.push({
         product_name: productName,
         quantity: mapping.quantity ? parseNumber(row[mapping.quantity]) || 1 : 1,
         amount: mapping.amount ? parseNumber(row[mapping.amount]) : 0,
-        transaction_date: mapping.transaction_date ? parseDate(row[mapping.transaction_date]) : new Date(),
+        transaction_date: date,
         client_name: mapping.client_name ? String(row[mapping.client_name] || '').trim() || null : null,
         notes: mapping.notes ? String(row[mapping.notes] || '').trim() || null : null,
       });
@@ -817,6 +846,12 @@ export default router;
 // GET /api/kpi/sales/subordinates — список подчинённых с их KPI
 router.get('/subordinates', async (req: Request, res: Response) => {
   try {
+    // Выручка команды за выбранный на экране период (по умолчанию — месяц).
+    const since = req.query.period === 'week'
+      ? `CURRENT_DATE - INTERVAL '7 days'`
+      : req.query.period === 'quarter'
+        ? `DATE_TRUNC('quarter', CURRENT_DATE)`
+        : `DATE_TRUNC('month', CURRENT_DATE)`;
     const managerId = (req as any).userId;
     
     // Получить роль руководителя
@@ -866,7 +901,11 @@ router.get('/subordinates', async (req: Request, res: Response) => {
              )
            ) FILTER (WHERE st.id IS NOT NULL),
            '[]'
-         ) as kpis
+         ) as kpis,
+         (SELECT rt.name FROM user_role_assignments ura JOIN role_tree rt ON rt.id = ura.role_node_id
+           WHERE ura.user_id = u.id LIMIT 1) AS role_name,
+         (SELECT COALESCE(SUM(tx.amount), 0) FROM sales_transactions tx
+           WHERE tx.user_id = u.id AND tx.transaction_date >= ${since}) AS total_amount
        FROM users u
        LEFT JOIN sales_targets st ON st.user_id = u.id 
          AND st.period_start <= CURRENT_DATE 
@@ -960,11 +999,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-    const parseNum = (v: any): number => {
-      if (typeof v === 'number') return v;
-      const n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
+    const parseNum = parseRuNumber;
     const lastNum = (cells: string[]) => parseNum(cells[cells.length - 1]);
 
     let periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -1084,8 +1119,7 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
       const s = cellStr(v);
       if (!s) return 0;
       if (/^да$/i.test(s)) return 1;
-      const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
-      return isNaN(n) ? 0 : n;
+      return parseRuNumber(s);
     };
 
     const results: any[] = [];

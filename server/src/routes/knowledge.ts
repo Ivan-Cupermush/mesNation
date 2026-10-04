@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { forbidden } from '../lib/errors';
+import { AppError, forbidden } from '../lib/errors';
 import { hasSubordinateNodes } from '../services/access';
 import multer from 'multer';
 import path from 'path';
@@ -360,6 +360,10 @@ ${context}
     });
 
   } catch (error: any) {
+    const msg = String(error?.message || '') + String(error?.cause?.code || '');
+    if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|model .* not found/i.test(msg)) {
+      throw new AppError(503, 'AI-ассистент сейчас недоступен. Попробуйте позже.');
+    }
     console.error('Ошибка чата:', error);
     throw error;
   }

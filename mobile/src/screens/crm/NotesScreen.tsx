@@ -12,7 +12,8 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Star, Plus, FileText, BookOpen, UserRound, Paperclip } from 'lucide-react-native';
+import { Star, Plus, FileText, BookOpen, UserRound, Paperclip, Copy, CopyPlus, Trash2 } from 'lucide-react-native';
+import ActionSheet from '../../components/chat/ActionSheet';
 import { CalendarView } from '../../components/CalendarView';
 import { api, Note, DayWithNotes } from '../../services/api';
 
@@ -31,6 +32,9 @@ export default function NotesScreen({ navigation }: any) {
   const [daysWithNotes, setDaysWithNotes] = useState<DayWithNotes[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'favorite'>('all');
+  // Меню заметки — нижний лист: системный Alert на Android вмещает только 3 кнопки,
+  // и «Отмена» пропадала.
+  const [menuNote, setMenuNote] = useState<Note | null>(null);
 
   const loadDaysWithNotes = useCallback(async () => {
     try {
@@ -83,50 +87,53 @@ export default function NotesScreen({ navigation }: any) {
     navigation.navigate('NoteEditor', { noteId: note.id, noteDate: note.note_date });
   };
 
-  const handleNoteActions = (note: Note) => {
-    Alert.alert(note.title || 'Без названия', undefined, [
-      {
-        text: 'Скопировать текст',
-        onPress: () => {
-          Clipboard.setString([note.title, note.content].filter(Boolean).join('\n\n'));
-        },
+  const handleNoteActions = (note: Note) => setMenuNote(note);
+
+  const noteActions = (note: Note) => [
+    {
+      key: 'copy',
+      label: 'Скопировать текст',
+      icon: <Copy size={20} color={T.textPrimary} />,
+      onPress: () => Clipboard.setString([note.title, note.content].filter(Boolean).join('\n\n')),
+    },
+    {
+      key: 'duplicate',
+      label: 'Создать копию',
+      icon: <CopyPlus size={20} color={T.textPrimary} />,
+      onPress: async () => {
+        try {
+          await api.duplicateNote(note.id);
+          loadNotes();
+          loadDaysWithNotes();
+        } catch (e: any) {
+          Alert.alert('Ошибка', e?.message || 'Не удалось скопировать заметку');
+        }
       },
-      {
-        text: 'Создать копию',
-        onPress: async () => {
-          try {
-            await api.duplicateNote(note.id);
-            loadNotes();
-            loadDaysWithNotes();
-          } catch (e: any) {
-            Alert.alert('Ошибка', e?.message || 'Не удалось скопировать заметку');
-          }
-        },
-      },
-      {
-        text: 'Удалить',
-        style: 'destructive',
-        onPress: () =>
-          Alert.alert('Удалить заметку?', 'Заметка и её вложения будут удалены.', [
-            { text: 'Отмена', style: 'cancel' },
-            {
-              text: 'Удалить',
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  await api.deleteNote(note.id);
-                  setNotes((prev) => prev.filter((n) => n.id !== note.id));
-                  loadDaysWithNotes();
-                } catch (e: any) {
-                  Alert.alert('Ошибка', e?.message || 'Не удалось удалить заметку');
-                }
-              },
+    },
+    {
+      key: 'delete',
+      label: 'Удалить',
+      danger: true,
+      icon: <Trash2 size={20} color={T.danger} />,
+      onPress: () =>
+        Alert.alert('Удалить заметку?', 'Заметка и её вложения будут удалены.', [
+          { text: 'Отмена', style: 'cancel' },
+          {
+            text: 'Удалить',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await api.deleteNote(note.id);
+                setNotes((prev) => prev.filter((n) => n.id !== note.id));
+                loadDaysWithNotes();
+              } catch (e: any) {
+                Alert.alert('Ошибка', e?.message || 'Не удалось удалить заметку');
+              }
             },
-          ]),
-      },
-      { text: 'Отмена', style: 'cancel' },
-    ]);
-  };
+          },
+        ]),
+    },
+  ];
 
   const formatDate = (date: Date): string => {
     const months = [
@@ -271,6 +278,12 @@ export default function NotesScreen({ navigation }: any) {
       >
         <Plus size={28} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
+      <ActionSheet
+        visible={!!menuNote}
+        title={menuNote ? menuNote.title || 'Без названия' : undefined}
+        actions={menuNote ? noteActions(menuNote) : []}
+        onClose={() => setMenuNote(null)}
+      />
     </SafeAreaView>
   );
 }

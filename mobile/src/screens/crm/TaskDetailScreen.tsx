@@ -419,7 +419,7 @@ export default function TaskDetailScreen({ navigation }: any) {
     if (mimeType.startsWith('image/'))
       return { icon: ImageIcon, color: T.violet, bg: T.violetSoft };
     if (mimeType.startsWith('video/'))
-      return { icon: FileVideo, color: '#EC4899', bg: '#FCE7F3' };
+      return { icon: FileVideo, color: T.danger, bg: T.dangerSoft };
     if (mimeType.startsWith('audio/'))
       return { icon: FileAudio, color: T.info, bg: T.infoSoft };
     if (mimeType.includes('pdf'))
@@ -1385,8 +1385,8 @@ export default function TaskDetailScreen({ navigation }: any) {
                       commentTarget?.required === false || rejectComment.trim()
                         ? commentTarget && commentTarget.to !== 'rejected'
                           ? T.accent
-                          : '#7F1D1D'
-                        : '#ECECE8',
+                          : T.danger
+                        : T.disabled,
                   },
                 ]}
                 activeOpacity={0.85}
@@ -1635,7 +1635,7 @@ const styles = themed(() => ({
     backgroundColor: T.warningSoft,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: T.warning,
   },
   reviewDeadlineLabel: {
     fontSize: 11,

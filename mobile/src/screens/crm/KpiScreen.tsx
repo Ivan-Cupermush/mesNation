@@ -7,8 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
-  CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound
+  CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound,
+  Target, FileSpreadsheet, UserCheck
 } from 'lucide-react-native';
+import ActionSheet, { SheetAction } from '../../components/chat/ActionSheet';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
 
@@ -49,6 +51,7 @@ export default function KpiScreen({ navigation }: any) {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [addMenu, setAddMenu] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -56,8 +59,8 @@ export default function KpiScreen({ navigation }: any) {
         api.getCurrentUser().catch(() => null),
         api.getMyKpi().catch(() => null),
         api.getSalesSummary(period).catch(() => null),
-        api.getSubordinates().catch(() => []),
-        api.getSalesTransactions({ period: period as any }).catch(() => []),
+        api.getSubordinates(period).catch(() => []),
+        api.getSalesTransactions({ period }).catch(() => []),
         api.getTasks({ filter: 'mine' }).catch(() => null),
       ]);
       setCurrentUser(userData);
@@ -103,6 +106,15 @@ export default function KpiScreen({ navigation }: any) {
     });
     return { done, inWork, overdue };
   }, [tasks]);
+
+  // Меню «+»: своя цель, план подчинённому (если есть команда), импорт отчёта.
+  const addActions: SheetAction[] = [
+    { key: 'own', label: 'Добавить свой KPI', icon: <Target size={20} color={T.accent} />, onPress: () => navigation.navigate('AddProductKpi') },
+    ...(subordinates.length > 0 || currentUser?.has_subordinates || currentUser?.is_director
+      ? [{ key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') }]
+      : []),
+    { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('ImportExcel') },
+  ];
 
   const filteredSubs = subordinates.filter((s: any) =>
     (s.display_name || s.username || '').toLowerCase().includes(searchQuery.toLowerCase().trim())
@@ -327,10 +339,17 @@ export default function KpiScreen({ navigation }: any) {
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.85}
-        onPress={() => navigation.navigate('ImportExcel')}
+        onPress={() => setAddMenu(true)}
+        accessibilityLabel="Добавить KPI"
       >
         <Plus size={26} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
+      <ActionSheet
+        visible={addMenu}
+        title="KPI"
+        actions={addActions}
+        onClose={() => setAddMenu(false)}
+      />
     </SafeAreaView>
   );
 }

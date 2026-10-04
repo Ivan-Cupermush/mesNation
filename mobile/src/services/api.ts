@@ -689,7 +689,7 @@ export const api = {
   deleteSalesTarget: (id: number) =>
     request<{ success: boolean }>(`/api/kpi/sales/targets/${id}`, { method: 'DELETE' }),
 
-  getSalesTransactions: (params?: { target_id?: number; period?: 'week' | 'month' }) => {
+  getSalesTransactions: (params?: { target_id?: number; period?: 'week' | 'month' | 'quarter' }) => {
     const query = new URLSearchParams();
     if (params?.target_id) query.set('target_id', String(params.target_id));
     if (params?.period) query.set('period', params.period);
@@ -793,7 +793,8 @@ export const api = {
   getEmployeeStats: (userId: number, period: string = 'month') =>
     request<any>(`/api/kpi/sales/employee/${userId}/stats?period=${period}`),
 
-  getSubordinates: () => request<any[]>('/api/kpi/sales/subordinates'),
+  getSubordinates: (period?: 'week' | 'month' | 'quarter') =>
+    request<any[]>(`/api/kpi/sales/subordinates${period ? `?period=${period}` : ''}`),
 
   // Назначить KPI подчинённому
   assignTarget: (data: {

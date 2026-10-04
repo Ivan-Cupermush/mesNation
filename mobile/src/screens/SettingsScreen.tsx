@@ -25,6 +25,7 @@ import {
   Building2,
   Pencil,
   Palette,
+  Target,
 } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
@@ -110,6 +111,15 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       color: T.warning,
       bg: T.warningSoft,
       screen: 'CreateUserRole',
+    },
+    {
+      id: 'assign-kpi',
+      icon: Target,
+      title: 'Назначить KPI',
+      description: 'План продаж для сотрудника',
+      color: T.accent,
+      bg: T.successSoft,
+      screen: 'AssignKpi',
     },
     {
       id: 'employees',

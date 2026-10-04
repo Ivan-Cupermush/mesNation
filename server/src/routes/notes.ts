@@ -1,21 +1,25 @@
 import { Router, Request, Response } from 'express';
-import { Pool } from 'pg';
+import { z } from 'zod';
+import pool from '../db/pool';
+import { validate } from '../lib/validate';
 
 const router = Router();
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+const month = z.string().regex(/^\d{4}-\d{2}$/, 'Месяц в формате ГГГГ-ММ');
+const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД');
+const listQuery = z.object({ month: month.optional(), date: date.optional(), favorite: z.enum(['true', 'false']).optional() });
+const noteSchema = z.object({
+  title: z.string().max(255).optional(),
+  content: z.string().max(200000).optional(),
+  note_date: date.optional(),
+  is_favorite: z.boolean().optional(),
 });
 
 // GET /api/notes - Получить заметки с фильтрами
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { month, date, favorite } = req.query;
+    const { month, date, favorite } = listQuery.parse(req.query);
     
     let query = `SELECT id, user_id, title, content, is_favorite, 
                         TO_CHAR(note_date, 'YYYY-MM-DD') as note_date,
@@ -45,16 +49,15 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения заметок:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    throw error;
   }
 });
 
 // GET /api/notes/days-with-notes - Получить дни с заметками за месяц
-router.get('/days-with-notes', async (req: Request, res: Response) => {
+router.get(['/days-with-notes', '/days'], async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { month } = req.query;
+    const { month } = listQuery.parse(req.query);
     
     if (!month) {
       return res.status(400).json({ error: 'Параметр month обязателен (формат: YYYY-MM)' });
@@ -72,13 +75,12 @@ router.get('/days-with-notes', async (req: Request, res: Response) => {
     
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения дней с заметками:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    throw error;
   }
 });
 
 // POST /api/notes - Создать новую заметку
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', validate(noteSchema), async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const { title = '', content = '', note_date, is_favorite = false } = req.body;
@@ -96,16 +98,15 @@ router.post('/', async (req: Request, res: Response) => {
     
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Ошибка создания заметки:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    throw error;
   }
 });
 
 // PATCH /api/notes/:id - Обновить заметку
-router.patch('/:id', async (req: Request, res: Response) => {
+async function updateNote(req: Request, res: Response) {
   try {
     const userId = (req as any).userId;
-    const noteId = parseInt(req.params.id);
+    const noteId = Number(req.params.id);
     const { title, content, is_favorite, note_date } = req.body;
     
     const checkResult = await pool.query(
@@ -164,16 +165,17 @@ router.patch('/:id', async (req: Request, res: Response) => {
     const result = await pool.query(query, values);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Ошибка обновления заметки:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    throw error;
   }
-});
+}
+router.patch('/:id', validate(noteSchema), updateNote);
+router.put('/:id', validate(noteSchema), updateNote);
 
 // DELETE /api/notes/:id - Удалить заметку
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const noteId = parseInt(req.params.id);
+    const noteId = Number(req.params.id);
     
     const result = await pool.query(
       'DELETE FROM notes WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -186,9 +188,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
     
     res.json({ success: true });
   } catch (error) {
-    console.error('Ошибка удаления заметки:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    throw error;
   }
+});
+
+// Совместимость с веб-клиентом.
+router.get('/favorites', async (req: Request, res: Response) => {
+  const { rows } = await pool.query(
+    `SELECT id, user_id, title, content, is_favorite, TO_CHAR(note_date, 'YYYY-MM-DD') AS note_date, created_at, updated_at
+     FROM notes WHERE user_id = $1 AND is_favorite ORDER BY updated_at DESC`,
+    [(req as any).userId],
+  );
+  res.json(rows);
 });
 
 export default router;

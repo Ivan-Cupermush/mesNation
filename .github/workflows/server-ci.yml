@@ -1,0 +1,52 @@
+name: Server CI
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mesnation
+          POSTGRES_PASSWORD: mesnation_ci
+          POSTGRES_DB: mesnation_ci
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd "pg_isready -U mesnation"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_USER: mesnation
+      DB_PASSWORD: mesnation_ci
+      DB_NAME: mesnation_ci
+      JWT_SECRET: ci_only_secret_not_used_anywhere_else_0123456789
+      NODE_ENV: test
+      LOG_LEVEL: fatal
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (миграции с нуля + интеграционные тесты API и сокетов)
+        run: npm test
+      - name: Build
+        run: npm run build

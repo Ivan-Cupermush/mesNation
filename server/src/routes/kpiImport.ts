@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
-import pool from '../db/pool';
+import { withTransaction } from '../db/pool';
+import { AuthRequest, authenticate } from '../middleware/auth';
+import { forbidden, badRequest } from '../lib/errors';
+import { isSubordinate } from '../services/access';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -155,11 +158,12 @@ td,th{border-bottom:1px solid #e5e7eb;padding:6px;text-align:left}
 </div>
 <script>
 var token='';
+function esc(v){var d=document.createElement('div');d.textContent=String(v==null?'':v);return d.innerHTML;}
 function doLogin(){
  fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('login').value,password:document.getElementById('password').value})})
  .then(function(r){return r.json()}).then(function(d){
    if(d.token){token=d.token;document.getElementById('loginBox').classList.add('hidden');document.getElementById('uploadBox').classList.remove('hidden');loadUsers();}
-   else{show('Ошибка входа: '+(d.error||''),false);}
+   else{show('Ошибка входа: '+esc(d.error||''),false);}
  });
 }
 function loadUsers(){
@@ -177,12 +181,12 @@ function doUpload(){
  .then(function(r){return r.json()}).then(function(d){
    document.getElementById('btn').disabled=false;
    if(d.success){
-     var html='Импортировано метрик: <b>'+d.imported+'</b>'+(d.employeeName?' (в файле: '+d.employeeName+')':'');
+     var html='Импортировано метрик: <b>'+esc(d.imported)+'</b>'+(d.employeeName?' (в файле: '+esc(d.employeeName)+')':'');
      html+='<table><tr><th>Метрика</th><th>План</th><th>Факт</th><th>%</th><th>Бонус</th><th>К выплате</th></tr>';
-     d.kpis.forEach(function(k){html+='<tr><td>'+k.product_name+'</td><td>'+k.target_value+'</td><td>'+k.current_value+'</td><td>'+k.target_percent+'</td><td>'+(k.bonus_amount||0)+'</td><td>'+(k.payment_amount||0)+'</td></tr>';});
+     d.kpis.forEach(function(k){html+='<tr><td>'+esc(k.product_name)+'</td><td>'+esc(k.target_value)+'</td><td>'+esc(k.current_value)+'</td><td>'+esc(k.target_percent)+'</td><td>'+esc(k.bonus_amount||0)+'</td><td>'+esc(k.payment_amount||0)+'</td></tr>';});
      html+='</table>';show(html,true);
-   } else {show('Ошибка: '+(d.error||'')+' '+(d.details||''),false);}
- }).catch(function(e){document.getElementById('btn').disabled=false;show('Ошибка сети: '+e,false);});
+   } else {show('Ошибка: '+esc(d.error||''),false);}
+ }).catch(function(e){document.getElementById('btn').disabled=false;show('Ошибка сети: '+esc(e),false);});
 }
 function show(html,ok){var el=document.getElementById('result');el.style.display='block';el.className=ok?'ok':'err';el.innerHTML=html;}
 </script></body></html>`;
@@ -192,49 +196,41 @@ router.get('/upload', (req: Request, res: Response) => {
 });
 
 // ================= ИМПОРТ KPI =================
-router.post('/import', upload.single('file'), async (req: any, res: Response) => {
-  try {
-    const targetUserId = parseInt(req.body.userId);
-    if (!targetUserId) return res.status(400).json({ error: 'Не указан сотрудник' });
-    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+router.post('/import', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
+  const targetUserId = Number(req.body.userId);
+  if (!Number.isInteger(targetUserId) || targetUserId <= 0) throw badRequest('Не указан сотрудник');
+  if (!req.file) throw badRequest('Файл не загружен');
+  // Загружать KPI можно только своим подчинённым (директор — всем).
+  if (!(await isSubordinate(req.userId!, targetUserId))) throw forbidden('Загружать KPI можно только своим подчинённым');
 
-    // Гарантируем наличие колонок
-    await pool.query(`ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS bonus_amount NUMERIC DEFAULT 0`);
-    await pool.query(`ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS payment_amount NUMERIC DEFAULT 0`);
-    await pool.query(`ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS target_percent NUMERIC DEFAULT 100`);
-    await pool.query(`ALTER TABLE sales_targets ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''`);
+  const { employeeName, metrics } = parseWorkbook(req.file.buffer);
+  if (!metrics.length) throw badRequest('В файле не найдено ни одной метрики KPI');
 
-    const { employeeName, metrics } = parseWorkbook(req.file.buffer);
-    console.log(`📊 KPI import: employee="${employeeName}", metrics=${metrics.length}`);
+  const now = new Date();
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-    const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    // Удаляем старые KPI за этот период
-    await pool.query(
-      `DELETE FROM sales_targets WHERE user_id = $1 AND period_start >= $2 AND period_end <= $3`,
-      [targetUserId, periodStart, periodEnd]
+  // Замена KPI за период атомарна: при ошибке старые данные остаются на месте.
+  const saved = await withTransaction(async (client) => {
+    await client.query(
+      'DELETE FROM sales_targets WHERE user_id = $1 AND period_start >= $2 AND period_end <= $3',
+      [targetUserId, periodStart, periodEnd],
     );
-
-    const saved: any[] = [];
+    const out: any[] = [];
     for (const m of metrics) {
-      const r = await pool.query(
+      const r = await client.query(
         `INSERT INTO sales_targets
-         (user_id, product_name, metric_type, target_value, current_value,
-          period_start, period_end, bonus_amount, payment_amount, target_percent, description)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-        [targetUserId, m.name, metricTypeOf(m), m.plan, m.fact,
-         periodStart, periodEnd, m.bonus, m.payment, m.percent, m.subItems.join('; ')]
+           (user_id, product_name, metric_type, target_value, current_value,
+            period_start, period_end, bonus_amount, payment_amount, target_percent, description, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [targetUserId, m.name, metricTypeOf(m), m.plan, m.fact, periodStart, periodEnd, m.bonus, m.payment, m.percent, m.subItems.join('; '), req.userId],
       );
-      saved.push(r.rows[0]);
+      out.push(r.rows[0]);
     }
+    return out;
+  });
 
-    res.json({ success: true, imported: saved.length, employeeName, kpis: saved });
-  } catch (error) {
-    console.error('❌ KPI import error:', error);
-    res.status(500).json({ error: 'Ошибка импорта', details: error instanceof Error ? error.message : 'unknown' });
-  }
+  res.json({ success: true, imported: saved.length, employeeName, kpis: saved });
 });
 
 export default router;

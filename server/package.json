@@ -1,10 +1,15 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Offix: сервер корпоративного мессенджера и CRM",
+  "main": "dist/src/index.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/db/migrations','dist/src/db/migrations',{recursive:true})\"",
+    "start": "node dist/src/index.js",
+    "migrate": "ts-node-dev --transpile-only src/db/migrate.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +19,8 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.12.0",
     "marked": "^18.0.7",
@@ -21,9 +28,12 @@
     "ollama": "^0.6.3",
     "pdf-parse": "^2.4.5",
     "pg": "^8.21.0",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
     "sharp": "^0.35.3",
     "socket.io": "^4.8.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -34,8 +44,16 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
     "@types/sharp": "^0.31.1",
+    "@types/supertest": "^7.2.1",
     "@types/xlsx": "^0.0.35",
+    "pino-pretty": "^13.2.0",
+    "socket.io-client": "^4.8.4",
+    "supertest": "^7.3.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

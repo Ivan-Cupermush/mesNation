@@ -75,7 +75,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         const data = await res.json();
         setProfile(data);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось загрузить профиль');
     }
     setLoading(false);
@@ -108,7 +108,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           setAvatarUri(SERVER_URL + data.url);
           return;
         }
-      } catch (e) {}
+      } catch {}
       setAvatarMode('fallback');
       setAvatarUri(null);
     } else if (avatarMode === 'token') {
@@ -187,7 +187,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         const data = await res.json();
         Alert.alert('Ошибка', data.error || 'Не удалось обновить');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Сервер недоступен');
     } finally {
       setSaving(false);

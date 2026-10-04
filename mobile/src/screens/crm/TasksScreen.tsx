@@ -158,7 +158,10 @@ export default function TasksScreen({ navigation }: any) {
       const iso = t.executor_deadline || t.hard_deadline;
       return iso ? new Date(iso).getTime() : Infinity;
     };
+    // Принятые задачи — в конце: сверху то, с чем ещё нужно работать.
+    const doneRank = (t: Task) => (t.status_new === 'done' ? 1 : 0);
     list.sort((a, b) => {
+      if (doneRank(a) !== doneRank(b)) return doneRank(a) - doneRank(b);
       const pA = prio[a.importance] ?? 9;
       const pB = prio[b.importance] ?? 9;
       const dA = dl(a);

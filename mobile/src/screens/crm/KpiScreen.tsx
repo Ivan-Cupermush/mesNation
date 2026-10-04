@@ -33,6 +33,8 @@ const FadeIn: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const o = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(o, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <Animated.View style={{ opacity: o }}>{children}</Animated.View>;
 };

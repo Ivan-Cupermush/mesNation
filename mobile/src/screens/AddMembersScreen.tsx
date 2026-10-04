@@ -37,7 +37,7 @@ export default function AddMembersScreen({ route, navigation }: any) {
       const chat = chatsData.find((c: any) => String(c.id) === String(chatId));
       const memberIds = chat?.members?.map((m: any) => m.id) || [];
       setUsers(usersData.filter((u: any) => !memberIds.includes(u.id)));
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось загрузить пользователей');
     }
     setLoading(false);
@@ -60,7 +60,7 @@ export default function AddMembersScreen({ route, navigation }: any) {
         const err = await res.json();
         Alert.alert('Ошибка', err.error || 'Не удалось добавить');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Сервер недоступен');
     }
     setAddingId(null);

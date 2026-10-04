@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { View, StatusBar, ScrollView, Platform } from 'react-native';
+import { View, StatusBar, ScrollView } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 

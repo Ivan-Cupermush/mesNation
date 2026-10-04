@@ -35,7 +35,7 @@ export default function AssignKpiScreen({ navigation }: any) {
     try {
       const data = await api.getSubordinates();
       setSubordinates(data);
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось загрузить список подчинённых');
     } finally {
       setLoading(false);

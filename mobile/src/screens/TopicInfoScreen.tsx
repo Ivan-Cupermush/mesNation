@@ -69,16 +69,20 @@ export default function TopicInfoScreen({ navigation }: any) {
       }
       if (chatsRes.ok) setChat(await chatsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось загрузить топик');
     }
     setLoading(false);
   };
 
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [chatId, topicId]);
 
   useEffect(() => {
     if (topicId) loadTabItems(activeTab);
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, topicId]);
 
   // Менять и удалять тему могут её автор и админы с правом изменения группы.
@@ -115,7 +119,7 @@ export default function TopicInfoScreen({ navigation }: any) {
         const d = await res.json();
         Alert.alert('Ошибка', d.error || 'Не удалось сохранить');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Сервер недоступен');
     } finally {
       setSaving(false);
@@ -148,7 +152,7 @@ export default function TopicInfoScreen({ navigation }: any) {
       });
       if (res.ok) setTabItems(await res.json());
       else setTabItems([]);
-    } catch (e) { setTabItems([]); }
+    } catch { setTabItems([]); }
     setLoadingTab(false);
   };
 
@@ -171,7 +175,7 @@ export default function TopicInfoScreen({ navigation }: any) {
         setAvailableChats(chats.filter((c: any) => String(c.id) !== String(chatId)));
         setShowForwardModal(true);
       }
-    } catch (e) {}
+    } catch {}
   };
 
   const forwardTo = async (toChatId: number) => {
@@ -186,7 +190,7 @@ export default function TopicInfoScreen({ navigation }: any) {
         });
       }
       Alert.alert('Готово', `Переслано: ${selectedIds.length}`);
-    } catch (e) { Alert.alert('Ошибка', 'Не удалось переслать'); }
+    } catch { Alert.alert('Ошибка', 'Не удалось переслать'); }
     setShowForwardModal(false);
     setSelectedIds([]);
   };

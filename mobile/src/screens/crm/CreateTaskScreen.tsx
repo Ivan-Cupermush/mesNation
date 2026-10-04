@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  KeyboardAvoidingView,
   Platform,
   TextInput,
   Modal,
@@ -78,6 +79,27 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   const [showCpPicker, setShowCpPicker] = useState(false);
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [prefilling, setPrefilling] = useState(isEdit);
+  // Уход с экрана с несохранёнными данными — спрашиваем (раньше форма терялась молча).
+  const savedRef = React.useRef(false);
+  const initialRef = React.useRef('');
+  const snapshot = JSON.stringify([title, description, importance, executorDeadline, reviewerDeadline, selectedAssignees.map((u) => u.id), selectedWatchers.map((u) => u.id), checkpoints.length, files.length]);
+  const snapshotRef = React.useRef(snapshot);
+  snapshotRef.current = snapshot;
+  useEffect(() => {
+    if (!prefilling) initialRef.current = snapshotRef.current;
+  }, [prefilling]);
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', (e: any) => {
+        if (savedRef.current || prefilling || snapshotRef.current === initialRef.current) return;
+        e.preventDefault();
+        Alert.alert(isEdit ? 'Отменить изменения?' : 'Отменить создание задачи?', 'Введённые данные не сохранятся.', [
+          { text: 'Остаться', style: 'cancel' },
+          { text: 'Выйти', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+        ]);
+      }),
+    [navigation, isEdit, prefilling],
+  );
 
   useEffect(() => {
     loadUsers();
@@ -170,6 +192,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           assignee_ids: selectedAssignees.map((u) => u.id),
           watcher_ids: selectedWatchers.map((u) => u.id),
         });
+        savedRef.current = true;
         navigation.goBack();
         return;
       }
@@ -183,6 +206,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         reviewer_deadline: reviewerDeadline?.toISOString(),
         checkpoints: checkpoints.map((c) => ({ title: c.title, deadline: c.deadline.toISOString() })),
       });
+      savedRef.current = true;
       // Файлы загружаем после создания задачи; ошибка одного файла не теряет задачу.
       const failed: string[] = [];
       for (const f of files) {
@@ -321,6 +345,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <ActivityIndicator size="large" color={T.accent} />
         </View>
       ) : (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -615,6 +640,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
       )}
 
       {/* ===== МОДАЛКИ ===== */}

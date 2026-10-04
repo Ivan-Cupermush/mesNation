@@ -40,6 +40,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   useEffect(() => {
     generateDays();
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth]);
 
   const generateDays = () => {

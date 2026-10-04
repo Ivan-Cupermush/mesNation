@@ -12,7 +12,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Plus, Minus, Maximize2, Users } from 'lucide-react-native';
 import { useTheme } from '../theme/ThemeContext';
 
-import { NODE_WIDTH, NODE_HEIGHT, LayoutNode, RoleNode, buildForest, flatten } from './treeLayout';
+import { NODE_WIDTH, NODE_HEIGHT, RoleNode, buildForest, flatten } from './treeLayout';
 
 import { T, themed } from '../theme/runtime';
 export type { RoleNode };

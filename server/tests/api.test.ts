@@ -556,3 +556,62 @@ describe('жизненный цикл задачи', () => {
     expect((await as(c.mgr2).post(`/api/tasks/${other.id}/transition`, { to_status: 'done' })).status).toBe(403);
   });
 });
+
+describe('дымовой тест: экраны не падают с ошибкой сервера', () => {
+  const GETS = [
+    '/api/auth/me',
+    '/api/users',
+    '/api/users/assignable',
+    '/api/chats',
+    '/api/tasks',
+    '/api/tasks?filter=team',
+    '/api/tasks?overdue=true',
+    '/api/notes',
+    '/api/notes/favorites',
+    `/api/notes/days?month=${new Date().toISOString().slice(0, 7)}`,
+    '/api/role-tree',
+    '/api/role-tree/subtree-users',
+    '/api/kpi/sales/targets',
+    '/api/kpi/sales/targets/my-monthly',
+    '/api/kpi/sales/targets/subordinates',
+    '/api/kpi/sales/transactions',
+    '/api/kpi/sales/summary',
+    '/api/kpi/sales/subordinates',
+    '/api/kpi/sales/import/history',
+    '/api/knowledge/documents',
+    '/api/knowledge/sessions',
+  ];
+  it.each(GETS)('GET %s', async (url) => {
+    for (const who of [c.dir, c.mgr1]) {
+      const r = await as(who).get(url);
+      expect(r.status, `${url} → ${JSON.stringify(r.body).slice(0, 200)}`).toBeLessThan(500);
+    }
+  });
+
+  it('KPI: план от руководителя сотрудник не может уменьшить или удалить', async () => {
+    const assign = await as(c.sales).post('/api/kpi/sales/targets/personal-monthly', { user_id: c.mgr1.id, target_value: 100000 });
+    expect(assign.status, JSON.stringify(assign.body)).toBeLessThan(300);
+    const mine = await as(c.mgr1).get('/api/kpi/sales/targets/my-monthly');
+    expect(mine.status).toBe(200);
+    const id = (mine.body?.id ?? mine.body?.target?.id) as number;
+    expect(id).toBeTruthy();
+    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${id}`, { target_value: 1 })).status).toBe(403);
+    expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${id}`)).status).toBe(403);
+    expect((await as(c.sales).patch(`/api/kpi/sales/targets/${id}`, { target_value: 120000 })).status).toBe(200);
+  });
+
+  it('KPI: своя цель, продажи только положительные, понятные ошибки', async () => {
+    const t = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Ноутбук', target_value: 10 });
+    expect(t.status, JSON.stringify(t.body)).toBe(201);
+    expect((await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'X', target_value: 'abc' })).status).toBe(400);
+    expect((await as(c.mgr1).post('/api/kpi/sales/transactions', { product_name: 'Ноутбук', quantity: -5, target_id: t.body.id })).status).toBe(400);
+    const ok = await as(c.mgr1).post('/api/kpi/sales/transactions', { product_name: 'Ноутбук', quantity: 2, target_id: t.body.id });
+    expect(ok.status).toBe(201);
+    expect((await as(c.mgr1).patch('/api/kpi/sales/targets/abc', { target_value: 5 })).status).toBe(400);
+    // Все три типа показателя из приложения принимаются, своя цель редактируется.
+    const contracts = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Договоры', metric_type: 'contracts', target_value: 3 });
+    expect(contracts.status).toBe(201);
+    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${contracts.body.id}`, { target_value: 4 })).status).toBe(200);
+    expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${contracts.body.id}`)).status).toBe(200);
+  });
+});

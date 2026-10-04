@@ -118,7 +118,7 @@ export default function KnowledgeScreen({ navigation }: any) {
       setMessages(prev =>
         prev.map(m => (m.id === messageId ? { ...m, feedback } : m))
       );
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось сохранить отзыв');
     }
   };
@@ -129,6 +129,8 @@ export default function KnowledgeScreen({ navigation }: any) {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, isTyping]);
 
   const formatTime = (dateStr: string) => {

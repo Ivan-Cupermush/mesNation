@@ -67,7 +67,7 @@ export default function DailyMotivationScreen({ navigation }: any) {
           setAvg(t > 0 ? r / t : 0);
         }
         if (kpi) setProgress(Math.min(150, Number(kpi.progress_percent || kpi.progress) || 0));
-      } catch (e) {}
+      } catch {}
     })();
   }, []);
 

@@ -1,4 +1,4 @@
-﻿export const SERVER_URL = 'https://offixcrm.ru';
+﻿export const SERVER_URL = '';
 
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'current_user';
@@ -24,3 +24,4 @@ export function getCurrentUser(): any {
   const data = localStorage.getItem(USER_KEY);
   return data ? JSON.parse(data) : null;
 }
+

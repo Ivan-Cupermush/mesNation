@@ -66,7 +66,9 @@ export interface LoginResponse {
 
 export const api = {
   login: async (username: string, password: string): Promise<LoginResponse> => {
-    const response = await apiClient.post('/api/auth/login', { username, email: username, password });
+    console.log('=== ЛОВУшка: ЗАПРОС ИДЁТ НА ===', '/api/auth/login');
+    console.log('=== ЛОВУШКА: ЗАПРОС ИДЁТ НА ===', '/api/auth/login');
+    const response = await apiClient.post('/api/auth/login', { username, password });
     return response.data;
   },
 
@@ -199,6 +201,24 @@ export const getSalesTransactions = (params?: any): Promise<any[]> =>
   request<any[]>('/api/kpi/sales/transactions', { params });
 
 // ==================== РџРћР›Р¬Р—РћР’РђРўР•Р›Р Р Р”Р•Р Р•Р’Рћ Р РћР›Р•Р™ ====================
+
+// ==================== РОЛИ (ДЕРЕВО) ====================
+export const getRoleTree = (): Promise<any[]> =>
+  request<any[]>('/api/role-tree').catch(() => []);
+
+export const createRoleNode = (data: { name: string; parent_id: number; color: string; icon: string }): Promise<any> =>
+  request<any>('/api/role-tree', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+
+export const updateRoleNode = (id: number, data: { name: string; color: string; icon: string }): Promise<any> =>
+  request<any>('/api/role-tree/' + id, { method: 'PATCH', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+
+export const deleteRoleNode = (id: number): Promise<any> =>
+  request<any>('/api/role-tree/' + id, { method: 'DELETE' });
+
+// ==================== ПОЛЬЗОВАТЕЛИ (ADMIN) ====================
+export const createUserWithRole = (data: { username: string; email: string; password: string; display_name: string; role_node_id: number }): Promise<any> =>
+  request<any>('/api/role-tree/users', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+
 export const getSubtreeUsers = (): Promise<any[]> =>
   request<any[]>('/api/role-tree/subtree-users').catch(() => []);
 
@@ -339,5 +359,11 @@ export const updateNote = (id: number, data: Partial<{title: string; content: st
 
 export const deleteNote = (id: number): Promise<void> =>
   request<void>(`/api/notes/${id}`, { method: 'DELETE' });
+
+
+
+
+
+
 
 

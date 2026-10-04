@@ -830,7 +830,7 @@ app.get('/api/chats/:chatId/topics/:topicId/media/:type', authenticate, async (r
 });
 
 // ========== РЎРўРђР Рў РЎР•Р Р’Р•Р Рђ ==========
-httpServer.listen(PORT, '0.0.0.0', () => {
+httpServer.listen(parseInt(PORT as string) || 5000, '0.0.0.0', () => {
   console.log(`рџљЂ РЎРµСЂРІРµСЂ Р·Р°РїСѓС‰РµРЅ РЅР° РїРѕСЂС‚Сѓ ${PORT}`);
   
   // Р—Р°РїСѓСЃРєР°РµРј РїРµСЂРёРѕРґРёС‡РµСЃРєСѓСЋ РїСЂРѕРІРµСЂРєСѓ РґРµРґР»Р°Р№РЅРѕРІ (РєР°Р¶РґС‹Р№ С‡Р°СЃ)
@@ -839,7 +839,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 // ==================== РЎРўРђРўРРЎРўРРљРђ РљРћРќРљР Р•РўРќРћР“Рћ РЎРћРўР РЈР”РќРРљРђ ====================
 app.get('/api/kpi/sales/employee/:userId/stats', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = parseInt(req.params.userId);
+    const userId = parseInt(req.params.userId as string);
     if (isNaN(userId)) return res.status(400).json({ error: 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ ID СЃРѕС‚СЂСѓРґРЅРёРєР°' });
     const period = (req.query.period as string) || 'month';
 

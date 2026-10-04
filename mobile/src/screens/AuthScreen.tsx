@@ -7,13 +7,13 @@ import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { SERVER_URL } from '../utils';
-import * as RNFS from 'react-native-fs';
+import { setToken } from '../services/http';
 import CompanySetupScreen from './CompanySetupScreen';
 
 type Screen = 'loading' | 'welcome' | 'login' | 'setup';
 
 export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token: string, user: any) => void }) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [screen, setScreen] = useState<Screen>('loading');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -67,11 +67,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
       if (!res.ok) throw new Error(data.error || 'Ошибка входа');
 
       // Сохраняем токен
-      await RNFS.writeFile(
-        `${RNFS.DocumentDirectoryPath}/token.txt`,
-        data.token,
-        'utf8'
-      );
+      await setToken(data.token);
 
       onLoginSuccess(data.token, data.user);
     } catch (e: any) {
@@ -101,7 +97,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar
-          barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
+          barStyle={isDark ? 'light-content' : 'dark-content'}
           backgroundColor={colors.background}
         />
         <View style={styles.welcomeContent}>
@@ -135,7 +131,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={colors.background}
       />
       <KeyboardAvoidingView

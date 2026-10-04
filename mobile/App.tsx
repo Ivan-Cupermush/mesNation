@@ -4,7 +4,9 @@ import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import * as RNFS from 'react-native-fs';
+import { ApiError, clearToken, getToken, onUnauthorized } from './src/services/http';
+import { connectSocket, disconnectSocket } from './src/services/socket';
+import type { CurrentUser } from './src/services/api';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
 import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
 
@@ -40,8 +42,7 @@ import EmployeesScreen from './src/screens/crm/EmployeesScreen';
 
 // ===== Тема =====
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SERVER_URL, getToken } from './src/utils';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // ========== Навигационные типы ==========
 type ChatStackParamList = {
@@ -235,9 +236,8 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
 }
 
 function MainTabs({ onLogout }: { onLogout: () => void }) {
-  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
     api.getCurrentUser()
@@ -251,14 +251,14 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         headerShown: false,
         tabBarActiveTintColor: colors.tabBarIconActive,
         tabBarInactiveTintColor: colors.tabBarIcon,
+        // Высоту и отступ под системную навигацию (жесты/кнопки, в том числе
+        // на Xiaomi) считает сама библиотека по safe-area. Раньше жёсткие
+        // height: 64 + paddingBottom: insets.bottom «сплющивали» или
+        // поднимали панель на телефонах с режимом edge-to-edge.
         tabBarStyle: {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.border,
           borderTopWidth: StyleSheet.hairlineWidth,
-          height: 64,
-          // Safe area inset added below
-          paddingBottom: 8 + insets.bottom,
-          paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
@@ -303,7 +303,7 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
           tabBarIcon: ({ focused }) => <TabIcon icon={BookOpen} focused={focused} />,
         }}
       />
-      {currentUser && (currentUser.role_name === 'director' || currentUser.role_name === 'admin' || (currentUser.role_name || '').toLowerCase().includes('руководитель')) && (
+      {currentUser && (currentUser.is_director || currentUser.has_subordinates) && (
         <Tab.Screen
           name="SettingsTab"
           options={{
@@ -333,25 +333,41 @@ function RootNavigator() {
   useEffect(() => {
     (async () => {
       const token = await getToken();
-      if (token) {
-        try {
-          const res = await fetch(`${SERVER_URL}/api/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (res.ok) {
-            setIsLoggedIn(true);
-            return;
-          }
-        } catch (e) {}
-        try { await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`); } catch (e) {}
+      if (!token) return setIsLoggedIn(false);
+      try {
+        await api.getCurrentUser();
+        setIsLoggedIn(true);
+      } catch (e) {
+        // Нет сети — не выкидываем из аккаунта: работаем, пока связь не появится.
+        // Выходим только если сервер явно отверг сессию.
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          await clearToken();
+          setIsLoggedIn(false);
+        } else {
+          setIsLoggedIn(true);
+        }
       }
-      setIsLoggedIn(false);
     })();
   }, []);
 
+  // Сессия отозвана (истёк токен, сотрудника деактивировали) — на экран входа.
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        disconnectSocket();
+        setIsLoggedIn(false);
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (isLoggedIn) connectSocket();
+  }, [isLoggedIn]);
+
   const handleLoginSuccess = (_token: string, _user: any) => setIsLoggedIn(true);
   const handleLogout = async () => {
-    try { await RNFS.unlink(`${RNFS.DocumentDirectoryPath}/token.txt`); } catch (e) {}
+    disconnectSocket();
+    await clearToken();
     setIsLoggedIn(false);
   };
 

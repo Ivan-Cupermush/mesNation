@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
-import { io } from 'socket.io-client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ChevronLeft,
   MoreVertical,
@@ -32,16 +32,21 @@ import {
   Trash2,
   X,
   FileText,
-  Image as ImageIcon,
-  BarChart3,
   Plus,
   Check,
+  Clock,
+  CheckCheck,
+  AlertCircle,
+  CalendarClock,
 } from 'lucide-react-native';
 import PollBubble, { PollGlyph } from '../components/PollBubble';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
-import { getToken, SERVER_URL } from '../utils';
+import { SERVER_URL } from '../config';
 import { api } from '../services/api';
-import { pick, types, isCancel } from '@react-native-documents/picker';
+import { request, signedFileUrl, upload } from '../services/http';
+import { joinChat, makeClientId, sendMessage, subscribe } from '../services/socket';
+import DateTimePickerModal from '../components/DateTimePickerModal';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
@@ -78,6 +83,13 @@ const dayLabel = (d: Date) => {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 };
 
+type SendStatus = 'sending' | 'sent' | 'failed';
+
+/** Сообщение на экране: серверное или ещё отправляющееся (локальное). */
+type ChatMessage = any & { client_id?: string | null; status?: SendStatus; local?: boolean };
+
+const draftKey = (chatId: string, topicId: number | null) => `@offix/draft/${chatId}/${topicId ?? 'main'}`;
+
 export default function ChatScreen({ navigation }: any) {
   const route = useRoute<ChatRouteProp>();
   const chatId = route.params.chatId;
@@ -85,25 +97,31 @@ export default function ChatScreen({ navigation }: any) {
   const topicId = route.params.topicId ?? null;
   const initialMessageId = route.params.messageId;
 
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
-  const [selectedMessage, setSelectedMessage] = useState<any>(null);
-  const [replyTo, setReplyTo] = useState<any>(null);
-  const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
   const [currentPinnedIndex, setCurrentPinnedIndex] = useState(0);
 
-  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardMessage, setForwardMessage] = useState<ChatMessage | null>(null);
   const [availableChats, setAvailableChats] = useState<any[]>([]);
   const [topicMeta, setTopicMeta] = useState<any>(null);
 
   // ===== Вложения (меню скрепки) =====
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+
+  // ===== Отложенная отправка =====
+  const [scheduled, setScheduled] = useState<any[]>([]);
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+  const [showScheduledList, setShowScheduledList] = useState(false);
 
   // ===== Опросы =====
   const [showPollModal, setShowPollModal] = useState(false);
@@ -117,151 +135,143 @@ export default function ChatScreen({ navigation }: any) {
 
   const [membersMap, setMembersMap] = useState<Record<number, { display_name: string; username: string }>>({});
 
-  const socketRef = useRef<any>(null);
   const flatListRef = useRef<FlatList>(null);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listItemsRef = useRef<any[]>([]);
 
   // ===== Загрузка =====
-  const loadMessages = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
+  const withPoll = useCallback(async (m: ChatMessage): Promise<ChatMessage> => {
+    if (!m.poll_id || m.poll) return m;
     try {
-      const url = `${SERVER_URL}/api/messages/${chatId}${topicId ? `?topic_id=${topicId}` : ''}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        const filtered = data.filter((m: any) => {
-          if (m.deleted_for_all) return false;
-          const del = m.deleted_for_user_ids;
-          if (Array.isArray(del) && currentUserId && del.includes(currentUserId)) return false;
-          return true;
-        });
-        const enriched = await Promise.all(filtered.map(async (m: any) => {
-          if (m.poll_id && !m.poll) {
-            try {
-              const tok2 = await getToken();
-              const pr = await fetch(`${SERVER_URL}/api/polls/${m.poll_id}/results`, {
-                headers: { Authorization: `Bearer ${tok2}` },
-              });
-              if (pr.ok) {
-                const pd = await pr.json();
-                return { ...m, poll: pd.poll, my_votes: pd.my_votes };
-              }
-            } catch (e) {}
-          }
-          return m;
-        }));
-        setMessages(enriched);
-      }
-    } catch (e) {}
-    setLoading(false);
-  }, [chatId, topicId, currentUserId]);
-
-  const loadPinned = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const url = `${SERVER_URL}/api/messages/${chatId}/pinned${topicId ? `?topic_id=${topicId}` : ''}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setPinnedMessages(await res.json());
-    } catch (e) {}
-  }, [chatId, topicId]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const me = await api.getCurrentUser();
-        setCurrentUserId(me.id);
-      } catch (e) {}
-    })();
+      const pd = await request<any>(`/api/polls/${m.poll_id}/results`);
+      return { ...m, poll: pd.poll, my_votes: pd.my_votes };
+    } catch {
+      return m;
+    }
   }, []);
 
-  useEffect(() => {
-    if (currentUserId !== null) loadMessages();
-  }, [currentUserId, loadMessages]);
-
-  // ===== Загрузка участников чата (для отображения имен отправителей) =====
-  const loadMembers = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
+  const loadMessages = useCallback(async () => {
     try {
-      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const data = await request<ChatMessage[]>(`/api/messages/${chatId}`, {
+        query: { topic_id: topicId ?? undefined, limit: 300 },
       });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data.members || [];
-        const map: Record<number, { display_name: string; username: string }> = {};
-        list.forEach((m: any) => {
-          const uid = m.user_id ?? m.id;
-          if (uid != null) {
-            map[uid] = {
-              display_name: m.display_name || '',
-              username: m.username || '',
-            };
-          }
-        });
-        setMembersMap(map);
-      }
-    } catch (e) {}
+      const enriched = await Promise.all(data.filter((m) => !m.deleted_for_all).map(withPoll));
+      // Неотправленные локальные сообщения не теряем при перезагрузке истории.
+      setMessages((prev) => {
+        const pending = prev.filter((m) => m.local && m.status !== 'sent');
+        return [...enriched, ...pending.filter((p) => !enriched.some((e) => e.client_id && e.client_id === p.client_id))];
+      });
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Не удалось загрузить сообщения');
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId, topicId, withPoll]);
+
+  const loadPinned = useCallback(async () => {
+    try {
+      setPinnedMessages(await request<any[]>(`/api/messages/${chatId}/pinned`, { query: { topic_id: topicId ?? undefined } }));
+    } catch {
+      // закреп — второстепенная информация, экран работает и без неё
+    }
+  }, [chatId, topicId]);
+
+  const loadScheduled = useCallback(async () => {
+    try {
+      setScheduled(await request<any[]>(`/api/chats/${chatId}/scheduled`, { query: { topic_id: topicId ?? undefined } }));
+    } catch {
+      setScheduled([]);
+    }
+  }, [chatId, topicId]);
+
+  const loadMembers = useCallback(async () => {
+    try {
+      const list = await request<any[]>(`/api/chats/${chatId}/members`);
+      const map: Record<number, { display_name: string; username: string }> = {};
+      list.forEach((m) => {
+        map[m.id] = { display_name: m.display_name || '', username: m.username || '' };
+      });
+      setMembersMap(map);
+    } catch {
+      // имена отправителей приходят и в самих сообщениях
+    }
   }, [chatId]);
 
-
   useEffect(() => {
+    api.getCurrentUser().then((me) => setCurrentUserId(me.id)).catch(() => undefined);
+    loadMessages();
     loadPinned();
-  }, [loadPinned]);
-  useEffect(() => {
     loadMembers();
-  }, [loadMembers]);
+    loadScheduled();
+  }, [loadMessages, loadPinned, loadMembers, loadScheduled]);
 
-
-  // ===== WebSocket =====
+  // ===== Черновик: сохраняется при наборе, восстанавливается при входе =====
   useEffect(() => {
-    const socket = io(SERVER_URL);
-    socketRef.current = socket;
-    socket.emit('join_chat', chatId);
+    AsyncStorage.getItem(draftKey(chatId, topicId))
+      .then((d) => d && setText((cur) => cur || d))
+      .catch(() => undefined);
+  }, [chatId, topicId]);
 
-    socket.on('new_message', (msg: any) => {
-      if (String(msg.chat_id) !== String(chatId)) return;
-      const msgTopic = msg.topic_id ?? null;
-      if (msgTopic !== topicId) return;
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        // Если пришло новое сообщение-опрос, обогащаем сразу
-        if (msg.poll_id) {
-          (async () => {
-            try {
-              const tok = await getToken();
-              const pr = await fetch(`${SERVER_URL}/api/polls/${msg.poll_id}/results`, {
-                headers: { Authorization: `Bearer ${tok}` },
-              });
-              if (pr.ok) {
-                const pd = await pr.json();
-                setMessages((p) =>
-                  p.map((x) => x.id === msg.id ? { ...x, poll: pd.poll, my_votes: pd.my_votes } : x),
-                );
-              }
-            } catch (e) {}
-          })();
+  const onChangeText = (value: string) => {
+    setText(value);
+    if (editingMessage) return; // правка сообщения — не черновик
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      const key = draftKey(chatId, topicId);
+      (value.trim() ? AsyncStorage.setItem(key, value) : AsyncStorage.removeItem(key)).catch(() => undefined);
+    }, 400);
+  };
+
+  const clearDraft = () => {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    AsyncStorage.removeItem(draftKey(chatId, topicId)).catch(() => undefined);
+  };
+
+  // ===== Реальное время =====
+  useEffect(() => {
+    let leave: (() => void) | undefined;
+    joinChat(chatId).then((fn) => (leave = fn));
+    const belongsHere = (msg: any) => String(msg.chat_id) === String(chatId) && (msg.topic_id ?? null) === topicId;
+
+    const unsubs = [
+      subscribe('new_message', async (msg: any) => {
+        if (!belongsHere(msg)) return;
+        const full = await withPoll(msg);
+        setMessages((prev) => {
+          // Подтверждение нашей же отправки: заменяем локальную копию.
+          if (full.client_id && prev.some((m) => m.client_id === full.client_id)) {
+            return prev.map((m) => (m.client_id === full.client_id ? { ...full, status: 'sent' } : m));
+          }
+          if (prev.some((m) => m.id === full.id)) return prev;
+          return [...prev, full];
+        });
+      }),
+      subscribe('message_edited', (msg: any) => {
+        if (!belongsHere(msg)) return;
+        setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
+      }),
+      subscribe('message_deleted', ({ id }: { id: number }) => {
+        setMessages((prev) => prev.filter((m) => m.id !== id));
+        loadPinned();
+      }),
+      subscribe('message_pinned', () => loadPinned()),
+      subscribe('message_unpinned', () => loadPinned()),
+      subscribe('poll_updated', async ({ poll_id }: { poll_id: number }) => {
+        try {
+          const pd = await request<any>(`/api/polls/${poll_id}/results`);
+          setMessages((prev) => prev.map((m) => (m.poll_id === poll_id ? { ...m, poll: pd.poll, my_votes: pd.my_votes } : m)));
+        } catch {
+          // опрос мог стать недоступен
         }
-        // Обогащаем именем отправителя из membersMap, если сервер не прислал
-        const enrichedMsg = {
-          ...msg,
-          sender_name: msg.sender_display_name || msg.sender_name || (membersMap[msg.sender_id]?.display_name || membersMap[msg.sender_id]?.username),
-        };
-        return [...prev, enrichedMsg];
-      });
-    });
-    socket.on('message_deleted', ({ id }: { id: number }) => {
-      setMessages((prev) => prev.filter((m) => m.id !== id));
-    });
-    socket.on('message_pinned', () => loadPinned());
-    socket.on('message_unpinned', () => loadPinned());
-
+      }),
+      subscribe('scheduled_changed', () => loadScheduled()),
+    ];
     return () => {
-      socket.emit('leave_chat', chatId);
-      socket.disconnect();
+      unsubs.forEach((u) => u());
+      leave?.();
     };
-  }, [chatId, topicId, loadPinned]);
+  }, [chatId, topicId, loadPinned, loadScheduled, withPoll]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -271,102 +281,146 @@ export default function ChatScreen({ navigation }: any) {
 
   useEffect(() => {
     if (!loading && initialMessageId) {
-      const idx = messages.findIndex((m) => m.id === initialMessageId);
+      const idx = listItemsRef.current.findIndex((m: any) => m.id === initialMessageId);
       if (idx >= 0) {
         setTimeout(() => flatListRef.current?.scrollToIndex({ index: idx, animated: true }), 200);
       }
     }
-  }, [loading, initialMessageId, messages]);
+  }, [loading, initialMessageId]);
 
   // ===== Метаданные топика (иконка в шапке) =====
   useEffect(() => {
     if (!topicId) return;
-    (async () => {
-      const token = await getToken();
-      if (!token) return;
-      try {
-        const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const topics = await res.json();
-          const found = topics.find((x: any) => x.id === topicId);
-          if (found) setTopicMeta(found);
-        }
-      } catch (e) {}
-    })();
+    request<any[]>(`/api/chats/${chatId}/topics`)
+      .then((topics) => setTopicMeta(topics.find((x) => x.id === topicId) || null))
+      .catch(() => undefined);
   }, [chatId, topicId]);
 
-  // ===== Отправка сообщения =====
+  // ===== Отправка =====
+
+  /** Отправляет (или повторяет отправку) локального сообщения. */
+  const deliver = async (local: ChatMessage) => {
+    setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'sending' } : m)));
+    try {
+      const saved = await sendMessage({
+        chatId,
+        text: local.text,
+        reply_to_message_id: local.reply_to_message_id ?? null,
+        topic_id: topicId,
+        client_id: local.client_id,
+      });
+      setMessages((prev) => {
+        // Сообщение могло уже прийти по сокету — тогда локальную копию просто убираем.
+        if (prev.some((m) => m.id === saved.id && m.client_id === local.client_id && !m.local)) {
+          return prev.filter((m) => !(m.local && m.client_id === local.client_id));
+        }
+        return prev.map((m) => (m.client_id === local.client_id ? { ...saved, status: 'sent' } : m));
+      });
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'failed' } : m)));
+    }
+  };
+
   const handleSend = async () => {
     const t = text.trim();
     if (!t) return;
 
     if (editingMessage) {
       try {
-        const token = await getToken();
-        const res = await fetch(`${SERVER_URL}/api/messages/${editingMessage.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ text: t }),
-        });
-        if (res.ok) {
-          const updated = await res.json();
-          setMessages((prev) =>
-            prev.map((m) => (m.id === updated.id ? { ...m, ...updated, edited: true } : m)),
-          );
-        } else {
-          Alert.alert('Ошибка', 'Не удалось изменить сообщение');
-        }
-      } catch (e) {
-        Alert.alert('Ошибка', 'Сервер недоступен');
+        const updated = await request<any>(`/api/messages/${editingMessage.id}`, { method: 'PATCH', body: { text: t } });
+        setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)));
+        setEditingMessage(null);
+        setText('');
+      } catch (e: any) {
+        Alert.alert('Не удалось изменить', e?.message || 'Попробуйте ещё раз');
       }
-      setEditingMessage(null);
-      setText('');
       return;
     }
 
-    const payload: any = { chatId, senderId: currentUserId, text: t };
-    if (replyTo) payload.reply_to_message_id = replyTo.id;
-    if (topicId) payload.topic_id = topicId;
-    socketRef.current?.emit('send_message', payload);
+    const local: ChatMessage = {
+      id: `local-${makeClientId()}`,
+      local: true,
+      client_id: makeClientId(),
+      status: 'sending',
+      chat_id: chatId,
+      topic_id: topicId,
+      sender_id: currentUserId,
+      text: t,
+      reply_to_message_id: replyTo?.id ?? null,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, local]);
     setReplyTo(null);
     setText('');
+    clearDraft();
+    deliver(local);
+  };
+
+  const retryOrDiscard = (m: ChatMessage) => {
+    Alert.alert('Сообщение не отправлено', 'Нет связи с сервером или чат недоступен.', [
+      { text: 'Удалить', style: 'destructive', onPress: () => setMessages((prev) => prev.filter((x) => x.client_id !== m.client_id)) },
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Повторить', onPress: () => deliver(m) },
+    ]);
+  };
+
+  // ===== Отложенная отправка =====
+  const scheduleMessage = async (sendAt: Date) => {
+    const t = text.trim();
+    setShowSchedulePicker(false);
+    if (!t) return;
+    try {
+      await request(`/api/chats/${chatId}/scheduled`, {
+        method: 'POST',
+        body: { text: t, send_at: sendAt.toISOString(), topic_id: topicId, reply_to_message_id: replyTo?.id ?? null },
+      });
+      setText('');
+      setReplyTo(null);
+      clearDraft();
+      loadScheduled();
+      Alert.alert('Запланировано', `Сообщение будет отправлено ${sendAt.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e: any) {
+      Alert.alert('Не удалось запланировать', e?.message || 'Попробуйте ещё раз');
+    }
+  };
+
+  const cancelScheduled = async (id: number) => {
+    try {
+      await request(`/api/scheduled/${id}`, { method: 'DELETE' });
+      loadScheduled();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e?.message || 'Не удалось отменить');
+    }
+  };
+
+  const sendScheduledNow = async (id: number) => {
+    try {
+      await request(`/api/scheduled/${id}/send-now`, { method: 'POST' });
+      loadScheduled();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e?.message || 'Не удалось отправить');
+    }
+  };
+
+  const onSendLongPress = () => {
+    if (!text.trim() || editingMessage) return;
+    setShowSchedulePicker(true);
   };
 
   const pickAndSendFile = async () => {
     try {
-      const result = await pick({
-        type: [types.allFiles],
-        allowMultiSelection: false,
-        copyTo: 'cachesDirectory',
-      });
-      const file = result[0];
-      if (!file || !file.uri) return;
-
+      const [file] = await pick({ type: [types.allFiles], allowMultiSelection: false });
+      if (!file?.uri) return;
       setUploading(true);
-      const token = await getToken();
-      const formData = new FormData();
-      formData.append('file', {
-        uri: file.uri,
-        name: file.name || 'file',
-        type: file.type || 'application/octet-stream',
-      } as any);
-      formData.append('chatId', chatId);
-      formData.append('senderId', String(currentUserId || 1));
-      if (topicId) formData.append('topicId', String(topicId));
-
-      const res = await fetch(`${SERVER_URL}/api/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        Alert.alert('Ошибка', data.error || 'Не удалось загрузить файл');
-      }
+      await upload(
+        '/api/upload',
+        'file',
+        { uri: file.uri, name: file.name || 'file', type: file.type },
+        { chatId, topicId: topicId ?? undefined, client_id: makeClientId() },
+      );
     } catch (err: any) {
-      if (!isCancel(err)) Alert.alert('Ошибка', 'Не удалось выбрать файл');
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
+      Alert.alert('Не удалось отправить файл', err?.message || 'Попробуйте ещё раз');
     } finally {
       setUploading(false);
     }
@@ -390,75 +444,53 @@ export default function ChatScreen({ navigation }: any) {
 
     setSendingPoll(true);
     try {
-      const token = await getToken();
-      const res = await fetch(`${SERVER_URL}/api/polls`, {
+      await request('/api/polls', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          chat_id: parseInt(chatId),
-          topic_id: topicId || null,
+        body: {
+          chat_id: Number(chatId),
+          topic_id: topicId,
           question: q,
           options: cleaned,
           is_anonymous: pollAnonymous,
           allows_multiple: pollMultiple,
           is_quiz: pollQuiz,
           correct_option_index: correctIdx,
-        }),
+        },
       });
-      if (res.ok) {
-        setPollQuestion('');
-        setPollOptions(['', '']);
-        setPollQuiz(false);
-        setPollMultiple(false);
-        setPollAnonymous(false);
-        setPollCorrectIndex(null);
-        setShowPollModal(false);
-        loadMessages();
-      } else {
-        const d = await res.json();
-        Alert.alert('Ошибка', d.error || 'Не удалось создать опрос');
-      }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setPollQuiz(false);
+      setPollMultiple(false);
+      setPollAnonymous(false);
+      setPollCorrectIndex(null);
+      setShowPollModal(false);
+      // Сам опрос придёт всем участникам по сокету.
+    } catch (e: any) {
+      Alert.alert('Не удалось создать опрос', e?.message || 'Попробуйте ещё раз');
     } finally {
       setSendingPoll(false);
     }
   };
 
-  const deleteMessage = async (scope: 'me' | 'all') => {
-    if (!selectedMessage) return;
-    const id = selectedMessage.id;
-    setSelectedMessage(null);
+  const deleteMessage = async (target: ChatMessage, scope: 'me' | 'all') => {
     try {
-      const token = await getToken();
-      const res = await fetch(`${SERVER_URL}/api/messages/${id}?scope=${scope}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        setMessages((prev) => prev.filter((m) => m.id !== id));
-      } else {
-        Alert.alert('Ошибка', 'Не удалось удалить');
-      }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      await request(`/api/messages/${target.id}`, { method: 'DELETE', query: { scope } });
+      setMessages((prev) => prev.filter((m) => m.id !== target.id));
+    } catch (e: any) {
+      Alert.alert('Не удалось удалить', e?.message || 'Попробуйте ещё раз');
     }
   };
 
   const togglePin = async () => {
     if (!selectedMessage) return;
-    const id = selectedMessage.id;
-    const isPinned = !!selectedMessage.pinned;
+    const target = selectedMessage;
     setSelectedMessage(null);
     try {
-      const token = await getToken();
-      await fetch(`${SERVER_URL}/api/messages/${id}/${isPinned ? 'unpin' : 'pin'}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await request(`/api/messages/${target.id}/${target.pinned ? 'unpin' : 'pin'}`, { method: 'POST' });
+      setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, pinned: !target.pinned } : m)));
       loadPinned();
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+    } catch (e: any) {
+      Alert.alert('Не удалось', e?.message || 'Попробуйте ещё раз');
     }
   };
 
@@ -475,46 +507,31 @@ export default function ChatScreen({ navigation }: any) {
     setSelectedMessage(null);
   };
 
-  const loadAvailableChats = async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const res = await fetch(`${SERVER_URL}/api/chats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setAvailableChats(await res.json());
-    } catch (e) {}
+  const startForward = () => {
+    if (!selectedMessage) return;
+    setForwardMessage(selectedMessage);
+    setSelectedMessage(null);
+    request<any[]>('/api/chats').then(setAvailableChats).catch(() => setAvailableChats([]));
   };
 
   const handleForward = async (toChatId: number) => {
-    if (!selectedMessage) return;
+    const target = forwardMessage;
+    setForwardMessage(null);
+    if (!target) return;
     try {
-      const token = await getToken();
-      const body: any = { messageId: selectedMessage.id, toChatId };
-      if (topicId) body.topicId = topicId;
-      const res = await fetch(`${SERVER_URL}/api/messages/forward`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        Alert.alert('Готово', 'Сообщение переслано');
-      } else {
-        const err = await res.json();
-        Alert.alert('Ошибка', err.error || 'Не удалось переслать');
-      }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      await request('/api/messages/forward', { method: 'POST', body: { messageId: target.id, toChatId } });
+      Alert.alert('Готово', 'Сообщение переслано');
+    } catch (e: any) {
+      Alert.alert('Не удалось переслать', e?.message || 'Попробуйте ещё раз');
     }
-    setShowForwardModal(false);
-    setSelectedMessage(null);
   };
 
   const showPinned = (index: number) => {
     const msg = pinnedMessages[index];
     if (!msg) return;
-    const idx = messages.findIndex((m) => m.id === msg.id);
+    const idx = listItemsRef.current.findIndex((m: any) => m.id === msg.id);
     if (idx >= 0) flatListRef.current?.scrollToIndex({ index: idx, animated: true });
+    setCurrentPinnedIndex((index + 1) % pinnedMessages.length);
   };
 
   const findMessageById = (id: number) => messages.find((m) => m.id === id);
@@ -527,11 +544,13 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  const openFile = (m: any) => {
-    if (m.file_url) {
-      Linking.openURL(`${SERVER_URL}${m.file_url}`).catch(() =>
-        Alert.alert('Ошибка', 'Не удалось открыть файл'),
-      );
+  const openFile = async (m: any) => {
+    if (!m.file_url) return;
+    try {
+      // Файлы чатов защищены: открываем по подписанной ссылке на 10 минут.
+      await Linking.openURL(await signedFileUrl(m.file_url));
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть файл', e?.message || '');
     }
   };
 
@@ -549,6 +568,7 @@ export default function ChatScreen({ navigation }: any) {
     }
     return out;
   }, [messages]);
+  listItemsRef.current = listItems;
 
   const isMineMsg = (m: any) => m.sender_id === currentUserId;
 
@@ -571,7 +591,8 @@ export default function ChatScreen({ navigation }: any) {
       <View style={[styles.msgRow, mine && styles.msgRowMine]}>
         <TouchableOpacity
           activeOpacity={0.8}
-          onLongPress={() => setSelectedMessage(m)}
+          onLongPress={() => (m.local ? retryOrDiscard(m) : setSelectedMessage(m))}
+          onPress={m.status === 'failed' ? () => retryOrDiscard(m) : undefined}
           style={m.poll ? { maxWidth: '100%' } : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}
         >
           {!mine && (
@@ -579,6 +600,12 @@ export default function ChatScreen({ navigation }: any) {
               {senderName}
             </Text>
           )}
+
+          {m.forwarded_from_user_id ? (
+            <Text style={[styles.forwardedLabel, mine && styles.forwardedLabelMine]} numberOfLines={1}>
+              Переслано от {m.forwarded_from_name || 'участника'}
+            </Text>
+          ) : null}
 
           {m.reply_to_message_id && (
             <View style={[styles.quoteBox, mine && styles.quoteBoxMine]}>
@@ -645,14 +672,18 @@ export default function ChatScreen({ navigation }: any) {
             <Text style={[styles.msgText, mine && styles.msgTextMine]}>{m.text}</Text>
           ) : null}
 
-          <View style={[styles.msgMeta, mine && styles.msgMetaMine]}>
-            {m.edited && (
+          <View style={styles.msgMeta}>
+            {m.edited_at && (
               <Text style={[styles.metaText, mine && styles.metaTextMine]}>изменено · </Text>
             )}
             <Text style={[styles.metaText, mine && styles.metaTextMine]}>
               {formatTime(m.created_at)}
             </Text>
+            {mine && m.status === 'sending' && <Clock size={12} color="rgba(255,255,255,0.8)" style={{ marginLeft: 4 }} />}
+            {mine && (!m.status || m.status === 'sent') && <CheckCheck size={13} color="rgba(255,255,255,0.85)" style={{ marginLeft: 4 }} />}
+            {mine && m.status === 'failed' && <AlertCircle size={13} color="#FECACA" style={{ marginLeft: 4 }} />}
           </View>
+          {m.status === 'failed' && <Text style={styles.failedHint}>Не отправлено · нажмите, чтобы повторить</Text>}
         </TouchableOpacity>
       </View>
     );
@@ -744,6 +775,13 @@ export default function ChatScreen({ navigation }: any) {
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color="#1F7A52" />
           </View>
+        ) : loadError && messages.length === 0 ? (
+          <View style={styles.loadingWrap}>
+            <Text style={styles.plateText}>{loadError}</Text>
+            <TouchableOpacity onPress={loadMessages} style={{ marginTop: 12 }}>
+              <Text style={styles.plateLabel}>Повторить</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
             ref={flatListRef}
@@ -788,6 +826,17 @@ export default function ChatScreen({ navigation }: any) {
           </View>
         )}
 
+        {/* ===== ЗАПЛАНИРОВАННЫЕ ===== */}
+        {scheduled.length > 0 && (
+          <TouchableOpacity style={styles.plate} onPress={() => setShowScheduledList(true)} activeOpacity={0.7}>
+            <CalendarClock size={16} color="#1F7A52" strokeWidth={2} />
+            <Text style={[styles.plateLabel, { flex: 1, marginLeft: 8 }]}>
+              Запланировано: {scheduled.length}
+            </Text>
+            <Text style={styles.plateText}>Открыть</Text>
+          </TouchableOpacity>
+        )}
+
         {/* ===== ВВОД ===== */}
         <View style={styles.inputBar}>
           <TouchableOpacity
@@ -804,7 +853,7 @@ export default function ChatScreen({ navigation }: any) {
           <TextInput
             style={styles.input}
             value={text}
-            onChangeText={setText}
+            onChangeText={onChangeText}
             placeholder="Сообщение..."
             placeholderTextColor="#BDBDBD"
             multiline
@@ -812,6 +861,8 @@ export default function ChatScreen({ navigation }: any) {
           />
           <TouchableOpacity
             onPress={handleSend}
+            onLongPress={onSendLongPress}
+            delayLongPress={350}
             disabled={!text.trim()}
             style={[styles.sendBtn, { backgroundColor: text.trim() ? '#1F7A52' : '#ECECE8' }]}
           >
@@ -1017,11 +1068,7 @@ export default function ChatScreen({ navigation }: any) {
 
             <TouchableOpacity
               style={styles.sheetRow}
-              onPress={() => {
-                loadAvailableChats();
-                setShowForwardModal(true);
-                setSelectedMessage(null);
-              }}
+              onPress={startForward}
               activeOpacity={0.7}
             >
               <View style={[styles.sheetRowIcon, { backgroundColor: '#FEF3C7' }]}>
@@ -1055,10 +1102,11 @@ export default function ChatScreen({ navigation }: any) {
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => {
+                const target = selectedMessage;
                 setSelectedMessage(null);
                 Alert.alert('Удалить сообщение?', 'Оно исчезнет только у вас', [
                   { text: 'Отмена', style: 'cancel' },
-                  { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage('me') },
+                  { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage(target, 'me') },
                 ]);
               }}
               activeOpacity={0.7}
@@ -1073,10 +1121,11 @@ export default function ChatScreen({ navigation }: any) {
               <TouchableOpacity
                 style={styles.sheetRow}
                 onPress={() => {
+                  const target = selectedMessage;
                   setSelectedMessage(null);
                   Alert.alert('Удалить у всех?', 'Сообщение исчезнет у всех участников', [
                     { text: 'Отмена', style: 'cancel' },
-                    { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage('all') },
+                    { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage(target, 'all') },
                   ]);
                 }}
                 activeOpacity={0.7}
@@ -1091,11 +1140,63 @@ export default function ChatScreen({ navigation }: any) {
         </TouchableOpacity>
       </Modal>
 
+      {/* ===== ОТЛОЖЕННАЯ ОТПРАВКА (долгое нажатие на «Отправить») ===== */}
+      <DateTimePickerModal
+        visible={showSchedulePicker}
+        initialDate={new Date(Date.now() + 60 * 60 * 1000)}
+        minDate={new Date()}
+        title="Отправить позже"
+        onClose={() => setShowSchedulePicker(false)}
+        onSave={scheduleMessage}
+      />
+
+      <Modal visible={showScheduledList} transparent animationType="slide" onRequestClose={() => setShowScheduledList(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowScheduledList(false)} style={styles.sheetOverlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>ЗАПЛАНИРОВАННЫЕ СООБЩЕНИЯ</Text>
+            <FlatList
+              data={scheduled}
+              keyExtractor={(item) => String(item.id)}
+              style={{ maxHeight: 360 }}
+              ListEmptyComponent={<Text style={styles.plateText}>Нет запланированных сообщений</Text>}
+              renderItem={({ item }) => (
+                <View style={styles.scheduledRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scheduledTime}>
+                      {new Date(item.send_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    <Text style={styles.sheetRowText} numberOfLines={2}>{item.text}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => sendScheduledNow(item.id)} style={styles.scheduledBtn}>
+                    <SendHorizonal size={16} color="#1F7A52" strokeWidth={2} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() =>
+                      Alert.alert('Отменить отправку?', item.text, [
+                        { text: 'Нет', style: 'cancel' },
+                        { text: 'Отменить', style: 'destructive', onPress: () => cancelScheduled(item.id) },
+                      ])
+                    }
+                    style={styles.scheduledBtn}
+                  >
+                    <Trash2 size={16} color="#DC2626" strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+            <Text style={[styles.plateText, { marginTop: 8 }]}>
+              Чтобы запланировать: напишите текст и удерживайте кнопку отправки.
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ===== ПЕРЕСЫЛКА ===== */}
-      <Modal visible={showForwardModal} transparent animationType="fade">
+      <Modal visible={!!forwardMessage} transparent animationType="fade" onRequestClose={() => setForwardMessage(null)}>
         <TouchableOpacity
           activeOpacity={1}
-          onPress={() => { setShowForwardModal(false); setSelectedMessage(null); }}
+          onPress={() => setForwardMessage(null)}
           style={styles.sheetOverlay}
         >
           <View style={styles.sheet}>
@@ -1126,6 +1227,12 @@ export default function ChatScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  forwardedLabel: { fontSize: 12, fontStyle: 'italic', color: '#1F7A52', marginBottom: 4 },
+  forwardedLabelMine: { color: 'rgba(255,255,255,0.85)' },
+  failedHint: { fontSize: 11, color: '#DC2626', marginTop: 4, textAlign: 'right' },
+  scheduledRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#ECECE8' },
+  scheduledTime: { fontSize: 12, fontWeight: '700', color: '#1F7A52', marginBottom: 2 },
+  scheduledBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   // ===== HEADER =====

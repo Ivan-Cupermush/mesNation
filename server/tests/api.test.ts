@@ -293,3 +293,24 @@ describe('сотрудники: активность и пароли', () => {
     expect((await as().post('/api/auth/login', { username: 'mgr2', password: r.body.password })).status).toBe(200);
   });
 });
+
+describe('отложенная отправка', () => {
+  it('сообщение уходит в назначенное время и только один раз', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Позже', user_ids: [c.mgr2.id] });
+    const chatId = chat.body.id;
+    const past = await as(c.mgr1).post(`/api/chats/${chatId}/scheduled`, { text: 'x', send_at: new Date(Date.now() - 1000).toISOString() });
+    expect(past.status).toBe(400);
+    const s = await as(c.mgr1).post(`/api/chats/${chatId}/scheduled`, {
+      text: 'Напоминание', send_at: new Date(Date.now() + 120_000).toISOString(),
+    });
+    expect(s.status).toBe(201);
+    expect((await as(c.mgr2).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(0); // чужие не видны
+    expect((await as(c.mgr1).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(1);
+    expect((await as(c.mgr1).post(`/api/scheduled/${s.body.id}/send-now`)).status).toBe(200);
+    const { dispatchDueMessages } = await import('../src/services/scheduledMessages');
+    await dispatchDueMessages();
+    const msgs = (await as(c.mgr2).get(`/api/messages/${chatId}`)).body as any[];
+    expect(msgs.filter((m) => m.text === 'Напоминание')).toHaveLength(1);
+    expect((await as(c.mgr1).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(0);
+  });
+});

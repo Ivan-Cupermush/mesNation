@@ -55,7 +55,8 @@ import {
 } from 'lucide-react-native';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { SERVER_URL } from '../../utils';
-import { pick, types, isCancel } from '@react-native-documents/picker';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
+import { signedFileUrl } from '../../services/http';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
@@ -271,11 +272,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   const handlePickFile = async () => {
     try {
-      const result = await pick({
-        type: [types.allFiles],
-        allowMultiSelection: false,
-        copyTo: 'cachesDirectory',
-      });
+      const result = await pick({ type: [types.allFiles], allowMultiSelection: false });
       const file = result[0];
       if (!file || !file.uri) return;
 
@@ -295,7 +292,7 @@ export default function TaskDetailScreen({ navigation }: any) {
         setUploadingFile(false);
       }
     } catch (e: any) {
-      if (!isCancel(e)) {
+      if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
         Alert.alert('Ошибка', 'Не удалось выбрать файл');
       }
     }
@@ -323,11 +320,13 @@ export default function TaskDetailScreen({ navigation }: any) {
     );
   };
 
-  const handleOpenFile = (fileUrl: string) => {
-    const fullUrl = `${SERVER_URL}${fileUrl}`;
-    Linking.openURL(fullUrl).catch(() => {
-      Alert.alert('Ошибка', 'Не удалось открыть файл');
-    });
+  const handleOpenFile = async (fileUrl: string) => {
+    try {
+      // Файлы задач доступны только участникам: открываем по подписанной ссылке.
+      await Linking.openURL(await signedFileUrl(fileUrl));
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть файл', e?.message || '');
+    }
   };
 
   const getFileIconData = (

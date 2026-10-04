@@ -6,6 +6,7 @@ import { migrate } from './db/migrate';
 import { createApp } from './app';
 import { initSocket } from './realtime/socket';
 import { startDeadlineChecker } from './services/deadlineChecker';
+import { startScheduledDispatcher } from './services/scheduledMessages';
 
 async function main() {
   // Схема БД приводится к актуальной версии до приёма запросов.
@@ -19,6 +20,7 @@ async function main() {
   server.listen(env.PORT, '0.0.0.0', () => {
     logger.info(`Сервер запущен на порту ${env.PORT} (${env.NODE_ENV})`);
     startDeadlineChecker(60 * 60 * 1000);
+    startScheduledDispatcher();
   });
 
   // Корректная остановка: дожидаемся текущих запросов и закрываем пул БД.

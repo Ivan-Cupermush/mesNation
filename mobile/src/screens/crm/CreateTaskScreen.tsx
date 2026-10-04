@@ -29,13 +29,12 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 import { api } from '../../services/api';
-import { getToken, SERVER_URL } from '../../utils';
 
 interface User {
   id: number;
   username: string;
   display_name: string;
-  avatar_url?: string;
+  avatar_url?: string | null;
 }
 
 export default function CreateTaskScreen({ navigation }: any) {
@@ -61,21 +60,12 @@ export default function CreateTaskScreen({ navigation }: any) {
 
   const loadUsers = async () => {
     try {
-      let users = await api.getSubtreeUsers().catch(() => []);
-      if (!users || users.length === 0) {
-        const tok = await getToken();
-        const res = await fetch(`${SERVER_URL}/api/users`, {
-          headers: { Authorization: `Bearer ${tok}` },
-        });
-        if (res.ok) {
-          const all = await res.json();
-          const me = await api.getCurrentUser().catch(() => null);
-          users = (all || []).filter((u: any) => u.id !== me?.id);
-        }
-      }
-      setAvailableUsers(users || []);
-    } catch (e) {
-      console.log('Ошибка загрузки пользователей:', e);
+      // Сервер сам считает, кому можно ставить задачи: себе, вниз по дереву
+      // и коллегам своего уровня. Раньше список брался по устаревшему полю
+      // и без самого пользователя, поэтому подчинённые иногда не отображались.
+      setAvailableUsers(await api.getAssignableUsers());
+    } catch (e: any) {
+      Alert.alert('Не удалось загрузить сотрудников', e?.message || '');
     }
   };
 
@@ -498,7 +488,7 @@ export default function CreateTaskScreen({ navigation }: any) {
         minDate={new Date()}
         title="Дедлайн выполнения"
         onClose={() => setShowExecutorDatePicker(false)}
-        onSave={(d) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
+        onSave={(d: Date) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
       />
       {/* Кастомный пикер: дедлайн проверки */}
       <DateTimePickerModal
@@ -507,7 +497,7 @@ export default function CreateTaskScreen({ navigation }: any) {
         minDate={new Date()}
         title="Дедлайн проверки"
         onClose={() => setShowReviewerDatePicker(false)}
-        onSave={(d) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
+        onSave={(d: Date) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
       />
     </SafeAreaView>
   );

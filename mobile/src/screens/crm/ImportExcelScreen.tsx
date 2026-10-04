@@ -34,7 +34,7 @@ export default function ImportExcelScreen({ navigation }: any) {
       if (results && results.length > 0) {
         const file = results[0];
         setStep('preview');
-        const data = await api.previewImport(file.uri, file.name, file.type || 'application/octet-stream');
+        const data = await api.previewImport(file.uri, file.name || 'import.xlsx', file.type || 'application/octet-stream');
         setPreview(data);
       }
     } catch (err: any) {

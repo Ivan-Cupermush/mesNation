@@ -1,12 +1,6 @@
-import * as RNFS from 'react-native-fs';
-
-export const SERVER_URL = 'https://offixcrm.ru';
-const TOKEN_PATH = `${RNFS.DocumentDirectoryPath}/token.txt`;
-
-export async function getToken(): Promise<string | null> {
-  try {
-    const exists = await RNFS.exists(TOKEN_PATH);
-    if (exists) return await RNFS.readFile(TOKEN_PATH, 'utf8');
-  } catch (e) {}
-  return null;
-}
+/**
+ * Старая точка входа для адреса сервера и токена. Оставлена, чтобы не
+ * трогать все экраны разом; новый код импортирует из ./config и ./services/http.
+ */
+export { SERVER_URL } from './config';
+export { getToken } from './services/http';

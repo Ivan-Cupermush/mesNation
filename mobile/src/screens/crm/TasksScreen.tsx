@@ -11,6 +11,7 @@ import {
 } from 'lucide-react-native';
 import TaskCalendar from '../../components/tasks/TaskCalendar';
 import { api, Task } from '../../services/api';
+import { StatusPill, StatusSegments } from '../../components/tasks/taskStatus';
 
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 
@@ -65,15 +66,6 @@ const PRIORITY_CONFIG: Record<string, { color: string; label: string }> = {
   red: { color: '#DC2626', label: 'Высокий' },
 };
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-  new: { bg: '#F3F4F6', text: '#6B7280', label: 'Новая' },
-  in_progress: { bg: '#1F7A52', text: '#FFFFFF', label: 'В работе' },
-  on_review: { bg: '#FEF3C7', text: '#92400E', label: 'На проверке' },
-  done: { bg: '#D1FAE5', text: '#065F46', label: 'Завершена' },
-  rejected: { bg: '#7F1D1D', text: '#FFFFFF', label: 'Отклонена' },
-  overdue: { bg: '#7F1D1D', text: '#FFFFFF', label: 'Просрочена' },
-  archived: { bg: '#F3F4F6', text: '#9CA3AF', label: 'В архиве' },
-};
 
 const fmtDeadline = (iso: string | null) => {
   if (!iso) return 'Без срока';
@@ -181,7 +173,6 @@ export default function TasksScreen({ navigation }: any) {
 
   const renderTaskCard = (task: Task) => {
     const priority = PRIORITY_CONFIG[task.importance] || PRIORITY_CONFIG.yellow;
-    const status = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
     const deadline = task.executor_deadline || task.hard_deadline;
     const assignees = task.assignees || [];
     return (
@@ -203,6 +194,9 @@ export default function TasksScreen({ navigation }: any) {
           </View>
         </View>
         <Text style={styles.taskTitle} numberOfLines={2}>{task.title}</Text>
+        <View style={styles.progressRow}>
+          <StatusSegments status={task.status_new} />
+        </View>
         {task.description ? (
           <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
         ) : null}
@@ -242,9 +236,7 @@ export default function TasksScreen({ navigation }: any) {
             <CalendarDays size={14} color={task.is_overdue ? '#B91C1C' : '#6F6F73'} strokeWidth={2} />
             <Text style={[styles.deadlineText, task.is_overdue && { color: '#B91C1C', fontWeight: '700' }]}>{fmtDeadline(deadline)}</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
-            <Text style={[styles.statusText, { color: status.text }]}>{status.label}</Text>
-          </View>
+          <StatusPill status={task.status_new} overdue={task.is_overdue} />
         </View>
       </TouchableOpacity>
     );
@@ -416,6 +408,7 @@ export default function TasksScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  progressRow: { marginTop: 6, marginBottom: 2 },
   overdueTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: '#B91C1C' },
   deletedTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: '#6F6F73' },
   errorBox: { marginHorizontal: 20, marginBottom: 8, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2' },

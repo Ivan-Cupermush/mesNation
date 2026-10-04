@@ -50,8 +50,17 @@ export interface TaskFile {
   uploaded_at: string;
 }
 
+export interface TaskTransition {
+  to: string;
+  action: string;
+  comment: 'required' | 'optional' | null;
+  style: 'primary' | 'success' | 'danger' | 'neutral';
+}
+
 export interface Task {
   id: number;
+  /** Действия со статусом, доступные текущему пользователю (приходят с сервера). */
+  available_transitions?: TaskTransition[];
   title: string;
   description: string;
   importance: 'green' | 'yellow' | 'red';

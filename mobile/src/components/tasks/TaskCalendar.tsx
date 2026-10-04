@@ -151,7 +151,7 @@ export default function TaskCalendar({ tasks, onPressTask }: TaskCalendarProps) 
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
   
   // Защита от undefined
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
   
   const currentMonth = useMemo(() => {
     const now = new Date();

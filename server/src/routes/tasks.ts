@@ -176,6 +176,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   res.json({
     ...task,
     is_supervisor: roles.isSupervisor,
+    available_transitions: availableTransitions(task.status_new, roles),
     creator: creator.rows[0],
     checkpoints: checkpoints.rows,
     canvas: canvas.rows,
@@ -348,18 +349,45 @@ router.patch('/:id', validate(patchSchema), updateTask);
 router.put('/:id', validate(patchSchema), updateTask);
 
 /** Разрешённые переходы статусов и кто их выполняет. */
-const TRANSITIONS: Record<string, { role: 'creator' | 'assignee'; action: string }> = {
-  'new→in_progress': { role: 'assignee', action: 'Взять в работу' },
-  'in_progress→on_review': { role: 'assignee', action: 'Отправить на проверку' },
-  'on_review→done': { role: 'creator', action: 'Принять задачу' },
-  'on_review→rejected': { role: 'creator', action: 'Отклонить задачу' },
-  'rejected→in_progress': { role: 'assignee', action: 'Вернуть в работу' },
-  'rejected→on_review': { role: 'assignee', action: 'Отправить на проверку повторно' },
-  'done→archived': { role: 'creator', action: 'Архивировать' },
-  'overdue→in_progress': { role: 'assignee', action: 'Взять в работу' },
-  'overdue→on_review': { role: 'assignee', action: 'Отправить на проверку' },
-  'overdue→archived': { role: 'creator', action: 'Архивировать' },
+/**
+ * Жизненный цикл задачи. role: кто может сделать переход;
+ * 'self' — только если создатель сам себе исполнитель (проверять самому себя незачем).
+ */
+type Transition = { role: 'creator' | 'assignee' | 'self'; action: string; comment?: 'required' | 'optional'; style?: 'primary' | 'success' | 'danger' | 'neutral' };
+const TRANSITIONS: Record<string, Transition> = {
+  'new→in_progress': { role: 'assignee', action: 'Взять в работу', style: 'primary' },
+  'new→on_review': { role: 'assignee', action: 'Сразу сдать на проверку', comment: 'optional', style: 'neutral' },
+  'in_progress→on_review': { role: 'assignee', action: 'Отправить на проверку', comment: 'optional', style: 'primary' },
+  'on_review→in_progress': { role: 'assignee', action: 'Отозвать с проверки', style: 'neutral' },
+  'on_review→done': { role: 'creator', action: 'Принять задачу', comment: 'optional', style: 'success' },
+  'on_review→rejected': { role: 'creator', action: 'Отклонить', comment: 'required', style: 'danger' },
+  'rejected→in_progress': { role: 'assignee', action: 'Вернуть в работу', style: 'primary' },
+  'rejected→on_review': { role: 'assignee', action: 'Отправить на проверку повторно', comment: 'optional', style: 'neutral' },
+  'done→in_progress': { role: 'creator', action: 'Вернуть на доработку', comment: 'required', style: 'neutral' },
+  'done→archived': { role: 'creator', action: 'Архивировать', style: 'neutral' },
+  'overdue→in_progress': { role: 'assignee', action: 'Взять в работу', style: 'primary' },
+  'overdue→on_review': { role: 'assignee', action: 'Отправить на проверку', comment: 'optional', style: 'neutral' },
+  'overdue→archived': { role: 'creator', action: 'Архивировать', style: 'neutral' },
+  // Задача самому себе: завершить без проверки.
+  'new→done': { role: 'self', action: 'Завершить', style: 'success' },
+  'in_progress→done': { role: 'self', action: 'Завершить', style: 'success' },
+  'overdue→done': { role: 'self', action: 'Завершить', style: 'success' },
 };
+
+function allowed(t: Transition, roles: { isCreator: boolean; isAssignee: boolean }) {
+  if (t.role === 'self') return roles.isCreator && roles.isAssignee;
+  return t.role === 'creator' ? roles.isCreator : roles.isAssignee;
+}
+
+/** Действия со статусом, доступные пользователю прямо сейчас (для кнопок в приложении). */
+function availableTransitions(status: string, roles: { isCreator: boolean; isAssignee: boolean }) {
+  // Себе-задача: «на проверку самому себе» не предлагаем, есть «Завершить».
+  const selfTask = roles.isCreator && roles.isAssignee;
+  return Object.entries(TRANSITIONS)
+    .filter(([key, t]) => key.startsWith(status + '→') && allowed(t, roles))
+    .filter(([key]) => !(selfTask && key.endsWith('→on_review')))
+    .map(([key, t]) => ({ to: key.split('→')[1], action: t.action, comment: t.comment ?? null, style: t.style ?? 'neutral' }));
+}
 
 const transitionSchema = z.object({
   to_status: z.enum(STATUSES),
@@ -383,9 +411,16 @@ router.post('/:id/transition', validate(transitionSchema), async (req: AuthReque
         allowed_from_current: Object.keys(TRANSITIONS).filter((k) => k.startsWith(task.status_new + '→')).map((k) => k.split('→')[1]),
       });
     }
-    if (t.role === 'assignee' && !roles.isAssignee) throw forbidden(`Только исполнитель может: ${t.action}`);
-    if (t.role === 'creator' && !roles.isCreator) throw forbidden(`Только создатель может: ${t.action}`);
-    if (to_status === 'rejected' && !comment) throw badRequest('При отклонении укажите причину');
+    if (!allowed(t, roles)) {
+      throw forbidden(
+        t.role === 'assignee'
+          ? `Только исполнитель может: ${t.action}`
+          : t.role === 'creator'
+            ? `Только создатель может: ${t.action}`
+            : 'Завершить без проверки можно только свою задачу',
+      );
+    }
+    if (t.comment === 'required' && !comment) throw badRequest(to_status === 'rejected' ? 'При отклонении укажите причину' : 'Укажите комментарий');
 
     const extra: string[] = [];
     if (to_status === 'on_review' && !task.reviewer_deadline) extra.push(`reviewer_deadline = NOW() + INTERVAL '2 days'`);

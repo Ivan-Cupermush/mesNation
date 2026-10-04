@@ -528,3 +528,31 @@ describe('список чатов', () => {
     expect(other.find((x) => x.id === a.body.id).pinned_at).toBeNull();
   });
 });
+
+describe('жизненный цикл задачи', () => {
+  it('сервер отдаёт доступные действия, полный цикл с возвратом на доработку', async () => {
+    const t = (await as(c.mgr1).post('/api/tasks', { title: 'Цикл', assignee_ids: [c.mgr2.id] })).body;
+    const actions = async (who: any) => ((await as(who).get(`/api/tasks/${t.id}`)).body.available_transitions as any[]).map((a) => a.to);
+    expect(await actions(c.mgr2)).toEqual(expect.arrayContaining(['in_progress', 'on_review']));
+    expect(await actions(c.mgr1)).toEqual([]);
+    await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' });
+    await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'on_review' });
+    expect(await actions(c.mgr2)).toEqual(['in_progress']); // отозвать с проверки
+    expect(await actions(c.mgr1)).toEqual(expect.arrayContaining(['done', 'rejected']));
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'done' })).status).toBe(200);
+    // Вернуть принятую задачу можно только с комментарием.
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' })).status).toBe(400);
+    const back = await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress', comment: 'Добавь итоги' });
+    expect(back.body.status_new).toBe('in_progress');
+  });
+
+  it('задачу самому себе можно завершить без проверки, чужую — нет', async () => {
+    const own = (await as(c.mgr1).post('/api/tasks', { title: 'Себе', assignee_ids: [c.mgr1.id] })).body;
+    const acts = (await as(c.mgr1).get(`/api/tasks/${own.id}`)).body.available_transitions.map((a: any) => a.to);
+    expect(acts).toContain('done');
+    expect(acts).not.toContain('on_review');
+    expect((await as(c.mgr1).post(`/api/tasks/${own.id}/transition`, { to_status: 'done' })).body.status_new).toBe('done');
+    const other = (await as(c.mgr1).post('/api/tasks', { title: 'Чужая', assignee_ids: [c.mgr2.id] })).body;
+    expect((await as(c.mgr2).post(`/api/tasks/${other.id}/transition`, { to_status: 'done' })).status).toBe(403);
+  });
+});

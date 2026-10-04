@@ -55,7 +55,7 @@ export default function KpiScreen({ navigation }: any) {
         api.getSalesSummary(period).catch(() => null),
         api.getSubordinates().catch(() => []),
         api.getSalesTransactions({ period: period as any }).catch(() => []),
-        (api as any).getTasks ? (api as any).getTasks().catch(() => null) : Promise.resolve(null),
+        api.getTasks({ filter: 'mine' }).catch(() => null),
       ]);
       setCurrentUser(userData);
       setMyKpi(myKpiData);
@@ -90,14 +90,12 @@ export default function KpiScreen({ navigation }: any) {
 
   const taskStats = useMemo(() => {
     if (!tasks) return null;
-    const now = new Date();
     let done = 0, inWork = 0, overdue = 0;
+    // Считаем только задачи, где пользователь исполнитель; архив не учитываем.
     tasks.forEach((t: any) => {
-      const st = String(t.status || '').toLowerCase();
-      const isDone = ['done', 'completed', 'complete', 'closed'].includes(st);
-      const due = t.due_date ? new Date(t.due_date) : null;
-      if (isDone) done++;
-      else if (due && due < now) overdue++;
+      if (t.status_new === 'archived' || (t.is_assignee === false && t.is_creator)) return;
+      if (t.status_new === 'done') done++;
+      else if (t.is_overdue || t.status_new === 'overdue') overdue++;
       else inWork++;
     });
     return { done, inWork, overdue };

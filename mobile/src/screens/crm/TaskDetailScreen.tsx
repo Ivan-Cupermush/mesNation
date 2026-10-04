@@ -30,14 +30,11 @@ import {
   FileText,
   Trash2,
   Pencil,
-  Send,
   History,
-  PlayCircle,
   CheckCircle2,
   XCircle,
   Archive,
   ArrowRight,
-  ArrowDownUp,
   Image as ImageIcon,
   FileVideo,
   FileAudio,
@@ -56,18 +53,14 @@ import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { signedFileUrl } from '../../services/http';
 import DateTimePickerModal from '../../components/DateTimePickerModal';
+import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = {
-  new: { label: 'Новая', bg: '#F3F4F6', text: '#6B7280', icon: Sparkles },
-  in_progress: { label: 'В работе', bg: '#1F7A52', text: '#FFFFFF', icon: PlayCircle },
-  on_review: { label: 'На проверке', bg: '#FEF3C7', text: '#92400E', icon: Eye },
-  done: { label: 'Выполнена', bg: '#D1FAE5', text: '#065F46', icon: CheckCircle2 },
-  rejected: { label: 'Отклонена', bg: '#7F1D1D', text: '#FFFFFF', icon: XCircle },
-  archived: { label: 'В архиве', bg: '#F3F4F6', text: '#9CA3AF', icon: Archive },
-  overdue: { label: 'Просрочена', bg: '#7F1D1D', text: '#FFFFFF', icon: AlertCircle },
-};
+// Цвета и подписи статусов — общие для всех экранов (см. taskStatus.tsx).
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = Object.fromEntries(
+  Object.entries(TASK_STATUS).map(([k, m]) => [k, { label: m.label, bg: m.soft, text: m.color, icon: m.icon }]),
+);
 
 const IMPORTANCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   green: { label: 'Низкий приоритет', color: '#065F46', bg: '#D1FAE5' },
@@ -95,6 +88,8 @@ export default function TaskDetailScreen({ navigation }: any) {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
+  // Переход, для которого вводится комментарий (обязательный — например, отклонение).
+  const [commentTarget, setCommentTarget] = useState<{ to: string; action: string; required: boolean } | null>(null);
   const [peopleModal, setPeopleModal] = useState<null | 'assignees' | 'watchers'>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [roleCommentField, setRoleCommentField] = useState<null | 'executor_comment' | 'watcher_comment'>(null);
@@ -150,66 +145,53 @@ export default function TaskDetailScreen({ navigation }: any) {
     }
   };
 
-  const handleTake = () => {
-    Alert.alert('Взять в работу?', 'Задача будет переведена в статус «В работе»', [
-      { text: 'Отмена', style: 'cancel' },
-      { text: 'Взять', onPress: () => handleTransition('in_progress') },
-    ]);
-  };
-
-  const handleSendToReview = () => {
-    Alert.alert(
-      'Отправить на проверку?',
-      'Создатель получит уведомление для проверки результата',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Отправить', onPress: () => handleTransition('on_review') },
-      ],
-    );
-  };
-
-  const handleAccept = () => {
-    Alert.alert('Принять задачу?', 'Задача будет помечена как выполненная', [
-      { text: 'Отмена', style: 'cancel' },
-      { text: 'Принять', onPress: () => handleTransition('done') },
-    ]);
-  };
-
-  const handleReject = () => setShowRejectModal(true);
-
   const submitReject = async () => {
-    if (!rejectComment.trim()) {
-      Alert.alert('Ошибка', 'Укажите причину отклонения');
+    const target = commentTarget || { to: 'rejected', action: 'Отклонить', required: true };
+    if (target.required && !rejectComment.trim()) {
+      Alert.alert('Комментарий', target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий');
       return;
     }
     setTransitioning(true);
     try {
-      await api.transitionTask(taskId, 'rejected', rejectComment.trim());
+      await api.transitionTask(taskId, target.to, rejectComment.trim() || undefined);
       setShowRejectModal(false);
       setRejectComment('');
+      setCommentTarget(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось отклонить задачу');
+      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
     } finally {
       setTransitioning(false);
     }
   };
 
-  const handleReturnToWork = () => {
-    Alert.alert(
-      'Вернуть на доработку?',
-      'Задача будет возвращена в статус «В работе»',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Вернуть', onPress: () => handleTransition('in_progress') },
-      ],
-    );
-  };
-
-  const handleArchive = () => {
-    Alert.alert('Архивировать задачу?', 'Задача будет перемещена в архив', [
+  /** Кнопка действия со статусом (список приходит с сервера — всегда совпадает с правами). */
+  const runTransition = (t: { to: string; action: string; comment: string | null }) => {
+    if (t.comment === 'required') {
+      setCommentTarget({ to: t.to, action: t.action, required: true });
+      setShowRejectModal(true);
+      return;
+    }
+    const hint: Record<string, string> = {
+      in_progress: 'Задача перейдёт в статус «В работе».',
+      on_review: 'Создатель получит задачу на проверку.',
+      done: 'Задача будет отмечена как выполненная.',
+      archived: 'Задача переместится в архив. Её можно будет вернуть.',
+    };
+    Alert.alert(`${t.action}?`, hint[t.to] || '', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Архивировать', onPress: () => handleTransition('archived') },
+      ...(t.comment === 'optional'
+        ? [
+            {
+              text: 'С комментарием',
+              onPress: () => {
+                setCommentTarget({ to: t.to, action: t.action, required: false });
+                setShowRejectModal(true);
+              },
+            },
+          ]
+        : []),
+      { text: t.action, onPress: () => handleTransition(t.to) },
     ]);
   };
 
@@ -531,13 +513,9 @@ export default function TaskDetailScreen({ navigation }: any) {
     );
   }
 
-  const statusConf = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
-  const StatusIcon = statusConf.icon;
   const importanceConf = IMPORTANCE_CONFIG[task.importance || 'yellow'];
   const deadline = task.executor_deadline || task.hard_deadline;
 
-  // Показываем архив для создателя когда done ИЛИ overdue
-  const canArchive = isCreator && (task.status_new === 'done' || task.status_new === 'overdue');
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -586,12 +564,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           <View style={styles.heroCard}>
             {/* Приоритет + статус */}
             <View style={styles.heroBadges}>
-              <View style={[styles.statusBadge, { backgroundColor: statusConf.bg }]}>
-                <StatusIcon size={14} color={statusConf.text} strokeWidth={2} />
-                <Text style={[styles.statusBadgeText, { color: statusConf.text }]}>
-                  {statusConf.label}
-                </Text>
-              </View>
+              <StatusPill status={task.status_new} overdue={task.is_overdue} />
               <View
                 style={[styles.importanceBadge, { backgroundColor: importanceConf.bg }]}
               >
@@ -739,111 +712,40 @@ export default function TaskDetailScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* ===== БЛОК ДЕЙСТВИЙ ===== */}
-          {task.status_new !== 'archived' && task.status_new !== 'done' && task.status_new !== 'overdue' && (
+          {/* ===== СТАТУС: этапы, подсказка и доступные действия ===== */}
+          {task.status_new !== 'archived' && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>ДЕЙСТВИЯ</Text>
-
-              {isAssignee && task.status_new === 'new' && (
-                <TouchableOpacity
-                  onPress={handleTake}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <PlayCircle size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Взять в работу</Text>
-                </TouchableOpacity>
-              )}
-
-              {isAssignee && task.status_new === 'in_progress' && (
-                <TouchableOpacity
-                  onPress={handleSendToReview}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <Send size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Отправить на проверку</Text>
-                </TouchableOpacity>
-              )}
-
-              {isCreator && task.status_new === 'on_review' && (
-                <View style={styles.dualActions}>
-                  <TouchableOpacity
-                    onPress={handleAccept}
-                    disabled={transitioning}
-                    style={styles.actionBtnHalfAccept}
-                    activeOpacity={0.85}
-                  >
-                    <CheckCircle2 size={18} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={styles.actionBtnHalfText}>Принять</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleReject}
-                    disabled={transitioning}
-                    style={styles.actionBtnHalfReject}
-                    activeOpacity={0.85}
-                  >
-                    <XCircle size={18} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={styles.actionBtnHalfText}>Отклонить</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {isAssignee && task.status_new === 'rejected' && (
-                <TouchableOpacity
-                  onPress={handleReturnToWork}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <ArrowDownUp size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Вернуть на доработку</Text>
-                </TouchableOpacity>
-              )}
-
-              {!(isAssignee && task.status_new === 'new') &&
-                !(isAssignee && task.status_new === 'in_progress') &&
-                !(isCreator && task.status_new === 'on_review') &&
-                !(isAssignee && task.status_new === 'rejected') && (
-                  <View style={styles.noActionsBox}>
-                    <AlertCircle size={18} color="#BDBDBD" strokeWidth={2} />
-                    <Text style={styles.noActionsText}>
-                      {isCreator
-                        ? 'Ожидается действие исполнителя'
-                        : isAssignee
-                          ? 'Ожидается действие создателя'
-                          : 'У вас нет прав на действия с этой задачей'}
-                    </Text>
-                  </View>
-                )}
-            </View>
-          )}
-
-          {/* ===== АРХИВИРОВАНИЕ: для создателя, когда done ИЛИ overdue ===== */}
-          {canArchive && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>АРХИВ</Text>
-              <TouchableOpacity
-                onPress={handleArchive}
-                disabled={transitioning}
-                style={styles.archiveCard}
-                activeOpacity={0.7}
-              >
-                <View style={styles.archiveIconWrap}>
-                  <Archive size={20} color="#6F6F73" strokeWidth={2} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.archiveTitle}>Архивировать задачу</Text>
-                  <Text style={styles.archiveSubtitle}>
-                    {task.status_new === 'overdue'
-                      ? 'Просроченная задача будет перемещена в архив'
-                      : 'Завершённая задача будет перемещена в архив'}
+              <Text style={styles.sectionTitle}>СТАТУС</Text>
+              <View style={styles.statusCard}>
+                <StatusTrack status={task.status_new} />
+                <View style={[styles.hintBox, { backgroundColor: statusMeta(task.status_new).soft }]}>
+                  <Text style={[styles.hintText, { color: statusMeta(task.status_new).color }]}>
+                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee })}
                   </Text>
                 </View>
-                <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
-              </TouchableOpacity>
+                {(task.available_transitions || []).length > 0 ? (
+                  <View style={styles.transitionList}>
+                    {(task.available_transitions || []).map((t) => {
+                      const tone =
+                        t.style === 'success' ? '#16A34A' : t.style === 'danger' ? '#DC2626' : t.style === 'primary' ? '#1F7A52' : null;
+                      return (
+                        <TouchableOpacity
+                          key={t.to}
+                          onPress={() => runTransition(t)}
+                          disabled={transitioning}
+                          style={[styles.transitionBtn, tone ? { backgroundColor: tone, borderColor: tone } : styles.transitionBtnNeutral]}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.transitionText, { color: tone ? '#FFFFFF' : '#141414' }]}>{t.action}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  !isCreator &&
+                  !isAssignee && <Text style={styles.noActionsText}>Вы наблюдаете за задачей — менять статус могут создатель и исполнители.</Text>
+                )}
+              </View>
             </View>
           )}
 
@@ -1438,10 +1340,14 @@ export default function TaskDetailScreen({ navigation }: any) {
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <XCircle size={24} color="#DC2626" strokeWidth={2} />
-              <Text style={styles.modalTitle}>Отклонить задачу</Text>
+              <Text style={styles.modalTitle}>{commentTarget?.action || 'Отклонить задачу'}</Text>
             </View>
             <Text style={styles.modalSubtitle}>
-              Укажите причину отклонения. Исполнитель увидит этот комментарий.
+              {commentTarget?.to === 'rejected' || !commentTarget
+                ? 'Укажите причину отклонения. Исполнитель увидит этот комментарий.'
+                : commentTarget.required
+                  ? 'Напишите, что нужно доработать. Комментарий попадёт в историю задачи.'
+                  : 'Комментарий необязателен и попадёт в историю задачи.'}
             </Text>
             <TextInput
               style={styles.rejectInput}
@@ -1459,6 +1365,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 onPress={() => {
                   setShowRejectModal(false);
                   setRejectComment('');
+                  setCommentTarget(null);
                 }}
                 style={styles.modalBtnCancel}
                 activeOpacity={0.7}
@@ -1467,17 +1374,22 @@ export default function TaskDetailScreen({ navigation }: any) {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={submitReject}
-                disabled={transitioning || !rejectComment.trim()}
+                disabled={transitioning || (commentTarget?.required !== false && !rejectComment.trim())}
                 style={[
                   styles.modalBtnReject,
                   {
-                    backgroundColor: rejectComment.trim() ? '#7F1D1D' : '#ECECE8',
+                    backgroundColor:
+                      commentTarget?.required === false || rejectComment.trim()
+                        ? commentTarget && commentTarget.to !== 'rejected'
+                          ? '#1F7A52'
+                          : '#7F1D1D'
+                        : '#ECECE8',
                   },
                 ]}
                 activeOpacity={0.85}
               >
                 <Text style={styles.modalBtnRejectText}>
-                  {transitioning ? 'Отклоняем...' : 'Отклонить'}
+                  {transitioning ? 'Сохраняем…' : commentTarget?.action || 'Отклонить'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1489,6 +1401,13 @@ export default function TaskDetailScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  statusCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, gap: 14 },
+  hintBox: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  hintText: { fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  transitionList: { gap: 8 },
+  transitionBtn: { height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  transitionBtnNeutral: { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' },
+  transitionText: { fontSize: 15, fontWeight: '700' },
   overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
   overdueText: { fontSize: 12, fontWeight: '700', color: '#B91C1C' },
   myRolesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },

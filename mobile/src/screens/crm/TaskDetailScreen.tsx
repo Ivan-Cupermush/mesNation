@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -45,7 +45,6 @@ import {
   FileArchive,
   File,
   MoreHorizontal,
-  X,
   SendHorizonal,
   Eye,
   AlertCircle,
@@ -54,9 +53,9 @@ import {
   Sparkles,
 } from 'lucide-react-native';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
-import { SERVER_URL } from '../../utils';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { signedFileUrl } from '../../services/http';
+import DateTimePickerModal from '../../components/DateTimePickerModal';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
@@ -96,54 +95,48 @@ export default function TaskDetailScreen({ navigation }: any) {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [showAssigneesModal, setShowAssigneesModal] = useState(false);
+  const [peopleModal, setPeopleModal] = useState<null | 'assignees' | 'watchers'>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [roleCommentField, setRoleCommentField] = useState<null | 'executor_comment' | 'watcher_comment'>(null);
+  const [roleCommentText, setRoleCommentText] = useState('');
+  const [newCheckpointTitle, setNewCheckpointTitle] = useState('');
+  const [newCheckpointDate, setNewCheckpointDate] = useState<Date | null>(null);
+  const [showCheckpointPicker, setShowCheckpointPicker] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const taskData = await api.getTask(taskId);
+      // Четыре запроса параллельно (раньше шли по очереди).
+      const [taskData, historyData, commentsData, user] = await Promise.all([
+        api.getTask(taskId),
+        api.getTaskHistory(taskId).catch(() => []),
+        api.getTaskComments(taskId).catch(() => []),
+        api.getCurrentUser().catch(() => null),
+      ]);
       setTask(taskData);
-
-      try {
-        const historyData = await api.getTaskHistory(taskId);
-        setHistory(historyData);
-      } catch (e) {
-        setHistory([]);
-      }
-
-      try {
-        const commentsData = await api.getTaskComments(taskId);
-        setComments(commentsData);
-      } catch (e) {
-        setComments([]);
-      }
-
-      try {
-        const user = await api.getCurrentUser();
-        setCurrentUser(user);
-      } catch (e) {
-        setCurrentUser(null);
-      }
+      setHistory(historyData);
+      setComments(commentsData);
+      setCurrentUser(user);
     } catch (e: any) {
       Alert.alert('Ошибка загрузки', e.message || 'Не удалось загрузить задачу');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [taskId]);
 
   useEffect(() => {
     loadData();
-  }, [taskId]);
+  }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
   };
 
-  const isCreator = task?.creator_id === currentUser?.id;
-  const isAssignee =
-    task?.assignees?.some((a: any) => a.id === currentUser?.id) || false;
+  const isCreator = task?.is_creator ?? task?.creator_id === currentUser?.id;
+  const isAssignee = task?.is_assignee ?? (task?.assignees?.some((a: any) => a.id === currentUser?.id) || false);
+  const isWatcher = task?.is_watcher ?? (task?.watchers?.some((w: any) => w.id === currentUser?.id) || false);
 
   const handleTransition = async (toStatus: string, comment?: string) => {
     setTransitioning(true);
@@ -217,6 +210,112 @@ export default function TaskDetailScreen({ navigation }: any) {
     Alert.alert('Архивировать задачу?', 'Задача будет перемещена в архив', [
       { text: 'Отмена', style: 'cancel' },
       { text: 'Архивировать', onPress: () => handleTransition('archived') },
+    ]);
+  };
+
+  // ===== Разархивация (п. 13): задача возвращается в статус, где была до архива =====
+  const handleUnarchive = () => {
+    Alert.alert('Вернуть задачу из архива?', 'Задача вернётся в статус, в котором была до архивации.', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Разархивировать',
+        onPress: async () => {
+          setTransitioning(true);
+          try {
+            await api.unarchiveTask(taskId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось разархивировать');
+          } finally {
+            setTransitioning(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  // ===== Удаление (по ТЗ — в архив с пометкой «удалена», можно вернуть) =====
+  const handleDelete = () => {
+    setShowMenu(false);
+    Alert.alert('Удалить задачу?', 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteTask(taskId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить задачу');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleEdit = () => {
+    setShowMenu(false);
+    navigation.navigate('CreateTask', { taskId });
+  };
+
+  // ===== Комментарии исполнителя / наблюдателя =====
+  const startRoleComment = (field: 'executor_comment' | 'watcher_comment') => {
+    setRoleCommentField(field);
+    setRoleCommentText((task as any)?.[field] || '');
+  };
+
+  const saveRoleComment = async () => {
+    if (!roleCommentField) return;
+    try {
+      await api.updateTask(taskId, { [roleCommentField]: roleCommentText.trim() || null } as any);
+      setRoleCommentField(null);
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось сохранить');
+    }
+  };
+
+  // ===== Контрольные точки =====
+  const addCheckpoint = async () => {
+    if (!newCheckpointTitle.trim() || !newCheckpointDate) {
+      Alert.alert('Контрольная точка', 'Укажите название и дату');
+      return;
+    }
+    try {
+      await api.addCheckpoint(taskId, newCheckpointTitle.trim(), newCheckpointDate.toISOString());
+      setNewCheckpointTitle('');
+      setNewCheckpointDate(null);
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось добавить');
+    }
+  };
+
+  const setCheckpointStatus = async (cpId: number, status: 'pending' | 'completed' | 'missed') => {
+    try {
+      await api.updateCheckpoint(taskId, cpId, { status });
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось изменить');
+    }
+  };
+
+  const removeCheckpoint = (cpId: number) => {
+    Alert.alert('Удалить контрольную точку?', '', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteCheckpoint(taskId, cpId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить');
+          }
+        },
+      },
     ]);
   };
 
@@ -384,6 +483,19 @@ export default function TaskDetailScreen({ navigation }: any) {
     }
   };
 
+  /** Короткая дата для истории: «4 окт., 18:20» — помещается на узком экране. */
+  const formatShortDate = (iso: string): string => {
+    const d = new Date(iso);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleString('ru-RU', {
+      day: 'numeric',
+      month: 'short',
+      ...(sameYear ? {} : { year: '2-digit' }),
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const getInitials = (name: string): string => {
     if (!name) return '?';
     return name
@@ -443,7 +555,13 @@ export default function TaskDetailScreen({ navigation }: any) {
         <View style={styles.headerCenter}>
           <Text style={styles.headerLabel}>ДЕТАЛИ ЗАДАЧИ</Text>
         </View>
-        <View style={{ width: 40 }} />
+        {isCreator && task.status_new !== 'archived' ? (
+          <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
+            <MoreHorizontal size={22} color="#141414" strokeWidth={2} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -486,8 +604,25 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </View>
 
+            {task.is_overdue && (
+              <View style={styles.overdueBanner}>
+                <AlertCircle size={14} color="#B91C1C" strokeWidth={2.4} />
+                <Text style={styles.overdueText}>Просрочена</Text>
+              </View>
+            )}
+
             {/* Большой заголовок */}
             <Text style={styles.heroTitle}>{task.title}</Text>
+
+            {(isCreator || isAssignee || isWatcher || task.is_supervisor) && (
+              <View style={styles.myRolesRow}>
+                <Text style={styles.myRolesLabel}>Вы:</Text>
+                {isCreator && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>💻 создатель</Text></View>}
+                {isAssignee && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>🔧 исполнитель</Text></View>}
+                {isWatcher && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>👁 наблюдатель</Text></View>}
+                {task.is_supervisor && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>руководитель участника</Text></View>}
+              </View>
+            )}
 
             {/* Описание */}
             {task.description ? (
@@ -524,7 +659,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             {/* Исполнители — клик открывает список */}
             <TouchableOpacity
               style={styles.infoCard}
-              onPress={() => setShowAssigneesModal(true)}
+              onPress={() => setPeopleModal('assignees')}
               activeOpacity={0.7}
             >
               <View style={styles.infoIconWrap}>
@@ -572,18 +707,23 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </TouchableOpacity>
 
-            {/* Наблюдатели */}
-            <View style={styles.infoCard}>
+            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает */}
+            <TouchableOpacity style={styles.infoCard} onPress={() => setPeopleModal('watchers')} activeOpacity={0.7}>
               <View style={styles.infoIconWrap}>
                 <Eye size={18} color="#1F7A52" strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Наблюдатели</Text>
-              <Text style={styles.infoValue} numberOfLines={1}>
-                {task.watchers?.length
-                  ? `${task.watchers.length} чел.`
-                  : 'Нет'}
-              </Text>
-            </View>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {task.watchers?.length
+                    ? task.watchers.length === 1
+                      ? task.watchers[0].display_name || task.watchers[0].username
+                      : `${task.watchers.length} чел.`
+                    : 'Создатель'}
+                </Text>
+                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Дедлайн проверки (если есть) */}
@@ -706,6 +846,149 @@ export default function TaskDetailScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* ===== В АРХИВЕ: пометка и разархивация ===== */}
+          {task.status_new === 'archived' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>АРХИВ</Text>
+              <View style={styles.archiveCard}>
+                <View style={styles.archiveIconWrap}>
+                  <Archive size={20} color="#6F6F73" strokeWidth={2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.archiveTitle}>
+                    {task.archived_as === 'deleted' ? 'Задача удалена' : 'Задача в архиве'}
+                  </Text>
+                  <Text style={styles.archiveSubtitle}>
+                    {task.archived_at ? formatDate(task.archived_at) : ''}
+                  </Text>
+                </View>
+              </View>
+              {isCreator && (
+                <TouchableOpacity onPress={handleUnarchive} disabled={transitioning} style={styles.actionBtnPrimary} activeOpacity={0.85}>
+                  <Archive size={20} color="#FFFFFF" strokeWidth={2} />
+                  <Text style={styles.actionBtnPrimaryText}>Разархивировать</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* ===== КОНТРОЛЬНЫЕ ТОЧКИ ===== */}
+          {((task.checkpoints || []).length > 0 || (isCreator && task.status_new !== 'archived')) && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>КОНТРОЛЬНЫЕ ТОЧКИ</Text>
+                <View style={styles.sectionBadge}>
+                  <Text style={styles.sectionBadgeText}>{(task.checkpoints || []).length}</Text>
+                </View>
+              </View>
+              {(task.checkpoints || []).map((cp) => {
+                const done = cp.status === 'completed';
+                const missed = cp.status === 'missed';
+                const late = !done && !missed && new Date(cp.deadline) < new Date();
+                const canMark = (isCreator || isWatcher) && task.status_new !== 'archived';
+                return (
+                  <View key={cp.id} style={styles.checkpointRow}>
+                    <TouchableOpacity
+                      disabled={!canMark}
+                      onPress={() => setCheckpointStatus(cp.id, done ? 'pending' : 'completed')}
+                      style={[styles.checkpointBox, done && styles.checkpointBoxDone, missed && styles.checkpointBoxMissed]}
+                      accessibilityLabel={done ? 'Отметить как невыполненную' : 'Отметить выполненной'}
+                    >
+                      {done && <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />}
+                      {missed && <XCircle size={16} color="#FFFFFF" strokeWidth={2.5} />}
+                    </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checkpointTitle, done && styles.checkpointTitleDone]}>{cp.title}</Text>
+                      <Text style={[styles.checkpointDate, late && { color: '#B91C1C' }]}>
+                        {formatShortDate(cp.deadline)}
+                        {done && cp.completed_by_name ? ` · отметил ${cp.completed_by_name}` : ''}
+                        {missed ? ' · не выполнена' : late ? ' · срок прошёл' : ''}
+                      </Text>
+                    </View>
+                    {canMark && !done && !missed && (
+                      <TouchableOpacity onPress={() => setCheckpointStatus(cp.id, 'missed')} style={styles.checkpointAction}>
+                        <Text style={styles.checkpointActionText}>Не выполнена</Text>
+                      </TouchableOpacity>
+                    )}
+                    {isCreator && task.status_new !== 'archived' && (
+                      <TouchableOpacity onPress={() => removeCheckpoint(cp.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Trash2 size={16} color="#BDBDBD" strokeWidth={2} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+              {isCreator && task.status_new !== 'archived' && (
+                <View style={styles.checkpointAdd}>
+                  <TextInput
+                    style={styles.checkpointInput}
+                    value={newCheckpointTitle}
+                    onChangeText={setNewCheckpointTitle}
+                    placeholder="Новая контрольная точка"
+                    placeholderTextColor="#BDBDBD"
+                  />
+                  <TouchableOpacity onPress={() => setShowCheckpointPicker(true)} style={styles.checkpointDateBtn}>
+                    <CalendarDays size={16} color="#1F7A52" strokeWidth={2} />
+                    <Text style={styles.checkpointDateBtnText}>
+                      {newCheckpointDate ? formatShortDate(newCheckpointDate.toISOString()) : 'Дата'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={addCheckpoint} style={styles.checkpointAddBtn} accessibilityLabel="Добавить контрольную точку">
+                    <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* ===== КОММЕНТАРИИ ИСПОЛНИТЕЛЯ И НАБЛЮДАТЕЛЯ ===== */}
+          {(['executor_comment', 'watcher_comment'] as const).map((field) => {
+            const canEdit =
+              task.status_new !== 'archived' &&
+              (isCreator || (field === 'executor_comment' ? isAssignee : isWatcher));
+            const value = (task as any)[field] as string | null;
+            if (!value && !canEdit) return null;
+            const title = field === 'executor_comment' ? 'КОММЕНТАРИЙ ИСПОЛНИТЕЛЯ' : 'КОММЕНТАРИЙ НАБЛЮДАТЕЛЯ';
+            return (
+              <View key={field} style={styles.section}>
+                <Text style={styles.sectionTitle}>{title}</Text>
+                {roleCommentField === field ? (
+                  <View style={styles.roleCommentCard}>
+                    <TextInput
+                      style={styles.roleCommentInput}
+                      value={roleCommentText}
+                      onChangeText={setRoleCommentText}
+                      placeholder={field === 'executor_comment' ? 'Что сделано, результат, проблемы…' : 'Замечания по выполнению…'}
+                      placeholderTextColor="#BDBDBD"
+                      multiline
+                      autoFocus
+                    />
+                    <View style={styles.dualActions}>
+                      <TouchableOpacity onPress={() => setRoleCommentField(null)} style={styles.roleCommentCancel}>
+                        <Text style={styles.roleCommentCancelText}>Отмена</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={saveRoleComment} style={styles.roleCommentSave}>
+                        <Text style={styles.actionBtnHalfText}>Сохранить</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.roleCommentCard}
+                    disabled={!canEdit}
+                    onPress={() => startRoleComment(field)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={value ? styles.roleCommentText : styles.roleCommentPlaceholder}>
+                      {value || 'Нажмите, чтобы написать'}
+                    </Text>
+                    {canEdit && <Pencil size={14} color="#BDBDBD" strokeWidth={2} />}
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
 
           {/* ===== ФАЙЛЫ ===== */}
           <View style={styles.section}>
@@ -838,15 +1121,16 @@ export default function TaskDetailScreen({ navigation }: any) {
                                 {getInitials(item.changed_by_name)}
                               </Text>
                             </View>
-                            <Text style={styles.timelineUser}>
+                            <Text style={styles.timelineUser} numberOfLines={1}>
                               {item.changed_by_name}
                             </Text>
                           </View>
-                          <Text style={styles.timelineDate}>
-                            {formatDate(item.created_at)}
+                          <Text style={styles.timelineDate} numberOfLines={1}>
+                            {formatShortDate(item.created_at)}
                           </Text>
                         </View>
 
+                        {item.from_status === item.to_status ? null : (
                         <View style={styles.timelineTransition}>
                           {fromConf ? (
                             <View
@@ -899,6 +1183,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                             </Text>
                           </View>
                         </View>
+                        )}
 
                         {item.comment && (
                           <View style={styles.timelineComment}>
@@ -1079,23 +1364,26 @@ export default function TaskDetailScreen({ navigation }: any) {
       </KeyboardAvoidingView>
 
       {/* ===== СПИСОК ИСПОЛНИТЕЛЕЙ (bottom-sheet) ===== */}
-      <Modal visible={showAssigneesModal} transparent animationType="slide">
+      <Modal visible={!!peopleModal} transparent animationType="slide" onRequestClose={() => setPeopleModal(null)}>
         <TouchableOpacity
           activeOpacity={1}
-          onPress={() => setShowAssigneesModal(false)}
+          onPress={() => setPeopleModal(null)}
           style={assigneeStyles.overlay}
         >
           <View style={assigneeStyles.sheet}>
             <View style={assigneeStyles.handle} />
-            <Text style={assigneeStyles.title}>ИСПОЛНИТЕЛИ</Text>
+            <Text style={assigneeStyles.title}>{peopleModal === 'watchers' ? 'НАБЛЮДАТЕЛИ' : 'ИСПОЛНИТЕЛИ'}</Text>
             <ScrollView style={{ maxHeight: 420 }}>
-              {(task.assignees || []).map((a: any) => (
+              {peopleModal === 'watchers' && !(task.watchers || []).length && (
+                <Text style={assigneeStyles.username}>Отдельных наблюдателей нет — за задачей следит создатель.</Text>
+              )}
+              {((peopleModal === 'watchers' ? task.watchers : task.assignees) || []).map((a: any) => (
                 <TouchableOpacity
                   key={a.id}
                   style={assigneeStyles.row}
                   activeOpacity={0.7}
                   onPress={() => {
-                    setShowAssigneesModal(false);
+                    setPeopleModal(null);
                     navigation.navigate('UserProfile', { userId: a.id });
                   }}
                 >
@@ -1113,6 +1401,35 @@ export default function TaskDetailScreen({ navigation }: any) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* ===== МЕНЮ СОЗДАТЕЛЯ ===== */}
+      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowMenu(false)} style={assigneeStyles.overlay}>
+          <View style={assigneeStyles.sheet}>
+            <View style={assigneeStyles.handle} />
+            <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
+              <Pencil size={20} color="#1F7A52" strokeWidth={2} />
+              <Text style={assigneeStyles.name}>Редактировать задачу</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
+              <Trash2 size={20} color="#DC2626" strokeWidth={2} />
+              <Text style={[assigneeStyles.name, { color: '#DC2626' }]}>Удалить (в архив)</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <DateTimePickerModal
+        visible={showCheckpointPicker}
+        initialDate={newCheckpointDate}
+        minDate={new Date()}
+        title="Срок контрольной точки"
+        onClose={() => setShowCheckpointPicker(false)}
+        onSave={(d: Date) => {
+          setNewCheckpointDate(d);
+          setShowCheckpointPicker(false);
+        }}
+      />
 
       {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
       <Modal visible={showRejectModal} transparent animationType="slide">
@@ -1172,6 +1489,33 @@ export default function TaskDetailScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
+  overdueText: { fontSize: 12, fontWeight: '700', color: '#B91C1C' },
+  myRolesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },
+  myRolesLabel: { fontSize: 12, color: '#6F6F73', fontWeight: '600' },
+  myRoleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: '#F3F4F6' },
+  myRoleText: { fontSize: 12, fontWeight: '600', color: '#141414' },
+  checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, marginBottom: 8 },
+  checkpointBox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' },
+  checkpointBoxDone: { backgroundColor: '#1F7A52', borderColor: '#1F7A52' },
+  checkpointBoxMissed: { backgroundColor: '#B91C1C', borderColor: '#B91C1C' },
+  checkpointTitle: { fontSize: 14, fontWeight: '600', color: '#141414' },
+  checkpointTitleDone: { textDecorationLine: 'line-through', color: '#6F6F73' },
+  checkpointDate: { fontSize: 12, color: '#6F6F73', marginTop: 2 },
+  checkpointAction: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF2F2' },
+  checkpointActionText: { fontSize: 11, fontWeight: '700', color: '#B91C1C' },
+  checkpointAdd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkpointInput: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#141414' },
+  checkpointDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, backgroundColor: '#ECFDF5' },
+  checkpointDateBtnText: { fontSize: 12, fontWeight: '600', color: '#1F7A52' },
+  checkpointAddBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
+  roleCommentCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, flexWrap: 'wrap' },
+  roleCommentText: { flex: 1, fontSize: 14, color: '#141414', lineHeight: 20 },
+  roleCommentPlaceholder: { flex: 1, fontSize: 14, color: '#BDBDBD', fontStyle: 'italic' },
+  roleCommentInput: { width: '100%', minHeight: 80, fontSize: 14, color: '#141414', textAlignVertical: 'top' },
+  roleCommentCancel: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  roleCommentCancelText: { fontSize: 14, fontWeight: '600', color: '#6F6F73' },
+  roleCommentSave: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   // ===== LOADING =====
@@ -1643,11 +1987,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
   timelineAvatarWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
+    minWidth: 0,
   },
   timelineAvatar: {
     width: 24,
@@ -1665,11 +2012,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#141414',
+    flexShrink: 1,
   },
   timelineDate: {
     fontSize: 11,
     color: '#6F6F73',
     fontWeight: '500',
+    flexShrink: 0,
   },
   timelineTransition: {
     flexDirection: 'row',

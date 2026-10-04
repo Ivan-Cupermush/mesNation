@@ -433,7 +433,7 @@ export const api = {
     id: number,
     data: Partial<{
       title: string;
-      description: string;
+      description: string | null;
       importance: 'green' | 'yellow' | 'red';
       hard_deadline: string | null;
       executor_deadline: string | null;

@@ -993,7 +993,7 @@ export default function ChatScreen({ navigation }: any) {
                 setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }), 300);
               }}
               keyboardShouldPersistTaps="handled"
-              maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+              maintainVisibleContentPosition={{ minIndexForVisible: 1, autoscrollToTopThreshold: 120 }}
             />
           )}
 

@@ -13,12 +13,12 @@ import {
   Modal,
   Image,
   Linking,
-  ScrollView,
-  Switch,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useIsFocused, useRoute, RouteProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   ChevronLeft,
   MoreVertical,
@@ -31,22 +31,27 @@ import {
   Pencil,
   Trash2,
   X,
-  FileText,
-  Plus,
-  Check,
-  Clock,
-  CheckCheck,
-  AlertCircle,
+  Copy,
   CalendarClock,
+  ChevronDown,
+  Undo2,
+  Square,
+  Image as ImageIcon,
 } from 'lucide-react-native';
-import PollBubble, { PollGlyph } from '../components/PollBubble';
-import NoteShareBubble from '../components/NoteShareBubble';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
 import { api } from '../services/api';
 import { request, signedFileUrl, upload } from '../services/http';
-import { joinChat, makeClientId, sendMessage, subscribe } from '../services/socket';
+import { emitEvent, joinChat, makeClientId, sendMessage, subscribe } from '../services/socket';
 import DateTimePickerModal from '../components/DateTimePickerModal';
+import ShareToChatModal from '../components/ShareToChatModal';
+import AttachSheet, { PickedMedia } from '../components/chat/AttachSheet';
+import PollComposer, { PollDraft } from '../components/chat/PollComposer';
+import NotePickerModal from '../components/chat/NotePickerModal';
+import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
+import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
+import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
+import { C, dayLabel, hashColor, initials, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
 type ChatRouteProp = RouteProp<
@@ -54,91 +59,82 @@ type ChatRouteProp = RouteProp<
   'params'
 >;
 
-const AVATAR_COLORS = [
-  '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
-  '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
-];
-
-const hashColor = (s: string) => {
-  const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
-};
-
-const initials = (name: string) =>
-  (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-
-const formatTime = (iso: string) => {
-  try {
-    return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-};
-
-const dayLabel = (d: Date) => {
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Сегодня';
-  if (d.toDateString() === yesterday.toDateString()) return 'Вчера';
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-};
-
 type SendStatus = 'sending' | 'sent' | 'failed';
 
 /** Сообщение на экране: серверное или ещё отправляющееся (локальное). */
 type ChatMessage = any & { client_id?: string | null; status?: SendStatus; local?: boolean };
 
+type ListItem =
+  | { type: 'divider'; key: string; label: string }
+  | { type: 'unread'; key: string }
+  | { type: 'service'; key: string; msg: any }
+  | { type: 'row'; key: string; row: Exclude<Row, { type: 'divider' }>; mine: boolean; showName: boolean; showAvatar: boolean };
+
+const PAGE = 60;
 const draftKey = (chatId: string, topicId: number | null) => `@offix/draft/${chatId}/${topicId ?? 'main'}`;
+const SERIES_GAP_MS = 10 * 60 * 1000;
+
+function withoutKey<T>(obj: Record<number, T>, key: number): Record<number, T> {
+  if (!(key in obj)) return obj;
+  const next = { ...obj };
+  delete next[key];
+  return next;
+}
 
 export default function ChatScreen({ navigation }: any) {
   const route = useRoute<ChatRouteProp>();
   const chatId = route.params.chatId;
-  const chatName = route.params.chatName || 'Чат';
   const topicId = route.params.topicId ?? null;
   const initialMessageId = route.params.messageId;
+  const isFocused = useIsFocused();
 
+  const [chat, setChat] = useState<any>(null);
+  const chatName = chat?.name || route.params.chatName || 'Чат';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [peerLastReadId, setPeerLastReadId] = useState(0);
+  const [unreadAnchor, setUnreadAnchor] = useState<number | null>(null);
 
-  const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [actionRow, setActionRow] = useState<Exclude<Row, { type: 'divider' }> | null>(null);
+  const [highlightId, setHighlightId] = useState<number | null>(null);
 
   const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
   const [currentPinnedIndex, setCurrentPinnedIndex] = useState(0);
-
-  const [forwardMessage, setForwardMessage] = useState<ChatMessage | null>(null);
-  const [availableChats, setAvailableChats] = useState<any[]>([]);
+  const [forwardIds, setForwardIds] = useState<number[] | null>(null);
   const [topicMeta, setTopicMeta] = useState<any>(null);
 
-  // ===== Вложения (меню скрепки) =====
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [showPoll, setShowPoll] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [viewer, setViewer] = useState<{ items: ViewerItem[]; index: number } | null>(null);
 
-  // ===== Отложенная отправка =====
   const [scheduled, setScheduled] = useState<any[]>([]);
   const [showSchedulePicker, setShowSchedulePicker] = useState(false);
   const [showScheduledList, setShowScheduledList] = useState(false);
 
-  // ===== Опросы =====
-  const [showPollModal, setShowPollModal] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
-  const [pollAnonymous, setPollAnonymous] = useState(false);
-  const [pollMultiple, setPollMultiple] = useState(false);
-  const [pollQuiz, setPollQuiz] = useState(false);
-  const [pollCorrectIndex, setPollCorrectIndex] = useState<number | null>(null);
-  const [sendingPoll, setSendingPoll] = useState(false);
+  const [typing, setTyping] = useState<Record<number, { name: string; at: number }>>({});
+  const [peerPresence, setPeerPresence] = useState<{ online: boolean; last_seen_at?: string | null } | null>(null);
+  const [onlineIds, setOnlineIds] = useState<number[]>([]);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  const [newWhileAway, setNewWhileAway] = useState(0);
 
-  const [membersMap, setMembersMap] = useState<Record<number, { display_name: string; username: string }>>({});
-
-  const flatListRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listItemsRef = useRef<any[]>([]);
+  const lastTypingSent = useRef(0);
+  const lastReadSent = useRef(0);
+  const scrolledUp = useRef(false);
+  const meRef = useRef<number | null>(null);
+  meRef.current = currentUserId;
+
+  const isGroup = chat ? chat.type === 'group' : false;
+  const rights = chat?.my_rights || {};
 
   // ===== Загрузка =====
   const withPoll = useCallback(async (m: ChatMessage): Promise<ChatMessage> => {
@@ -151,12 +147,24 @@ export default function ChatScreen({ navigation }: any) {
     }
   }, []);
 
+  const loadChat = useCallback(async () => {
+    try {
+      const c = await request<any>(`/api/chats/${chatId}`);
+      setChat(c);
+      setPeerLastReadId((p) => Math.max(p, c.peer_last_read_id || 0));
+      return c;
+    } catch {
+      return null;
+    }
+  }, [chatId]);
+
   const loadMessages = useCallback(async () => {
     try {
       const data = await request<ChatMessage[]>(`/api/messages/${chatId}`, {
-        query: { topic_id: topicId ?? undefined, limit: 300 },
+        query: { topic_id: topicId ?? undefined, limit: PAGE },
       });
       const enriched = await Promise.all(data.filter((m) => !m.deleted_for_all).map(withPoll));
+      setHasOlder(data.length >= PAGE);
       // Неотправленные локальные сообщения не теряем при перезагрузке истории.
       setMessages((prev) => {
         const pending = prev.filter((m) => m.local && m.status !== 'sent');
@@ -170,11 +178,30 @@ export default function ChatScreen({ navigation }: any) {
     }
   }, [chatId, topicId, withPoll]);
 
+  const loadOlder = async () => {
+    if (loadingOlder || !hasOlder || loading) return;
+    const oldest = messages.find((m) => typeof m.id === 'number');
+    if (!oldest) return;
+    setLoadingOlder(true);
+    try {
+      const data = await request<ChatMessage[]>(`/api/messages/${chatId}`, {
+        query: { topic_id: topicId ?? undefined, limit: PAGE, before: oldest.id },
+      });
+      const enriched = await Promise.all(data.filter((m) => !m.deleted_for_all).map(withPoll));
+      setHasOlder(data.length >= PAGE);
+      setMessages((prev) => [...enriched.filter((e) => !prev.some((p) => p.id === e.id)), ...prev]);
+    } catch {
+      // попробуем при следующей прокрутке
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
   const loadPinned = useCallback(async () => {
     try {
       setPinnedMessages(await request<any[]>(`/api/messages/${chatId}/pinned`, { query: { topic_id: topicId ?? undefined } }));
     } catch {
-      // закреп — второстепенная информация, экран работает и без неё
+      // закреп — второстепенная информация
     }
   }, [chatId, topicId]);
 
@@ -186,28 +213,30 @@ export default function ChatScreen({ navigation }: any) {
     }
   }, [chatId, topicId]);
 
-  const loadMembers = useCallback(async () => {
-    try {
-      const list = await request<any[]>(`/api/chats/${chatId}/members`);
-      const map: Record<number, { display_name: string; username: string }> = {};
-      list.forEach((m) => {
-        map[m.id] = { display_name: m.display_name || '', username: m.username || '' };
-      });
-      setMembersMap(map);
-    } catch {
-      // имена отправителей приходят и в самих сообщениях
-    }
-  }, [chatId]);
-
   useEffect(() => {
     api.getCurrentUser().then((me) => setCurrentUserId(me.id)).catch(() => undefined);
+    loadChat().then((c) => {
+      // Разделитель «Непрочитанные» — по состоянию на момент открытия.
+      if (c) setUnreadAnchor(c.my_last_read_id ?? null);
+    });
     loadMessages();
     loadPinned();
-    loadMembers();
     loadScheduled();
-  }, [loadMessages, loadPinned, loadMembers, loadScheduled]);
+  }, [loadChat, loadMessages, loadPinned, loadScheduled]);
 
-  // ===== Черновик: сохраняется при наборе, восстанавливается при входе =====
+  // ===== Присутствие собеседника =====
+  const peerId: number | null = chat?.type === 'private' ? chat?.peer?.id ?? null : null;
+  useEffect(() => {
+    if (!peerId) return;
+    request<any[]>('/api/users/presence', { query: { ids: String(peerId) } })
+      .then((r) => r[0] && setPeerPresence(r[0]))
+      .catch(() => undefined);
+    return subscribe('presence', (p: any) => {
+      if (p.user_id === peerId) setPeerPresence({ online: p.online, last_seen_at: p.last_seen_at });
+    });
+  }, [peerId]);
+
+  // ===== Черновик =====
   useEffect(() => {
     AsyncStorage.getItem(draftKey(chatId, topicId))
       .then((d) => d && setText((cur) => cur || d))
@@ -216,6 +245,11 @@ export default function ChatScreen({ navigation }: any) {
 
   const onChangeText = (value: string) => {
     setText(value);
+    const now = Date.now();
+    if (value.trim() && now - lastTypingSent.current > 3000) {
+      lastTypingSent.current = now;
+      emitEvent('typing', { chatId: Number(chatId) });
+    }
     if (editingMessage) return; // правка сообщения — не черновик
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(() => {
@@ -234,19 +268,24 @@ export default function ChatScreen({ navigation }: any) {
     let leave: (() => void) | undefined;
     joinChat(chatId).then((fn) => (leave = fn));
     const belongsHere = (msg: any) => String(msg.chat_id) === String(chatId) && (msg.topic_id ?? null) === topicId;
+    const sameChat = (id: any) => String(id) === String(chatId);
 
     const unsubs = [
       subscribe('new_message', async (msg: any) => {
         if (!belongsHere(msg)) return;
         const full = await withPoll(msg);
         setMessages((prev) => {
-          // Подтверждение нашей же отправки: заменяем локальную копию.
           if (full.client_id && prev.some((m) => m.client_id === full.client_id)) {
             return prev.map((m) => (m.client_id === full.client_id ? { ...full, status: 'sent' } : m));
           }
           if (prev.some((m) => m.id === full.id)) return prev;
           return [...prev, full];
         });
+        if (msg.sender_id !== meRef.current) {
+          setTyping((t) => withoutKey(t, msg.sender_id));
+          if (scrolledUp.current) setNewWhileAway((n) => n + 1);
+        }
+        if (msg.content_type === 'service') loadChat();
       }),
       subscribe('message_edited', (msg: any) => {
         if (!belongsHere(msg)) return;
@@ -267,29 +306,70 @@ export default function ChatScreen({ navigation }: any) {
         }
       }),
       subscribe('scheduled_changed', () => loadScheduled()),
+      subscribe('messages_read', (e: any) => {
+        if (sameChat(e.chat_id) && e.user_id !== meRef.current) setPeerLastReadId((p) => Math.max(p, e.message_id));
+      }),
+      subscribe('user_typing', (e: any) => {
+        if (!sameChat(e.chatId) || e.userId === meRef.current) return;
+        setTyping((t) => ({ ...t, [e.userId]: { name: e.userName, at: Date.now() } }));
+      }),
+      subscribe('user_stop_typing', (e: any) => {
+        if (!sameChat(e.chatId)) return;
+        setTyping((t) => withoutKey(t, e.userId));
+      }),
+      subscribe('online_users', (ids: number[]) => setOnlineIds(ids)),
+      subscribe('chat_updated', (c: any) => {
+        if (sameChat(c.id)) loadChat();
+      }),
+      subscribe('members_changed', (e: any) => {
+        if (sameChat(e.chatId)) loadChat();
+      }),
+      subscribe('removed_from_chat', (e: any) => {
+        if (!sameChat(e.chatId)) return;
+        Alert.alert('Вы больше не участник', 'Вас исключили из этого чата.');
+        navigation.goBack();
+      }),
+      subscribe('chat_deleted', (e: any) => {
+        if (!sameChat(e.chatId)) return;
+        Alert.alert('Чат удалён', 'Владелец удалил эту группу.');
+        navigation.goBack();
+      }),
     ];
     return () => {
       unsubs.forEach((u) => u());
+      emitEvent('stop_typing', { chatId: Number(chatId) });
       leave?.();
     };
-  }, [chatId, topicId, loadPinned, loadScheduled, withPoll]);
+  }, [chatId, topicId, loadPinned, loadScheduled, withPoll, loadChat, navigation]);
 
+  // «Печатает…» гаснет само, если не пришло stop_typing.
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    }
-  }, [messages.length]);
+    if (!Object.keys(typing).length) return;
+    const t = setInterval(() => {
+      setTyping((cur) => {
+        const now = Date.now();
+        const next = Object.fromEntries(Object.entries(cur).filter(([, v]) => now - v.at < 6000));
+        return Object.keys(next).length === Object.keys(cur).length ? cur : next;
+      });
+    }, 2000);
+    return () => clearInterval(t);
+  }, [typing]);
 
+  // ===== Прочитано =====
   useEffect(() => {
-    if (!loading && initialMessageId) {
-      const idx = listItemsRef.current.findIndex((m: any) => m.id === initialMessageId);
-      if (idx >= 0) {
-        setTimeout(() => flatListRef.current?.scrollToIndex({ index: idx, animated: true }), 200);
-      }
-    }
-  }, [loading, initialMessageId]);
+    if (!isFocused || loading) return;
+    const maxId = messages.reduce((mx, m) => (typeof m.id === 'number' && m.id > mx ? m.id : mx), 0);
+    if (maxId <= lastReadSent.current) return;
+    const t = setTimeout(() => {
+      lastReadSent.current = maxId;
+      request(`/api/chats/${chatId}/read`, { method: 'POST', body: { message_id: maxId } }).catch(() => {
+        lastReadSent.current = 0;
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [messages, isFocused, loading, chatId]);
 
-  // ===== Метаданные топика (иконка в шапке) =====
+  // ===== Метаданные топика =====
   useEffect(() => {
     if (!topicId) return;
     request<any[]>(`/api/chats/${chatId}/topics`)
@@ -297,34 +377,144 @@ export default function ChatScreen({ navigation }: any) {
       .catch(() => undefined);
   }, [chatId, topicId]);
 
+  // ===== Лента: группировка в альбомы, разделители, серии =====
+  const membersById = useMemo(() => {
+    const map: Record<number, any> = {};
+    (chat?.members || []).forEach((m: any) => (map[m.id] = m));
+    return map;
+  }, [chat]);
+
+  const senderNameOf = useCallback(
+    (m: any): string => m.sender_display_name || m.sender_name || membersById[m.sender_id]?.display_name || membersById[m.sender_id]?.username || 'Участник',
+    [membersById],
+  );
+
+  const items: ListItem[] = useMemo(() => {
+    // 1) альбомы
+    const rows: (Exclude<Row, { type: 'divider' }> | { type: 'service'; key: string; msg: any })[] = [];
+    for (const m of messages) {
+      if (m.content_type === 'service') {
+        rows.push({ type: 'service', key: `s-${m.id}`, msg: m });
+        continue;
+      }
+      const last = rows[rows.length - 1];
+      if (m.media_group_id && isVisualMedia(m) && last && last.type !== 'service') {
+        const lastMsg = last.type === 'album' ? last.msgs[0] : last.msg;
+        if (lastMsg.media_group_id === m.media_group_id && lastMsg.sender_id === m.sender_id) {
+          const msgs = last.type === 'album' ? [...last.msgs, m] : [last.msg, m];
+          rows[rows.length - 1] = { type: 'album', key: `a-${m.media_group_id}`, msgs };
+          continue;
+        }
+      }
+      rows.push({ type: 'message', key: `m-${m.client_id || m.id}`, msg: m });
+    }
+    // 2) разделители дней, «Непрочитанные», серии одного отправителя
+    const out: ListItem[] = [];
+    let lastDay = '';
+    let unreadPlaced = false;
+    const first = (r: any) => (r.type === 'album' ? r.msgs[0] : r.msg);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const m = first(r);
+      const d = new Date(m.created_at);
+      if (d.toDateString() !== lastDay) {
+        lastDay = d.toDateString();
+        out.push({ type: 'divider', key: `d-${lastDay}`, label: dayLabel(d) });
+      }
+      if (!unreadPlaced && unreadAnchor !== null && typeof m.id === 'number' && m.id > unreadAnchor && m.sender_id !== currentUserId && currentUserId) {
+        unreadPlaced = true;
+        out.push({ type: 'unread', key: 'unread' });
+      }
+      if (r.type === 'service') {
+        out.push(r);
+        continue;
+      }
+      const prev = rows[i - 1];
+      const next = rows[i + 1];
+      const sameSeries = (a: any) =>
+        a &&
+        a.type !== 'service' &&
+        first(a).sender_id === m.sender_id &&
+        Math.abs(new Date(first(a).created_at).getTime() - d.getTime()) < SERIES_GAP_MS &&
+        new Date(first(a).created_at).toDateString() === d.toDateString();
+      out.push({
+        type: 'row',
+        key: r.key,
+        row: r,
+        mine: m.sender_id === currentUserId,
+        showName: !sameSeries(prev),
+        showAvatar: !sameSeries(next),
+      });
+    }
+    return out.reverse(); // список перевёрнут: новые снизу
+  }, [messages, currentUserId, unreadAnchor]);
+
+  const findMessage = useCallback((id: number) => messages.find((m) => m.id === id), [messages]);
+
+  const scrollToMessage = (id: number) => {
+    const idx = items.findIndex(
+      (it) => it.type === 'row' && (it.row.type === 'album' ? it.row.msgs.some((m) => m.id === id) : it.row.msg.id === id),
+    );
+    if (idx < 0) {
+      Alert.alert('Сообщение', 'Сообщение не загружено — прокрутите вверх, чтобы подгрузить историю.');
+      return;
+    }
+    listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    setHighlightId(id);
+    setTimeout(() => setHighlightId(null), 1600);
+  };
+
+  useEffect(() => {
+    if (!loading && initialMessageId) setTimeout(() => scrollToMessage(initialMessageId), 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, initialMessageId]);
+
   // ===== Отправка =====
 
   /** Отправляет (или повторяет отправку) локального сообщения. */
   const deliver = async (local: ChatMessage) => {
     setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'sending' } : m)));
     try {
-      const saved = await sendMessage({
-        chatId,
-        text: local.text,
-        reply_to_message_id: local.reply_to_message_id ?? null,
-        topic_id: topicId,
-        client_id: local.client_id,
-      });
-      setMessages((prev) => {
-        // Сообщение могло уже прийти по сокету — тогда локальную копию просто убираем.
-        if (prev.some((m) => m.id === saved.id && m.client_id === local.client_id && !m.local)) {
-          return prev.filter((m) => !(m.local && m.client_id === local.client_id));
-        }
-        return prev.map((m) => (m.client_id === local.client_id ? { ...saved, status: 'sent' } : m));
-      });
+      const saved = local.local_file
+        ? await upload<any>('/api/upload', 'file', local.local_file, {
+            chatId,
+            topicId: topicId ?? undefined,
+            client_id: local.client_id,
+            caption: local.text || undefined,
+            media_group_id: local.media_group_id || undefined,
+            as_file: local.as_file ? 'true' : undefined,
+            reply_to_message_id: local.reply_to_message_id || undefined,
+          })
+        : await sendMessage({
+            chatId,
+            text: local.text,
+            reply_to_message_id: local.reply_to_message_id ?? null,
+            topic_id: topicId,
+            client_id: local.client_id,
+          });
+      setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...saved, status: 'sent' } : m)));
     } catch {
       setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'failed' } : m)));
     }
   };
 
+  const baseLocal = (): ChatMessage => ({
+    id: `local-${makeClientId()}`,
+    local: true,
+    client_id: makeClientId(),
+    status: 'sending',
+    chat_id: chatId,
+    topic_id: topicId,
+    sender_id: currentUserId,
+    created_at: new Date().toISOString(),
+  });
+
   const handleSend = async () => {
     const t = text.trim();
-    if (!t) return;
+    // У фото можно убрать подпись, у текстового сообщения текст обязателен.
+    if (!t && !(editingMessage && editingMessage.file_url)) return;
+    emitEvent('stop_typing', { chatId: Number(chatId) });
+    lastTypingSent.current = 0;
 
     if (editingMessage) {
       try {
@@ -338,23 +528,76 @@ export default function ChatScreen({ navigation }: any) {
       return;
     }
 
-    const local: ChatMessage = {
-      id: `local-${makeClientId()}`,
-      local: true,
-      client_id: makeClientId(),
-      status: 'sending',
-      chat_id: chatId,
-      topic_id: topicId,
-      sender_id: currentUserId,
-      text: t,
-      reply_to_message_id: replyTo?.id ?? null,
-      created_at: new Date().toISOString(),
-    };
+    const local: ChatMessage = { ...baseLocal(), text: t, reply_to_message_id: replyTo?.id ?? null };
     setMessages((prev) => [...prev, local]);
     setReplyTo(null);
     setText('');
     clearDraft();
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
     deliver(local);
+  };
+
+  /** Фото/видео из галереи: несколько штук уходят одним альбомом. */
+  const sendMedia = async (picked: PickedMedia[], caption: string, asFile: boolean) => {
+    const groupId = picked.length > 1 && !asFile ? `g${Date.now()}${Math.random().toString(36).slice(2, 8)}` : null;
+    const locals: ChatMessage[] = picked.map((p, i) => ({
+      ...baseLocal(),
+      client_id: makeClientId(),
+      text: i === 0 ? caption || null : null,
+      reply_to_message_id: i === 0 ? replyTo?.id ?? null : null,
+      media_kind: asFile ? 'file' : p.isVideo ? 'video' : 'photo',
+      media_group_id: groupId,
+      media_width: p.width,
+      media_height: p.height,
+      media_duration: p.duration,
+      local_uri: asFile ? null : p.uri,
+      file_url: asFile ? 'local' : null,
+      file_name: p.name,
+      as_file: asFile,
+      local_file: { uri: p.uri, name: p.name, type: p.type },
+    }));
+    setMessages((prev) => [...prev, ...locals]);
+    setReplyTo(null);
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    // По одному, чтобы порядок в альбоме совпал с порядком выбора.
+    for (const l of locals) await deliver(l);
+  };
+
+  const pickFiles = async () => {
+    try {
+      const files = await pick({ type: [types.allFiles], allowMultiSelection: true });
+      const locals: ChatMessage[] = files
+        .filter((f) => f.uri)
+        .map((f) => ({
+          ...baseLocal(),
+          client_id: makeClientId(),
+          media_kind: 'file',
+          file_url: 'local',
+          file_name: f.name || 'Файл',
+          file_size: f.size,
+          as_file: true,
+          local_file: { uri: f.uri, name: f.name || 'file', type: f.type },
+        }));
+      setMessages((prev) => [...prev, ...locals]);
+      for (const l of locals) await deliver(l);
+    } catch (err: any) {
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
+      Alert.alert('Не удалось выбрать файл', err?.message || '');
+    }
+  };
+
+  const createPoll = async (p: PollDraft) => {
+    await request('/api/polls', { method: 'POST', body: { ...p, chat_id: Number(chatId), topic_id: topicId } });
+    // Сам опрос придёт всем участникам по сокету.
+  };
+
+  const shareNote = async (noteId: number) => {
+    setShowNotes(false);
+    try {
+      await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId });
+    } catch (e: any) {
+      Alert.alert('Не удалось отправить заметку', e?.message || '');
+    }
   };
 
   const retryOrDiscard = (m: ChatMessage) => {
@@ -403,89 +646,35 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  const onSendLongPress = () => {
-    if (!text.trim() || editingMessage) return;
-    setShowSchedulePicker(true);
-  };
+  // ===== Действия с сообщениями =====
+  const rowMessages = (row: Exclude<Row, { type: 'divider' }>) => (row.type === 'album' ? row.msgs : [row.msg]);
+  const rowMain = (row: Exclude<Row, { type: 'divider' }>) => (row.type === 'album' ? row.msgs.find((m) => m.text) || row.msgs[0] : row.msg);
 
-  const pickAndSendFile = async () => {
+  const deleteMessages = async (targets: ChatMessage[], scope: 'me' | 'all') => {
     try {
-      const [file] = await pick({ type: [types.allFiles], allowMultiSelection: false });
-      if (!file?.uri) return;
-      setUploading(true);
-      await upload(
-        '/api/upload',
-        'file',
-        { uri: file.uri, name: file.name || 'file', type: file.type },
-        { chatId, topicId: topicId ?? undefined, client_id: makeClientId() },
-      );
-    } catch (err: any) {
-      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
-      Alert.alert('Не удалось отправить файл', err?.message || 'Попробуйте ещё раз');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // ===== Отправка опроса =====
-  const sendPoll = async () => {
-    const q = pollQuestion.trim();
-    const cleaned: string[] = [];
-    let correctIdx: number | null = null;
-    pollOptions.forEach((o, i) => {
-      const t = o.trim();
-      if (t) {
-        if (pollQuiz && i === pollCorrectIndex) correctIdx = cleaned.length;
-        cleaned.push(t);
-      }
-    });
-    if (!q) return Alert.alert('Ошибка', 'Введите вопрос');
-    if (cleaned.length < 2) return Alert.alert('Ошибка', 'Нужно минимум 2 варианта ответа');
-    if (pollQuiz && correctIdx === null) return Alert.alert('Ошибка', 'Отметьте правильный ответ');
-
-    setSendingPoll(true);
-    try {
-      await request('/api/polls', {
-        method: 'POST',
-        body: {
-          chat_id: Number(chatId),
-          topic_id: topicId,
-          question: q,
-          options: cleaned,
-          is_anonymous: pollAnonymous,
-          allows_multiple: pollMultiple,
-          is_quiz: pollQuiz,
-          correct_option_index: correctIdx,
-        },
-      });
-      setPollQuestion('');
-      setPollOptions(['', '']);
-      setPollQuiz(false);
-      setPollMultiple(false);
-      setPollAnonymous(false);
-      setPollCorrectIndex(null);
-      setShowPollModal(false);
-      // Сам опрос придёт всем участникам по сокету.
-    } catch (e: any) {
-      Alert.alert('Не удалось создать опрос', e?.message || 'Попробуйте ещё раз');
-    } finally {
-      setSendingPoll(false);
-    }
-  };
-
-  const deleteMessage = async (target: ChatMessage, scope: 'me' | 'all') => {
-    try {
-      await request(`/api/messages/${target.id}`, { method: 'DELETE', query: { scope } });
-      setMessages((prev) => prev.filter((m) => m.id !== target.id));
+      for (const t of targets) await request(`/api/messages/${t.id}`, { method: 'DELETE', query: { scope } });
+      const ids = new Set(targets.map((t) => t.id));
+      setMessages((prev) => prev.filter((m) => !ids.has(m.id)));
     } catch (e: any) {
       Alert.alert('Не удалось удалить', e?.message || 'Попробуйте ещё раз');
     }
   };
 
-  const togglePin = async () => {
-    if (!selectedMessage) return;
-    const target = selectedMessage;
-    setSelectedMessage(null);
+  const confirmDelete = (row: Exclude<Row, { type: 'divider' }>) => {
+    const targets = rowMessages(row).filter((m) => typeof m.id === 'number');
+    const main = rowMain(row);
+    const mine = main.sender_id === currentUserId;
+    const canAll = mine || rights.can_delete_messages;
+    const n = targets.length;
+    const what = n > 1 ? `${n} ${plural(n, ['сообщение', 'сообщения', 'сообщений'])}` : 'сообщение';
+    Alert.alert(`Удалить ${what}?`, canAll ? 'Можно удалить только у себя или у всех участников.' : 'Сообщение исчезнет только у вас.', [
+      { text: 'Отмена', style: 'cancel' },
+      ...(canAll ? [{ text: 'Удалить у всех', style: 'destructive' as const, onPress: () => deleteMessages(targets, 'all') }] : []),
+      { text: 'Удалить у меня', style: 'destructive' as const, onPress: () => deleteMessages(targets, 'me') },
+    ]);
+  };
+
+  const togglePin = async (target: ChatMessage) => {
     try {
       await request(`/api/messages/${target.id}/${target.pinned ? 'unpin' : 'pin'}`, { method: 'POST' });
       setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, pinned: !target.pinned } : m)));
@@ -495,58 +684,109 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  const startEdit = () => {
-    if (!selectedMessage) return;
-    setEditingMessage(selectedMessage);
-    setText(selectedMessage.text || '');
-    setSelectedMessage(null);
-  };
-
-  const startReply = () => {
-    if (!selectedMessage) return;
-    setReplyTo(selectedMessage);
-    setSelectedMessage(null);
-  };
-
-  const startForward = () => {
-    if (!selectedMessage) return;
-    setForwardMessage(selectedMessage);
-    setSelectedMessage(null);
-    request<any[]>('/api/chats').then(setAvailableChats).catch(() => setAvailableChats([]));
-  };
-
-  const handleForward = async (toChatId: number) => {
-    const target = forwardMessage;
-    setForwardMessage(null);
-    if (!target) return;
+  const forwardTo = async (toChatId: number, comment: string) => {
+    const ids = forwardIds || [];
     try {
-      await request('/api/messages/forward', { method: 'POST', body: { messageId: target.id, toChatId } });
-      Alert.alert('Готово', 'Сообщение переслано');
+      for (let i = 0; i < ids.length; i++) {
+        await request('/api/messages/forward', {
+          method: 'POST',
+          body: { messageId: ids[i], toChatId, comment: i === 0 && comment ? comment : undefined },
+        });
+      }
+      setForwardIds(null);
+      Alert.alert('Готово', ids.length > 1 ? 'Сообщения пересланы' : 'Сообщение переслано');
     } catch (e: any) {
       Alert.alert('Не удалось переслать', e?.message || 'Попробуйте ещё раз');
     }
   };
 
-  const showPinned = (index: number) => {
-    const msg = pinnedMessages[index];
-    if (!msg) return;
-    const idx = listItemsRef.current.findIndex((m: any) => m.id === msg.id);
-    if (idx >= 0) flatListRef.current?.scrollToIndex({ index: idx, animated: true });
-    setCurrentPinnedIndex((index + 1) % pinnedMessages.length);
+  const actionsFor = (row: Exclude<Row, { type: 'divider' }>): SheetAction[] => {
+    const main = rowMain(row);
+    if (main.local) return [];
+    const mine = main.sender_id === currentUserId;
+    const list: SheetAction[] = [
+      { key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={20} color={C.text} />, onPress: () => setReplyTo(main) },
+    ];
+    if (main.text && main.content_type !== 'note') {
+      list.push({
+        key: 'copy',
+        label: 'Копировать текст',
+        icon: <Copy size={20} color={C.text} />,
+        onPress: () => Clipboard.setString(main.text),
+      });
+    }
+    if (isVisualMedia(main)) {
+      list.push({ key: 'open', label: 'Открыть', icon: <ImageIcon size={20} color={C.text} />, onPress: () => openMedia(main) });
+    }
+    if (!main.poll_id) {
+      list.push({
+        key: 'forward',
+        label: 'Переслать',
+        icon: <Forward size={20} color={C.text} />,
+        onPress: () => setForwardIds(rowMessages(row).map((m) => m.id)),
+      });
+    }
+    if (rights.can_pin_messages !== false) {
+      list.push({
+        key: 'pin',
+        label: main.pinned ? 'Открепить' : 'Закрепить',
+        icon: main.pinned ? <PinOff size={20} color={C.text} /> : <Pin size={20} color={C.text} />,
+        onPress: () => togglePin(main),
+      });
+    }
+    if (mine && !main.poll_id && !main.note_share_id) {
+      list.push({
+        key: 'edit',
+        label: main.file_url ? 'Изменить подпись' : 'Изменить',
+        icon: <Pencil size={20} color={C.text} />,
+        onPress: () => {
+          setEditingMessage(main);
+          setText(main.text || '');
+        },
+      });
+    }
+    if (main.poll && !main.poll.is_closed && !main.poll.is_quiz && (main.my_votes || []).length) {
+      list.push({
+        key: 'retract',
+        label: 'Отменить голос',
+        icon: <Undo2 size={20} color={C.text} />,
+        onPress: () =>
+          request(`/api/polls/${main.poll_id}/vote`, { method: 'DELETE' }).catch((e) => Alert.alert('Ошибка', e?.message || '')),
+      });
+    }
+    if (main.poll && !main.poll.is_closed && main.poll.creator_id === currentUserId) {
+      list.push({
+        key: 'stop',
+        label: main.poll.is_quiz ? 'Остановить викторину' : 'Остановить опрос',
+        icon: <Square size={20} color={C.text} />,
+        onPress: () =>
+          Alert.alert('Остановить опрос?', 'Голосовать больше будет нельзя, все увидят итоги.', [
+            { text: 'Отмена', style: 'cancel' },
+            {
+              text: 'Остановить',
+              style: 'destructive',
+              onPress: () => request(`/api/polls/${main.poll_id}/close`, { method: 'POST' }).catch((e) => Alert.alert('Ошибка', e?.message || '')),
+            },
+          ]),
+      });
+    }
+    list.push({ key: 'delete', label: 'Удалить', danger: true, icon: <Trash2 size={20} color={C.danger} />, onPress: () => confirmDelete(row) });
+    return list;
   };
 
-  const findMessageById = (id: number) => messages.find((m) => m.id === id);
-
-  const openInfo = () => {
-    if (topicId) {
-      navigation.navigate('TopicInfo', { chatId, topicId });
-    } else {
-      navigation.navigate('ChatInfo', { chatId });
-    }
+  // ===== Медиа и файлы =====
+  const openMedia = (msg: any) => {
+    if (msg.local) return;
+    const media = messages.filter((m) => !m.local && isVisualMedia(m) && m.file_url);
+    const index = Math.max(0, media.findIndex((m) => m.id === msg.id));
+    setViewer({
+      index,
+      items: media.map((m) => ({ ...m, sender_name: senderNameOf(m) })),
+    });
   };
 
   const openFile = async (m: any) => {
-    if (!m.file_url) return;
+    if (!m.file_url || m.local) return;
     try {
       // Файлы чатов защищены: открываем по подписанной ссылке на 10 минут.
       await Linking.openURL(await signedFileUrl(m.file_url));
@@ -555,32 +795,12 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  const listItems = useMemo(() => {
-    const out: any[] = [];
-    let lastDay = '';
-    for (const m of messages) {
-      const d = new Date(m.created_at);
-      const day = d.toDateString();
-      if (day !== lastDay) {
-        lastDay = day;
-        out.push({ divider: true, id: `div-${day}`, label: dayLabel(d) });
-      }
-      out.push(m);
+  const onPressReply = (m: any) => {
+    if (findMessage(m.reply_to_message_id)) {
+      scrollToMessage(m.reply_to_message_id);
+    } else if (m.external_reply_chat_id) {
+      navigation.push('Chat', { chatId: String(m.external_reply_chat_id), chatName: 'Другой чат', messageId: m.reply_to_message_id });
     }
-    return out;
-  }, [messages]);
-  listItemsRef.current = listItems;
-
-  const isMineMsg = (m: any) => m.sender_id === currentUserId;
-
-
-  // ===== Хелпер: имя отправителя с фолбэком на membersMap =====
-  const senderNameOf = (m: any): string => {
-    if (m.sender_display_name) return m.sender_display_name;
-    if (m.sender_name) return m.sender_name;
-    const u = membersMap[m.sender_id];
-    if (u) return u.display_name || u.username || 'Участник';
-    return 'Участник';
   };
 
   const onNoteAccepted = (messageId: number, noteId: number) => {
@@ -597,175 +817,111 @@ export default function ChatScreen({ navigation }: any) {
     ]);
   };
 
-  const renderMessage = (m: any) => {
-    const mine = isMineMsg(m);
-    const senderName = senderNameOf(m);
-    const replied = m.reply_to_message_id ? findMessageById(m.reply_to_message_id) : null;
-
-    return (
-      <View style={[styles.msgRow, mine && styles.msgRowMine]}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onLongPress={() => (m.local ? retryOrDiscard(m) : setSelectedMessage(m))}
-          onPress={m.status === 'failed' ? () => retryOrDiscard(m) : undefined}
-          style={m.poll ? { maxWidth: '100%' } : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}
-        >
-          {!mine && (
-            <Text style={[styles.senderName, { color: hashColor(senderName) }]}>
-              {senderName}
-            </Text>
-          )}
-
-          {m.forwarded_from_user_id ? (
-            <Text style={[styles.forwardedLabel, mine && styles.forwardedLabelMine]} numberOfLines={1}>
-              Переслано от {m.forwarded_from_name || 'участника'}
-            </Text>
-          ) : null}
-
-          {m.reply_to_message_id && (
-            <View style={[styles.quoteBox, mine && styles.quoteBoxMine]}>
-              {replied ? (
-                <>
-                  <Text style={[styles.quoteName, mine && styles.quoteNameMine]}>
-                    {senderNameOf(replied)}
-                  </Text>
-                  <Text style={[styles.quoteText, mine && styles.quoteTextMine]} numberOfLines={2}>
-                    {replied.text || '📎 Вложение'}
-                  </Text>
-                </>
-              ) : m.external_reply_chat_id ? (
-                <TouchableOpacity
-                  onPress={() =>
-                    navigation.navigate('Chat', {
-                      chatId: String(m.external_reply_chat_id),
-                      chatName: 'Другой чат',
-                      messageId: m.reply_to_message_id,
-                    })
-                  }
-                >
-                  <Text style={[styles.quoteText, mine && styles.quoteTextMine]}>
-                    Сообщение из другого чата
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <Text style={[styles.quoteText, mine && styles.quoteTextMine]}>
-                  Исходное сообщение удалено
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* ОПРОС */}
-          {m.poll && (
-            <PollBubble
-              poll={m.poll}
-              myVotes={m.my_votes || []}
-              currentUserId={currentUserId || 0}
-              isMine={mine}
-            />
-          )}
-
-          {/* ЗАМЕТКА */}
-          {m.note_share && (
-            <NoteShareBubble
-              card={m.note_share}
-              mine={mine}
-              currentUserId={currentUserId || 0}
-              onAccepted={(noteId) => onNoteAccepted(m.id, noteId)}
-            />
-          )}
-
-          {/* Вложение */}
-          {m.file_url ? (
-            m.thumb_url ? (
-              <TouchableOpacity onPress={() => openFile(m)}>
-                <Image source={{ uri: SERVER_URL + m.thumb_url }} style={styles.msgImage} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={() => openFile(m)} style={[styles.fileBox, mine && styles.fileBoxMine]}>
-                <View style={[styles.fileIconWrap, mine && styles.fileIconWrapMine]}>
-                  <FileText size={20} color={mine ? '#FFFFFF' : '#1F7A52'} strokeWidth={2} />
-                </View>
-                <Text style={[styles.fileName, mine && styles.fileNameMine]} numberOfLines={1}>
-                  {m.file_name || 'Файл'}
-                </Text>
-              </TouchableOpacity>
-            )
-          ) : null}
-
-          {m.text && !m.poll && !m.note_share ? (
-            <Text style={[styles.msgText, mine && styles.msgTextMine]}>{m.text}</Text>
-          ) : null}
-
-          <View style={styles.msgMeta}>
-            {m.edited_at && (
-              <Text style={[styles.metaText, mine && styles.metaTextMine]}>изменено · </Text>
-            )}
-            <Text style={[styles.metaText, mine && styles.metaTextMine]}>
-              {formatTime(m.created_at)}
-            </Text>
-            {mine && m.status === 'sending' && <Clock size={12} color="rgba(255,255,255,0.8)" style={{ marginLeft: 4 }} />}
-            {mine && (!m.status || m.status === 'sent') && <CheckCheck size={13} color="rgba(255,255,255,0.85)" style={{ marginLeft: 4 }} />}
-            {mine && m.status === 'failed' && <AlertCircle size={13} color="#FECACA" style={{ marginLeft: 4 }} />}
-          </View>
-          {m.status === 'failed' && <Text style={styles.failedHint}>Не отправлено · нажмите, чтобы повторить</Text>}
-        </TouchableOpacity>
-      </View>
-    );
+  // ===== Шапка =====
+  const openInfo = () => {
+    if (topicId) navigation.navigate('TopicInfo', { chatId, topicId });
+    else navigation.navigate('ChatInfo', { chatId });
   };
 
-  const renderItem = ({ item }: any) =>
-    item.divider ? (
-      <View style={styles.dayDivider}>
-        <Text style={styles.dayDividerText}>{item.label}</Text>
-      </View>
-    ) : (
-      renderMessage(item)
-    );
+  const typingNames = Object.values(typing).map((t) => t.name.split(' ')[0]);
+  const subtitle = (() => {
+    if (typingNames.length) {
+      if (!isGroup) return 'печатает…';
+      if (typingNames.length === 1) return `${typingNames[0]} печатает…`;
+      return `${typingNames.length} ${plural(typingNames.length, ['человек печатает', 'человека печатают', 'человек печатают'])}…`;
+    }
+    if (topicId) return chat?.name ? `тема в «${chat.name}»` : 'тема';
+    if (!chat) return '';
+    if (chat.type === 'private') return peerPresence?.online ? 'в сети' : lastSeenLabel(peerPresence?.last_seen_at);
+    const total = chat.members_count || chat.members?.length || 0;
+    const memberIds = new Set((chat.members || []).map((m: any) => m.id));
+    const online = onlineIds.filter((id) => memberIds.has(id)).length;
+    return `${total} ${plural(total, ['участник', 'участника', 'участников'])}${online > 1 ? `, ${online} в сети` : ''}`;
+  })();
+  const subtitleActive = typingNames.length > 0 || (chat?.type === 'private' && peerPresence?.online);
 
-  const isMineSelected = selectedMessage && selectedMessage.sender_id === currentUserId;
-
-  // ===== Иконка топика или аватар группы =====
   const renderHeaderAvatar = () => {
     if (topicMeta) {
       const Icon = TOPIC_ICONS[topicMeta.icon] || TOPIC_ICONS.hash;
-      const color = topicMeta.icon_color || '#1F7A52';
-      const opacity = topicMeta.icon_opacity ?? 1;
+      const color = topicMeta.icon_color || C.accent;
       return (
         <View style={[styles.headerAvatar, { backgroundColor: hexToRgba(color, 0.12) }]}>
-          <Icon size={22} color={color} strokeWidth={2} style={{ opacity }} />
+          <Icon size={22} color={color} strokeWidth={2} style={{ opacity: topicMeta.icon_opacity ?? 1 }} />
         </View>
       );
     }
+    if (chat?.avatar_url) return <Image source={{ uri: SERVER_URL + chat.avatar_url }} style={styles.headerAvatar} />;
     return (
       <View style={[styles.headerAvatar, { backgroundColor: hashColor(chatName) }]}>
         <Text style={styles.headerAvatarText}>{initials(chatName)}</Text>
+        {chat?.type === 'private' && peerPresence?.online && <View style={styles.onlineDot} />}
       </View>
     );
   };
 
+  const renderItem = ({ item }: { item: ListItem }) => {
+    if (item.type === 'divider') return <DayDivider label={item.label} />;
+    if (item.type === 'unread') {
+      return (
+        <View style={styles.unreadBar}>
+          <Text style={styles.unreadText}>Непрочитанные сообщения</Text>
+        </View>
+      );
+    }
+    if (item.type === 'service') return <ServiceRow text={item.msg.text} />;
+    const main = rowMain(item.row);
+    const replied = main.reply_to_message_id ? findMessage(main.reply_to_message_id) : null;
+    const sender = membersById[main.sender_id];
+    return (
+      <MessageRow
+        row={item.row}
+        mine={item.mine}
+        showName={item.showName}
+        showAvatar={item.showAvatar}
+        isGroup={isGroup}
+        senderName={senderNameOf(main)}
+        senderAvatar={main.sender_avatar_url || sender?.avatar_url}
+        replied={replied}
+        repliedName={replied ? (replied.sender_id === currentUserId ? 'Вы' : senderNameOf(replied)) : ''}
+        peerLastReadId={peerLastReadId}
+        currentUserId={currentUserId || 0}
+        highlighted={highlightId !== null && rowMessages(item.row).some((m) => m.id === highlightId)}
+        onLongPress={(row) => !rowMain(row).local && setActionRow(row)}
+        onOpenMedia={openMedia}
+        onOpenFile={openFile}
+        onPressReply={onPressReply}
+        onSwipeReply={(m) => !m.local && setReplyTo(m)}
+        onRetry={retryOrDiscard}
+        onNoteAccepted={onNoteAccepted}
+      />
+    );
+  };
+
+  const actionMain = actionRow ? rowMain(actionRow) : null;
+  const canSend = !!text.trim();
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* ===== HEADER ===== */}
+      {/* ===== ШАПКА ===== */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityLabel="Назад">
+          <ChevronLeft size={26} color={C.text} strokeWidth={2} />
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
-          activeOpacity={0.7}
-          onPress={openInfo}
-        >
+        <TouchableOpacity style={styles.headerMain} activeOpacity={0.7} onPress={openInfo}>
           {renderHeaderAvatar()}
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle} numberOfLines={1}>{chatName}</Text>
-            <Text style={styles.headerSubtitle}>{topicId ? 'топик' : 'в сети'}</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {topicMeta?.title || chatName}
+            </Text>
+            {subtitle ? (
+              <Text style={[styles.headerSubtitle, subtitleActive && { color: C.accent }]} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : null}
           </View>
         </TouchableOpacity>
-
-        <TouchableOpacity onPress={openInfo} style={styles.headerBtn}>
-          <MoreVertical size={22} color="#141414" strokeWidth={2} />
+        <TouchableOpacity onPress={openInfo} style={styles.headerBtn} accessibilityLabel="Информация о чате">
+          <MoreVertical size={22} color={C.text} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -773,399 +929,194 @@ export default function ChatScreen({ navigation }: any) {
       {pinnedMessages.length > 0 && (
         <TouchableOpacity
           style={styles.pinnedBar}
-          onPress={() => showPinned(currentPinnedIndex)}
+          onPress={() => {
+            const msg = pinnedMessages[currentPinnedIndex];
+            if (msg) scrollToMessage(msg.id);
+            setCurrentPinnedIndex((i) => (i + 1) % pinnedMessages.length);
+          }}
           activeOpacity={0.7}
         >
-          <Pin size={16} color="#1F7A52" strokeWidth={2} />
-          <View style={{ flex: 1, marginLeft: 8 }}>
-            <Text style={styles.pinnedLabel}>Закреплённое сообщение</Text>
+          <View style={styles.pinnedLine} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pinnedLabel}>
+              Закреплённое сообщение{pinnedMessages.length > 1 ? ` #${currentPinnedIndex + 1}` : ''}
+            </Text>
             <Text style={styles.pinnedText} numberOfLines={1}>
-              {pinnedMessages[currentPinnedIndex]?.text || '📎 Вложение'}
+              {messagePreview(pinnedMessages[currentPinnedIndex]) || 'Вложение'}
             </Text>
           </View>
-          {pinnedMessages.length > 1 && (
-            <Text style={styles.pinnedCounter}>
-              {currentPinnedIndex + 1}/{pinnedMessages.length}
-            </Text>
-          )}
+          <Pin size={18} color={C.textMuted} />
         </TouchableOpacity>
       )}
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        {loading ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color="#1F7A52" />
-          </View>
-        ) : loadError && messages.length === 0 ? (
-          <View style={styles.loadingWrap}>
-            <Text style={styles.plateText}>{loadError}</Text>
-            <TouchableOpacity onPress={loadMessages} style={{ marginTop: 12 }}>
-              <Text style={styles.plateLabel}>Повторить</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={listItems}
-            keyExtractor={(item) => String(item.id)}
-            renderItem={renderItem}
-            contentContainerStyle={styles.listContent}
-            onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: false })}
-          />
-        )}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        <View style={styles.listWrap}>
+          {loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={C.accent} />
+            </View>
+          ) : loadError && messages.length === 0 ? (
+            <View style={styles.center}>
+              <Text style={styles.emptyText}>{loadError}</Text>
+              <TouchableOpacity onPress={loadMessages} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Повторить</Text>
+              </TouchableOpacity>
+            </View>
+          ) : messages.length === 0 ? (
+            <View style={styles.center}>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Сообщений пока нет</Text>
+                <Text style={styles.emptyText}>Напишите что-нибудь или отправьте фото через скрепку.</Text>
+              </View>
+            </View>
+          ) : (
+            <FlatList
+              ref={listRef}
+              inverted
+              data={items}
+              keyExtractor={(it) => it.key}
+              renderItem={renderItem}
+              contentContainerStyle={styles.listContent}
+              onEndReached={loadOlder}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={loadingOlder ? <ActivityIndicator color={C.accent} style={{ marginVertical: 12 }} /> : null}
+              onScroll={(e) => {
+                const up = e.nativeEvent.contentOffset.y > 400;
+                scrolledUp.current = up;
+                if (up !== showScrollDown) setShowScrollDown(up);
+                if (!up && newWhileAway) setNewWhileAway(0);
+              }}
+              scrollEventThrottle={64}
+              onScrollToIndexFailed={(info) => {
+                listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+                setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }), 300);
+              }}
+              keyboardShouldPersistTaps="handled"
+              maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+            />
+          )}
 
-        {/* ===== ПЛАШКА ОТВЕТА ===== */}
-        {replyTo && (
-          <View style={styles.plate}>
-            <CornerUpLeft size={16} color="#1F7A52" strokeWidth={2} />
-            <View style={{ flex: 1, marginLeft: 8 }}>
-              <Text style={styles.plateLabel}>Ответ:</Text>
-              <Text style={styles.plateText} numberOfLines={1}>
-                {replyTo.text || '📎 Вложение'}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => setReplyTo(null)} style={styles.plateClose}>
-              <X size={18} color="#6F6F73" strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        )}
-        {editingMessage && (
-          <View style={styles.plate}>
-            <Pencil size={16} color="#1F7A52" strokeWidth={2} />
-            <View style={{ flex: 1, marginLeft: 8 }}>
-              <Text style={styles.plateLabel}>Редактирование:</Text>
-              <Text style={styles.plateText} numberOfLines={1}>
-                {editingMessage.text}
-              </Text>
-            </View>
+          {showScrollDown && (
             <TouchableOpacity
-              onPress={() => { setEditingMessage(null); setText(''); }}
-              style={styles.plateClose}
+              style={styles.scrollDown}
+              onPress={() => {
+                listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                setNewWhileAway(0);
+              }}
+              accessibilityLabel="Вниз"
             >
-              <X size={18} color="#6F6F73" strokeWidth={2} />
+              <ChevronDown size={24} color={C.textMuted} />
+              {newWhileAway > 0 && (
+                <View style={styles.scrollBadge}>
+                  <Text style={styles.scrollBadgeText}>{newWhileAway}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ===== ПЛАШКИ НАД ВВОДОМ ===== */}
+        {(replyTo || editingMessage) && (
+          <View style={styles.plate}>
+            {replyTo ? <CornerUpLeft size={20} color={C.accent} /> : <Pencil size={20} color={C.accent} />}
+            <TouchableOpacity style={styles.plateBody} onPress={() => replyTo && scrollToMessage(replyTo.id)} activeOpacity={0.7}>
+              <Text style={styles.plateLabel} numberOfLines={1}>
+                {replyTo ? `Ответ ${replyTo.sender_id === currentUserId ? 'себе' : senderNameOf(replyTo)}` : 'Редактирование'}
+              </Text>
+              <Text style={styles.plateText} numberOfLines={1}>
+                {messagePreview(replyTo || editingMessage)}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                if (editingMessage) setText('');
+                setReplyTo(null);
+                setEditingMessage(null);
+              }}
+              style={styles.plateClose}
+              accessibilityLabel="Отменить"
+            >
+              <X size={20} color={C.textMuted} />
             </TouchableOpacity>
           </View>
         )}
-
-        {/* ===== ЗАПЛАНИРОВАННЫЕ ===== */}
-        {scheduled.length > 0 && (
+        {scheduled.length > 0 && !editingMessage && (
           <TouchableOpacity style={styles.plate} onPress={() => setShowScheduledList(true)} activeOpacity={0.7}>
-            <CalendarClock size={16} color="#1F7A52" strokeWidth={2} />
-            <Text style={[styles.plateLabel, { flex: 1, marginLeft: 8 }]}>
-              Запланировано: {scheduled.length}
-            </Text>
-            <Text style={styles.plateText}>Открыть</Text>
+            <CalendarClock size={20} color={C.accent} />
+            <View style={styles.plateBody}>
+              <Text style={styles.plateLabel}>
+                Запланировано: {scheduled.length}
+              </Text>
+              <Text style={styles.plateText}>Нажмите, чтобы посмотреть или отменить</Text>
+            </View>
           </TouchableOpacity>
         )}
 
         {/* ===== ВВОД ===== */}
         <View style={styles.inputBar}>
-          <TouchableOpacity
-            onPress={() => setShowAttachMenu(true)}
-            disabled={uploading}
-            style={styles.attachBtn}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color="#1F7A52" />
-            ) : (
-              <Paperclip size={20} color="#6F6F73" strokeWidth={2} />
-            )}
+          <TouchableOpacity onPress={() => setShowAttach(true)} style={styles.attachBtn} accessibilityLabel="Вложения" disabled={!!editingMessage}>
+            <Paperclip size={24} color={editingMessage ? '#C4C4C8' : C.textMuted} strokeWidth={2} />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
             value={text}
             onChangeText={onChangeText}
-            placeholder="Сообщение..."
-            placeholderTextColor="#BDBDBD"
+            placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
+            placeholderTextColor="#9A9AA0"
             multiline
             maxLength={4000}
           />
           <TouchableOpacity
             onPress={handleSend}
-            onLongPress={onSendLongPress}
+            onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
             delayLongPress={350}
-            disabled={!text.trim()}
-            style={[styles.sendBtn, { backgroundColor: text.trim() ? '#1F7A52' : '#ECECE8' }]}
+            disabled={!canSend && !editingMessage}
+            style={[styles.sendBtn, { backgroundColor: canSend || editingMessage ? C.accent : '#E4E6E3' }]}
+            accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
           >
-            <SendHorizonal size={18} color="#FFFFFF" strokeWidth={2.5} />
+            {editingMessage ? (
+              <Pencil size={18} color="#FFFFFF" strokeWidth={2.5} />
+            ) : (
+              <SendHorizonal size={19} color={canSend ? '#FFFFFF' : '#A1A1AA'} strokeWidth={2.4} />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* ===== МЕНЮ СКРЕПКИ ===== */}
-      <Modal visible={showAttachMenu} transparent animationType="fade">
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setShowAttachMenu(false)}
-          style={styles.sheetOverlay}
-        >
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>ВЛОЖЕНИЯ</Text>
+      {/* ===== МОДАЛКИ ===== */}
+      <AttachSheet
+        visible={showAttach}
+        onClose={() => setShowAttach(false)}
+        onSendMedia={sendMedia}
+        onPickFiles={pickFiles}
+        onPoll={() => setShowPoll(true)}
+        onNote={() => setShowNotes(true)}
+      />
+      <PollComposer visible={showPoll} onClose={() => setShowPoll(false)} onSubmit={createPoll} />
+      <NotePickerModal visible={showNotes} onClose={() => setShowNotes(false)} onPick={shareNote} />
+      <MediaViewer
+        visible={!!viewer}
+        items={viewer?.items || []}
+        initialIndex={viewer?.index || 0}
+        onClose={() => setViewer(null)}
+        onForward={(it) => {
+          setViewer(null);
+          setForwardIds([it.id]);
+        }}
+        onShowInChat={(it) => {
+          setViewer(null);
+          setTimeout(() => scrollToMessage(it.id), 250);
+        }}
+      />
+      <ActionSheet
+        visible={!!actionRow}
+        title={actionMain ? (actionMain.sender_id === currentUserId ? 'Вы' : senderNameOf(actionMain)) : ''}
+        preview={actionMain ? messagePreview(actionMain) : ''}
+        actions={actionRow ? actionsFor(actionRow) : []}
+        onClose={() => setActionRow(null)}
+      />
+      <ShareToChatModal visible={!!forwardIds} title="Переслать" onClose={() => setForwardIds(null)} onSend={forwardTo} />
 
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => { setShowAttachMenu(false); pickAndSendFile(); }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
-                <Paperclip size={18} color="#1F7A52" strokeWidth={2} />
-              </View>
-              <Text style={styles.sheetRowText}>Файл или фото</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => { setShowAttachMenu(false); setShowPollModal(true); }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
-                <PollGlyph width={16} color="#1F7A52" />
-              </View>
-              <Text style={styles.sheetRowText}>Опрос</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ===== МОДАЛКА СОЗДАНИЯ ОПРОСА ===== */}
-      <Modal visible={showPollModal} transparent animationType="slide">
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setShowPollModal(false)}
-          style={styles.sheetOverlay}
-        >
-          <View style={[styles.sheet, { maxHeight: '88%' }]}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>НОВЫЙ ОПРОС</Text>
-              <TouchableOpacity onPress={() => setShowPollModal(false)}>
-                <X size={22} color="#141414" strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
-              <TextInput
-                style={styles.pollQuestionInput}
-                placeholder="Задайте вопрос"
-                placeholderTextColor="#BDBDBD"
-                value={pollQuestion}
-                onChangeText={setPollQuestion}
-                maxLength={255}
-                autoFocus
-              />
-
-              <Text style={styles.pollLabel}>ВАРИАНТЫ ОТВЕТОВ</Text>
-              {pollOptions.map((opt, i) => (
-                <View key={i} style={styles.pollOptionRow}>
-                  {pollQuiz && (
-                    <TouchableOpacity
-                      onPress={() => setPollCorrectIndex(i)}
-                      style={[styles.quizCircle, pollCorrectIndex === i && styles.quizCircleActive]}
-                    >
-                      {pollCorrectIndex === i && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
-                    </TouchableOpacity>
-                  )}
-                  <TextInput
-                    style={styles.pollOptionInput}
-                    placeholder={`Вариант ${i + 1}`}
-                    placeholderTextColor="#BDBDBD"
-                    value={opt}
-                    onChangeText={(t) => {
-                      const arr = [...pollOptions];
-                      arr[i] = t;
-                      setPollOptions(arr);
-                    }}
-                  />
-                  {pollOptions.length > 2 && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        setPollOptions(pollOptions.filter((_, x) => x !== i));
-                        if (pollCorrectIndex === i) setPollCorrectIndex(null);
-                        else if (pollCorrectIndex !== null && i < pollCorrectIndex) {
-                          setPollCorrectIndex(pollCorrectIndex - 1);
-                        }
-                      }}
-                      style={{ padding: 6 }}
-                    >
-                      <X size={16} color="#BDBDBD" strokeWidth={2} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))}
-
-              {pollOptions.length < 10 && (
-                <TouchableOpacity
-                  style={styles.addOptionBtn}
-                  onPress={() => setPollOptions([...pollOptions, ''])}
-                  activeOpacity={0.7}
-                >
-                  <Plus size={16} color="#1F7A52" strokeWidth={2.5} />
-                  <Text style={styles.addOptionText}>Добавить вариант</Text>
-                </TouchableOpacity>
-              )}
-
-              <View style={styles.pollSettings}>
-                <View style={styles.pollSettingRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pollSettingText}>Анонимное голосование</Text>
-                    <Text style={styles.pollSettingHint}>Участники не увидят кто за что голосовал</Text>
-                  </View>
-                  <Switch
-                    value={pollAnonymous}
-                    onValueChange={setPollAnonymous}
-                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-                <View style={styles.pollSettingRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pollSettingText}>Несколько ответов</Text>
-                    <Text style={styles.pollSettingHint}>Можно выбрать несколько вариантов</Text>
-                  </View>
-                  <Switch
-                    value={pollMultiple}
-                    onValueChange={setPollMultiple}
-                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-                <View style={styles.pollSettingRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pollSettingText}>Викторина</Text>
-                    <Text style={styles.pollSettingHint}>
-                      {pollQuiz ? 'Отметьте правильный ответ слева от варианта' : 'Есть один правильный ответ'}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={pollQuiz}
-                    onValueChange={(v) => {
-                      setPollQuiz(v);
-                      if (!v) setPollCorrectIndex(null);
-                    }}
-                    trackColor={{ false: '#ECECE8', true: '#1F7A52' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-              </View>
-            </ScrollView>
-
-            <TouchableOpacity
-              onPress={sendPoll}
-              disabled={sendingPoll}
-              style={[styles.pollSendBtn, { backgroundColor: sendingPoll ? '#ECECE8' : '#1F7A52' }]}
-              activeOpacity={0.85}
-            >
-              {sendingPoll ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <PollGlyph width={16} color="#FFFFFF" />
-                  <Text style={styles.pollSendText}>Создать опрос</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ===== КОНТЕКСТНОЕ МЕНЮ ===== */}
-      <Modal visible={!!selectedMessage} transparent animationType="fade">
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setSelectedMessage(null)}
-          style={styles.sheetOverlay}
-        >
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>ДЕЙСТВИЯ</Text>
-
-            <TouchableOpacity style={styles.sheetRow} onPress={startReply} activeOpacity={0.7}>
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#DBEAFE' }]}>
-                <CornerUpLeft size={18} color="#3B82F6" strokeWidth={2} />
-              </View>
-              <Text style={styles.sheetRowText}>Ответить</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={startForward}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#FEF3C7' }]}>
-                <Forward size={18} color="#B45309" strokeWidth={2} />
-              </View>
-              <Text style={styles.sheetRowText}>Переслать</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.sheetRow} onPress={togglePin} activeOpacity={0.7}>
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#ECFDF5' }]}>
-                {selectedMessage?.pinned ? (
-                  <PinOff size={18} color="#1F7A52" strokeWidth={2} />
-                ) : (
-                  <Pin size={18} color="#1F7A52" strokeWidth={2} />
-                )}
-              </View>
-              <Text style={styles.sheetRowText}>
-                {selectedMessage?.pinned ? 'Открепить' : 'Закрепить'}
-              </Text>
-            </TouchableOpacity>
-
-            {isMineSelected && (
-              <TouchableOpacity style={styles.sheetRow} onPress={startEdit} activeOpacity={0.7}>
-                <View style={[styles.sheetRowIcon, { backgroundColor: '#F3F4F6' }]}>
-                  <Pencil size={18} color="#6F6F73" strokeWidth={2} />
-                </View>
-                <Text style={styles.sheetRowText}>Изменить</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => {
-                const target = selectedMessage;
-                setSelectedMessage(null);
-                Alert.alert('Удалить сообщение?', 'Оно исчезнет только у вас', [
-                  { text: 'Отмена', style: 'cancel' },
-                  { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage(target, 'me') },
-                ]);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.sheetRowIcon, { backgroundColor: '#FEE2E2' }]}>
-                <Trash2 size={18} color="#DC2626" strokeWidth={2} />
-              </View>
-              <Text style={[styles.sheetRowText, { color: '#DC2626' }]}>Удалить у меня</Text>
-            </TouchableOpacity>
-
-            {isMineSelected && (
-              <TouchableOpacity
-                style={styles.sheetRow}
-                onPress={() => {
-                  const target = selectedMessage;
-                  setSelectedMessage(null);
-                  Alert.alert('Удалить у всех?', 'Сообщение исчезнет у всех участников', [
-                    { text: 'Отмена', style: 'cancel' },
-                    { text: 'Удалить', style: 'destructive', onPress: () => deleteMessage(target, 'all') },
-                  ]);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.sheetRowIcon, { backgroundColor: '#7F1D1D' }]}>
-                  <Trash2 size={18} color="#FFFFFF" strokeWidth={2} />
-                </View>
-                <Text style={[styles.sheetRowText, { color: '#7F1D1D' }]}>Удалить у всех</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ===== ОТЛОЖЕННАЯ ОТПРАВКА (долгое нажатие на «Отправить») ===== */}
       <DateTimePickerModal
         visible={showSchedulePicker}
         initialDate={new Date(Date.now() + 60 * 60 * 1000)}
@@ -1176,433 +1127,193 @@ export default function ChatScreen({ navigation }: any) {
       />
 
       <Modal visible={showScheduledList} transparent animationType="slide" onRequestClose={() => setShowScheduledList(false)}>
-        <TouchableOpacity activeOpacity={1} onPress={() => setShowScheduledList(false)} style={styles.sheetOverlay}>
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>ЗАПЛАНИРОВАННЫЕ СООБЩЕНИЯ</Text>
-            <FlatList
-              data={scheduled}
-              keyExtractor={(item) => String(item.id)}
-              style={{ maxHeight: 360 }}
-              ListEmptyComponent={<Text style={styles.plateText}>Нет запланированных сообщений</Text>}
-              renderItem={({ item }) => (
-                <View style={styles.scheduledRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.scheduledTime}>
-                      {new Date(item.send_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                    <Text style={styles.sheetRowText} numberOfLines={2}>{item.text}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => sendScheduledNow(item.id)} style={styles.scheduledBtn}>
-                    <SendHorizonal size={16} color="#1F7A52" strokeWidth={2} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() =>
-                      Alert.alert('Отменить отправку?', item.text, [
-                        { text: 'Нет', style: 'cancel' },
-                        { text: 'Отменить', style: 'destructive', onPress: () => cancelScheduled(item.id) },
-                      ])
-                    }
-                    style={styles.scheduledBtn}
-                  >
-                    <Trash2 size={16} color="#DC2626" strokeWidth={2} />
-                  </TouchableOpacity>
+        <Pressable style={styles.backdrop} onPress={() => setShowScheduledList(false)} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Запланированные сообщения</Text>
+          <FlatList
+            data={scheduled}
+            keyExtractor={(item) => String(item.id)}
+            style={{ maxHeight: 380 }}
+            ListEmptyComponent={<Text style={styles.emptyText}>Нет запланированных сообщений</Text>}
+            renderItem={({ item }) => (
+              <View style={styles.scheduledRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.scheduledTime}>
+                    {new Date(item.send_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                  <Text style={styles.scheduledText} numberOfLines={2}>
+                    {item.text}
+                  </Text>
                 </View>
-              )}
-            />
-            <Text style={[styles.plateText, { marginTop: 8 }]}>
-              Чтобы запланировать: напишите текст и удерживайте кнопку отправки.
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ===== ПЕРЕСЫЛКА ===== */}
-      <Modal visible={!!forwardMessage} transparent animationType="fade" onRequestClose={() => setForwardMessage(null)}>
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setForwardMessage(null)}
-          style={styles.sheetOverlay}
-        >
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>ПЕРЕСЛАТЬ В...</Text>
-            <FlatList
-              data={availableChats}
-              keyExtractor={(item) => String(item.id)}
-              style={{ maxHeight: 320 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.sheetRow}
-                  onPress={() => handleForward(item.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.forwardAvatar, { backgroundColor: hashColor(item.name) }]}>
-                    <Text style={styles.forwardAvatarText}>{initials(item.name)}</Text>
-                  </View>
-                  <Text style={styles.sheetRowText} numberOfLines={1}>{item.name}</Text>
+                <TouchableOpacity onPress={() => sendScheduledNow(item.id)} style={styles.scheduledBtn} accessibilityLabel="Отправить сейчас">
+                  <SendHorizonal size={16} color={C.accent} strokeWidth={2} />
                 </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() =>
+                    Alert.alert('Отменить отправку?', item.text, [
+                      { text: 'Нет', style: 'cancel' },
+                      { text: 'Отменить', style: 'destructive', onPress: () => cancelScheduled(item.id) },
+                    ])
+                  }
+                  style={styles.scheduledBtn}
+                  accessibilityLabel="Отменить"
+                >
+                  <Trash2 size={16} color={C.danger} strokeWidth={2} />
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+          <Text style={styles.sheetHint}>Чтобы запланировать: напишите текст и удерживайте кнопку отправки.</Text>
+        </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  forwardedLabel: { fontSize: 12, fontStyle: 'italic', color: '#1F7A52', marginBottom: 4 },
-  forwardedLabelMine: { color: 'rgba(255,255,255,0.85)' },
-  failedHint: { fontSize: 11, color: '#DC2626', marginTop: 4, textAlign: 'right' },
-  scheduledRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#ECECE8' },
-  scheduledTime: { fontSize: 12, fontWeight: '700', color: '#1F7A52', marginBottom: 2 },
-  scheduledBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
 
-  // ===== HEADER =====
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 4,
+    height: 58,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
-    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
   },
-  headerBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
+  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  headerAvatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  onlineDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
-  headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   headerCenter: { flex: 1 },
-  headerTitle: { fontSize: 16, fontWeight: '700', color: '#141414' },
-  headerSubtitle: { fontSize: 12, color: '#6F6F73', fontWeight: '500' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
+  headerSubtitle: { fontSize: 13, color: C.textMuted, marginTop: 1 },
 
-  // ===== PINNED =====
   pinnedBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#D1FAE5',
-  },
-  pinnedLabel: { fontSize: 11, fontWeight: '700', color: '#1F7A52' },
-  pinnedText: { fontSize: 13, color: '#141414', fontWeight: '500' },
-  pinnedCounter: { fontSize: 12, color: '#1F7A52', fontWeight: '600', marginLeft: 8 },
-
-  // ===== LIST =====
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { padding: 16, paddingBottom: 24 },
-
-  dayDivider: { alignItems: 'center', marginVertical: 12 },
-  dayDividerText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6F6F73',
-    backgroundColor: '#ECECE8',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-
-  // ===== BUBBLES =====
-  msgRow: { flexDirection: 'row', marginBottom: 8 },
-  msgRowMine: { justifyContent: 'flex-end' },
-  bubble: {
-    maxWidth: '80%',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  bubbleOther: {
-    backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 1,
-  },
-  bubbleMine: {
-    backgroundColor: '#1F7A52',
-    borderBottomRightRadius: 6,
-  },
-  senderName: { fontSize: 12, fontWeight: '700', marginBottom: 4 },
-  msgText: { fontSize: 15, color: '#141414', lineHeight: 21, fontWeight: '500' },
-  msgTextMine: { color: '#FFFFFF' },
-  msgMeta: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 4,
-  },
-  metaText: { fontSize: 11, color: '#BDBDBD', fontWeight: '500' },
-  metaTextMine: { color: 'rgba(255,255,255,0.7)' },
-
-  quoteBox: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#1F7A52',
-    backgroundColor: '#FAFAF8',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 6,
-  },
-  quoteBoxMine: {
-    borderLeftColor: '#FFFFFF',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  quoteName: { fontSize: 12, fontWeight: '700', color: '#1F7A52' },
-  quoteNameMine: { color: '#FFFFFF' },
-  quoteText: { fontSize: 13, color: '#6F6F73' },
-  quoteTextMine: { color: 'rgba(255,255,255,0.85)' },
-
-  msgImage: { width: 220, height: 160, borderRadius: 12, marginBottom: 6 },
-  fileBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FAFAF8',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 6,
     gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
   },
-  fileBoxMine: { backgroundColor: 'rgba(255,255,255,0.15)' },
-  fileIconWrap: {
-    width: 36,
-    height: 36,
+  pinnedLine: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.accent },
+  pinnedLabel: { fontSize: 13, fontWeight: '700', color: C.accent },
+  pinnedText: { fontSize: 14, color: C.text },
+
+  listWrap: { flex: 1, backgroundColor: C.bg },
+  listContent: { paddingVertical: 8 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emptyCard: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 18, padding: 20, alignItems: 'center', maxWidth: 280 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 4 },
+  emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center' },
+  retryBtn: { marginTop: 12, paddingHorizontal: 18, height: 40, borderRadius: 12, backgroundColor: C.accent, justifyContent: 'center' },
+  retryText: { color: '#FFFFFF', fontWeight: '700' },
+  unreadBar: { marginVertical: 8, paddingVertical: 5, backgroundColor: 'rgba(255,255,255,0.75)', alignItems: 'center' },
+  unreadText: { fontSize: 13, color: C.accent, fontWeight: '700' },
+
+  scrollDown: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  scrollBadge: {
+    position: 'absolute',
+    top: -6,
+    minWidth: 20,
+    height: 20,
     borderRadius: 10,
-    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 5,
+    backgroundColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fileIconWrapMine: { backgroundColor: 'rgba(255,255,255,0.2)' },
-  fileName: { fontSize: 13, fontWeight: '600', color: '#141414', flex: 1 },
-  fileNameMine: { color: '#FFFFFF' },
+  scrollBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
 
-  // ===== PLATES =====
   plate: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 6,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
   },
-  plateLabel: { fontSize: 11, fontWeight: '700', color: '#1F7A52' },
-  plateText: { fontSize: 13, color: '#6F6F73', fontWeight: '500' },
-  plateClose: { padding: 4 },
+  plateBody: { flex: 1, borderLeftWidth: 2, borderLeftColor: C.accent, paddingLeft: 8 },
+  plateLabel: { fontSize: 13, fontWeight: '700', color: C.accent },
+  plateText: { fontSize: 14, color: C.text },
+  plateClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
-  // ===== INPUT =====
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
-    padding: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    gap: 4,
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
   },
-  attachBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  attachBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   input: {
     flex: 1,
-    backgroundColor: '#FAFAF8',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#ECECE8',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: '#141414',
-    maxHeight: 100,
-    fontWeight: '500',
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // ===== SHEETS =====
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 20,
-    paddingBottom: 32,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#ECECE8',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  sheetTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#141414',
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F4F4F5',
-  },
-  sheetRowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetRowText: { fontSize: 15, fontWeight: '600', color: '#141414', flex: 1 },
-  forwardAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  forwardAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
-
-  // ===== ОПРОС =====
-  pollQuestionInput: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#141414',
-    backgroundColor: '#FAFAF8',
-    borderWidth: 1,
-    borderColor: '#ECECE8',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 16,
-  },
-  pollLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6F6F73',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  pollOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  pollOptionInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#141414',
-    backgroundColor: '#FAFAF8',
-    borderWidth: 1,
-    borderColor: '#ECECE8',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  quizCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#BDBDBD',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quizCircleActive: {
-    backgroundColor: '#1F7A52',
-    borderColor: '#1F7A52',
-  },
-  addOptionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-  },
-  addOptionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F7A52',
-  },
-  pollSettings: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
-    gap: 4,
-  },
-  pollSettingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    gap: 12,
-  },
-  pollSettingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#141414',
-  },
-  pollSettingHint: {
-    fontSize: 11,
-    color: '#6F6F73',
-    marginTop: 2,
-  },
-  pollSendBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 52,
-    borderRadius: 18,
-    marginTop: 16,
-  },
-  pollSendText: {
+    minHeight: 42,
+    maxHeight: 140,
+    paddingHorizontal: 14,
+    paddingTop: Platform.OS === 'ios' ? 11 : 9,
+    paddingBottom: Platform.OS === 'ios' ? 11 : 9,
+    borderRadius: 21,
+    backgroundColor: '#F2F3F1',
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    color: C.text,
   },
+  sendBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', marginLeft: 2, marginBottom: 1 },
+
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 16,
+    paddingBottom: 28,
+  },
+  sheetHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', marginBottom: 12 },
+  sheetTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 8 },
+  sheetHint: { fontSize: 13, color: C.textMuted, marginTop: 10 },
+  scheduledRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  scheduledTime: { fontSize: 12, fontWeight: '700', color: C.accent, marginBottom: 2 },
+  scheduledText: { fontSize: 15, color: C.text },
+  scheduledBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
 });

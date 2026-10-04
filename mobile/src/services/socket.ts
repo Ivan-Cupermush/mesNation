@@ -99,3 +99,9 @@ export function subscribe<T = any>(event: string, handler: (payload: T) => void)
 export function makeClientId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/** Отправить событие без ответа (например, «печатает…»). */
+export function emitEvent(event: string, payload: unknown) {
+  const s = getSocket();
+  if (s?.connected) s.emit(event, payload);
+}

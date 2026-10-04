@@ -36,3 +36,16 @@ jest.mock('react-native-keychain', () => {
     resetGenericPassword: jest.fn(async () => { stored = false; return true; }),
   };
 });
+jest.mock('@react-native-camera-roll/camera-roll', () => ({
+  CameraRoll: {
+    getPhotos: jest.fn(async () => ({ edges: [], page_info: { has_next_page: false } })),
+    saveAsset: jest.fn(async () => ({})),
+  },
+}));
+jest.mock('react-native-image-picker', () => ({ launchCamera: jest.fn(async () => ({})), launchImageLibrary: jest.fn(async () => ({})) }));
+jest.mock('react-native-video', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const Video = React.forwardRef((props, _ref) => React.createElement(View, props));
+  return { __esModule: true, default: Video, Video };
+});

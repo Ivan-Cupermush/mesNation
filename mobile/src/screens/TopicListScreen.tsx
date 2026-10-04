@@ -1,247 +1,297 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform,
-  ActivityIndicator, Alert, TextInput, Modal,
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  TextInput,
+  Modal,
+  Pressable,
+  Image,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { ChevronLeft, Hash, MessageSquare, Plus, ChevronRight, X, Info } from 'lucide-react-native';
-import { getToken, SERVER_URL } from '../utils';
-import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
+import { ChevronLeft, MessageSquare, Plus, Info, Check } from 'lucide-react-native';
+import { SERVER_URL } from '../config';
+import { request } from '../services/http';
+import { subscribe } from '../services/socket';
+import { TOPIC_ICONS, TOPIC_COLORS, hexToRgba } from '../theme/topicIcons';
+import { C, hashColor, initials, messagePreview, plural } from '../components/chat/chatUtils';
 
-type TopicListRouteProp = RouteProp<{ params: { chatId: string; chatName: string } }, 'params'>;
+/**
+ * Группа с темами (как форумы в Telegram): сверху группа, ниже «Общий»
+ * чат и темы с последним сообщением. Тему может создать любой участник;
+ * менять и удалять — её автор и админы (экран темы).
+ */
+
+type RouteP = RouteProp<{ params: { chatId: string; chatName: string } }, 'params'>;
+
+const formatTime = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+};
 
 export default function TopicListScreen({ navigation }: any) {
-  const route = useRoute<TopicListRouteProp>();
+  const route = useRoute<RouteP>();
   const chatId = route.params.chatId;
-  const chatName = route.params.chatName || 'Супергруппа';
-
   const [chat, setChat] = useState<any>(null);
   const [topics, setTopics] = useState<any[]>([]);
+  const [general, setGeneral] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isCreator, setIsCreator] = useState(false);
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [icon, setIcon] = useState('hash');
+  const [color, setColor] = useState(TOPIC_COLORS[0]);
   const [creating, setCreating] = useState(false);
 
+  const chatName = chat?.name || route.params.chatName || 'Группа';
+
   const load = useCallback(async () => {
-    const token = await getToken();
-    if (!token) { setLoading(false); return; }
     try {
-      const [meRes, topicsRes, listRes] = await Promise.all([
-        fetch(`${SERVER_URL}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${SERVER_URL}/api/chats`, { headers: { Authorization: `Bearer ${token}` } }),
+      const [c, t, g] = await Promise.all([
+        request<any>(`/api/chats/${chatId}`),
+        request<any[]>(`/api/chats/${chatId}/topics`),
+        request<any[]>(`/api/messages/${chatId}`, { query: { limit: 1 } }).catch(() => []),
       ]);
-      let me: any = null;
-      if (meRes.ok) me = await meRes.json();
-      if (topicsRes.ok) setTopics(await topicsRes.json());
-      if (listRes.ok) {
-        const list = await listRes.json();
-        const ch = list.find((x: any) => String(x.id) === String(chatId));
-        if (ch) { setChat(ch); if (me) setIsCreator(ch.created_by === me.id); }
+      setChat(c);
+      setTopics(t);
+      setGeneral(g[g.length - 1] || null);
+      if (!c.is_supergroup) {
+        // Темы выключили, пока экран был открыт — переходим в обычный чат.
+        navigation.replace('Chat', { chatId, chatName: c.name });
       }
-    } catch (e) { Alert.alert('Ошибка', 'Не удалось загрузить топики'); }
-    setLoading(false);
-  }, [chatId]);
+    } catch (e: any) {
+      Alert.alert('Ошибка', e?.message || 'Не удалось загрузить темы');
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId, navigation]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
-  const handleCreate = async () => {
-    if (!newTitle.trim()) { Alert.alert('Ошибка', 'Введите название'); return; }
+  useEffect(() => {
+    const same = (id: any) => String(id) === String(chatId);
+    const unsubs = [
+      subscribe('chat_activity', (e: any) => same(e.chat_id) && load()),
+      subscribe('topic_created', (t: any) => same(t.chat_id) && load()),
+      subscribe('topic_updated', (t: any) => same(t.chat_id) && load()),
+      subscribe('topic_deleted', () => load()),
+      subscribe('chat_updated', (c: any) => same(c.id) && load()),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [chatId, load]);
+
+  const create = async () => {
+    if (!title.trim()) return;
     setCreating(true);
     try {
-      const tok = await getToken();
-      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-        body: JSON.stringify({ title: newTitle.trim() }),
-      });
-      if (res.ok) { setNewTitle(''); setShowCreateModal(false); load(); }
-      else { const d = await res.json(); Alert.alert('Ошибка', d.error || 'Не удалось'); }
-    } catch (e) { Alert.alert('Ошибка', 'Сервер недоступен'); }
-    finally { setCreating(false); }
+      const t = await request<any>(`/api/chats/${chatId}/topics`, { method: 'POST', body: { title: title.trim(), icon, icon_color: color } });
+      setCreateOpen(false);
+      setTitle('');
+      navigation.navigate('Chat', { chatId, chatName, topicId: t.id });
+    } catch (e: any) {
+      Alert.alert('Не удалось создать тему', e?.message || '');
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const openTopic = (topicId: number | null, topicName: string) => {
-    navigation.navigate('Chat', {
-      chatId,
-      chatName: topicId ? `${chatName} · ${topicName}` : chatName,
-      topicId,
-    });
+  const openTopic = (topicId: number | null) => navigation.navigate('Chat', { chatId, chatName, topicId });
+
+  const rows = [{ id: null, title: 'Общий', last_message: general }, ...topics];
+  const members = chat?.members?.length || 0;
+
+  const renderRow = ({ item }: { item: any }) => {
+    const Icon = item.id === null ? MessageSquare : TOPIC_ICONS[item.icon] || TOPIC_ICONS.hash;
+    const col = item.id === null ? C.accent : item.icon_color || C.accent;
+    const lm = item.last_message;
+    return (
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => openTopic(item.id)}
+        onLongPress={() => item.id && navigation.navigate('TopicInfo', { chatId, topicId: item.id })}
+        activeOpacity={0.6}
+      >
+        <View style={[styles.topicIcon, { backgroundColor: hexToRgba(col, 0.14) }]}>
+          <Icon size={22} color={col} strokeWidth={2.2} style={{ opacity: item.icon_opacity ?? 1 }} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.rowTop}>
+            <Text style={styles.topicTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.time}>{formatTime(lm?.created_at)}</Text>
+          </View>
+          <Text style={styles.preview} numberOfLines={1}>
+            {lm ? (
+              <>
+                {lm.sender_name || lm.sender_display_name ? <Text style={{ color: C.text }}>{(lm.sender_display_name || lm.sender_name).split(' ')[0]}: </Text> : null}
+                {messagePreview(lm)}
+              </>
+            ) : item.id === null ? (
+              'Сообщения без темы'
+            ) : (
+              'Пока нет сообщений'
+            )}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* ===== HEADER ===== */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
+          <ChevronLeft size={26} color={C.text} />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>ТОПИКИ</Text>
-          <Text style={styles.headerSubtitle} numberOfLines={1}>{chatName}</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { chatId })} style={styles.headerBtn}>
-          <Info size={20} color="#141414" strokeWidth={2} />
+        <TouchableOpacity style={styles.headerMain} onPress={() => navigation.navigate('ChatInfo', { chatId })} activeOpacity={0.7}>
+          {chat?.avatar_url ? (
+            <Image source={{ uri: SERVER_URL + chat.avatar_url }} style={styles.headerAvatar} />
+          ) : (
+            <View style={[styles.headerAvatar, { backgroundColor: hashColor(chatName) }]}>
+              <Text style={styles.headerAvatarText}>{initials(chatName)}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {chatName}
+            </Text>
+            <Text style={styles.headerSub}>
+              {topics.length} {plural(topics.length, ['тема', 'темы', 'тем'])} · {members} {plural(members, ['участник', 'участника', 'участников'])}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('ChatInfo', { chatId })} style={styles.iconBtn} accessibilityLabel="Информация о группе">
+          <Info size={22} color={C.text} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
+        <ActivityIndicator size="large" color={C.accent} style={{ marginTop: 40 }} />
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* ===== ОБЩИЙ ЧАТ ===== */}
-          <TouchableOpacity onPress={() => openTopic(null, 'Общий чат')} style={styles.topicCard} activeOpacity={0.7}>
-            <View style={[styles.topicIconWrap, { backgroundColor: '#ECFDF5' }]}>
-              <MessageSquare size={20} color="#1F7A52" strokeWidth={2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.topicTitle}>Общий чат</Text>
-              <Text style={styles.topicHint}>Сообщения без топика</Text>
-            </View>
-            <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
-          </TouchableOpacity>
-
-          <Text style={styles.sectionTitle}>ТОПИКИ</Text>
-
-          {topics.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Hash size={32} color="#BDBDBD" strokeWidth={1.5} />
-              <Text style={styles.emptyTitle}>Топиков пока нет</Text>
-              <Text style={styles.emptySubtitle}>
-                {isCreator ? 'Создайте первый топик для обсуждений' : 'Создатель супергруппы ещё не создал топики'}
-              </Text>
-            </View>
-          ) : (
-            topics.map((t) => {
-              const Icon = TOPIC_ICONS[t.icon] || TOPIC_ICONS.hash;
-              const color = t.icon_color || '#1F7A52';
-              const opacity = t.icon_opacity ?? 1;
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  onPress={() => openTopic(t.id, t.title)}
-                  style={styles.topicCard}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.topicIconWrap, { backgroundColor: hexToRgba(color, 0.12) }]}>
-                    <Icon size={20} color={color} strokeWidth={2} style={{ opacity }} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.topicTitle} numberOfLines={1}>{t.title}</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      navigation.navigate('TopicInfo', { chatId, topicId: t.id });
-                    }}
-                    style={styles.topicInfoBtn}
-                  >
-                    <Info size={16} color="#6F6F73" strokeWidth={2} />
-                  </TouchableOpacity>
-                  <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
-                </TouchableOpacity>
-              );
-            })
-          )}
-
-          <View style={{ height: 100 }} />
-        </ScrollView>
+        <FlatList
+          data={rows}
+          keyExtractor={(t) => String(t.id)}
+          renderItem={renderRow}
+          ItemSeparatorComponent={() => <View style={styles.sep} />}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          ListFooterComponent={
+            topics.length === 0 ? <Text style={styles.hint}>Тем пока нет. Создайте первую — например, «Отчёты» или «Вопросы».</Text> : null
+          }
+        />
       )}
 
-      {/* ===== FAB: создать топик ===== */}
-      {isCreator && (
-        <TouchableOpacity onPress={() => setShowCreateModal(true)} style={styles.fab} activeOpacity={0.85}>
-          <Plus size={24} color="#FFFFFF" strokeWidth={2.5} />
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity onPress={() => setCreateOpen(true)} style={styles.fab} activeOpacity={0.85} accessibilityLabel="Новая тема">
+        <Plus size={26} color="#FFFFFF" strokeWidth={2.5} />
+      </TouchableOpacity>
 
-      {/* ===== МОДАЛКА СОЗДАНИЯ ===== */}
-      <Modal visible={showCreateModal} transparent animationType="slide">
-        <TouchableOpacity activeOpacity={1} onPress={() => setShowCreateModal(false)} style={styles.sheetOverlay}>
+      <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setCreateOpen(false)} />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap} pointerEvents="box-none">
           <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>НОВЫЙ ТОПИК</Text>
-              <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-                <X size={22} color="#141414" strokeWidth={2} />
-              </TouchableOpacity>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Новая тема</Text>
+            <View style={styles.titleRow}>
+              <View style={[styles.topicIcon, { backgroundColor: hexToRgba(color, 0.14) }]}>
+                {React.createElement(TOPIC_ICONS[icon] || TOPIC_ICONS.hash, { size: 22, color, strokeWidth: 2.2 })}
+              </View>
+              <TextInput
+                style={styles.titleInput}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Название темы"
+                placeholderTextColor="#A1A1AA"
+                autoFocus
+                maxLength={255}
+              />
             </View>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Например: Обсуждение отчётов"
-              placeholderTextColor="#BDBDBD"
-              value={newTitle}
-              onChangeText={setNewTitle}
-              autoFocus
-            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickRow}>
+              {TOPIC_COLORS.map((c) => (
+                <TouchableOpacity key={c} onPress={() => setColor(c)} style={[styles.colorDot, { backgroundColor: c }]}>
+                  {color === c && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickRow}>
+              {Object.entries(TOPIC_ICONS).map(([key, I]) => (
+                <TouchableOpacity key={key} onPress={() => setIcon(key)} style={[styles.iconPick, icon === key && { backgroundColor: hexToRgba(color, 0.16) }]}>
+                  {React.createElement(I, { size: 20, color: icon === key ? color : C.textMuted })}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <TouchableOpacity
-              onPress={handleCreate}
-              disabled={creating || !newTitle.trim()}
-              style={[styles.createBtn, { backgroundColor: creating || !newTitle.trim() ? '#ECECE8' : '#1F7A52' }]}
+              onPress={create}
+              disabled={creating || !title.trim()}
+              style={[styles.createBtn, (!title.trim() || creating) && { backgroundColor: '#B8C5BE' }]}
             >
-              {creating ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.createBtnText}>Создать топик</Text>}
+              {creating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.createText}>Создать тему</Text>}
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: '#ECECE8', gap: 10,
-  },
-  headerBackBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
-  headerTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1,
-  },
-  headerSubtitle: { fontSize: 12, color: '#6F6F73', fontWeight: '500', maxWidth: 220 },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scrollContent: { padding: 20, gap: 12 },
-  sectionTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 20, fontWeight: '900', color: '#141414', letterSpacing: 1, marginTop: 8,
-  },
-  topicCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 12, elevation: 2,
-  },
-  topicIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  topicTitle: { fontSize: 16, fontWeight: '700', color: '#141414' },
-  topicHint: { fontSize: 12, color: '#6F6F73', marginTop: 2, fontWeight: '500' },
-  topicInfoBtn: { padding: 8 },
-  emptyCard: { backgroundColor: '#FFFFFF', borderRadius: 22, padding: 32, alignItems: 'center', gap: 8 },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#141414', marginTop: 4 },
-  emptySubtitle: { fontSize: 12, color: '#6F6F73', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', height: 58, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  headerAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
+  headerSub: { fontSize: 13, color: C.textMuted },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  topicIcon: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topicTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: C.text },
+  time: { fontSize: 13, color: C.textMuted },
+  preview: { fontSize: 15, color: C.textMuted, marginTop: 2 },
+  sep: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 72 },
+  hint: { textAlign: 'center', color: C.textMuted, fontSize: 14, marginTop: 24, paddingHorizontal: 40, lineHeight: 20 },
   fab: {
-    position: 'absolute', right: 24, bottom: 24, width: 56, height: 56, borderRadius: 18,
-    backgroundColor: '#1F7A52', justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8,
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: C.accent,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 32, gap: 14 },
-  sheetHandle: { width: 40, height: 4, backgroundColor: '#ECECE8', borderRadius: 2, alignSelf: 'center' },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 24, fontWeight: '900', color: '#141414', letterSpacing: 1,
-  },
-  textInput: {
-    fontSize: 16, color: '#141414', fontWeight: '500',
-    backgroundColor: '#FAFAF8', borderWidth: 1, borderColor: '#ECECE8', borderRadius: 14,
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
-  createBtn: { height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  createBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 28, gap: 12 },
+  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8' },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: C.text },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  titleInput: { flex: 1, fontSize: 17, color: C.text, borderBottomWidth: 2, borderBottomColor: C.accent, paddingVertical: 8 },
+  pickRow: { gap: 10, paddingVertical: 2 },
+  colorDot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  iconPick: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  createBtn: { height: 50, borderRadius: 14, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  createText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 });

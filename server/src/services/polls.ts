@@ -23,8 +23,8 @@ export async function getPollResults(pollId: number, userId: number) {
     byOption.set(r.option_id, { count: r.count, voters: poll.is_anonymous ? [] : r.voters || [] });
   }
   const myVotes = mine.rows.map((r) => r.option_id);
-  // В викторине правильный ответ раскрывается только проголосовавшим.
-  const revealCorrect = !poll.is_quiz || myVotes.length > 0 || poll.is_closed;
+  // В викторине правильный ответ видят автор и уже ответившие.
+  const revealCorrect = !poll.is_quiz || myVotes.length > 0 || poll.is_closed || poll.creator_id === userId;
   const options = opts.rows.map((o) => ({
     ...o,
     is_correct: revealCorrect ? o.is_correct : false,
@@ -38,6 +38,7 @@ export async function getPollResults(pollId: number, userId: number) {
     poll: {
       ...poll,
       correct_option_index: revealCorrect ? poll.correct_option_index : null,
+      explanation: revealCorrect ? poll.explanation : null,
       options,
       total_votes: totalVotes,
     },

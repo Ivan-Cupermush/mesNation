@@ -4,7 +4,7 @@ import { z } from 'zod';
 import pool from '../db/pool';
 import { corsOrigins } from '../config/env';
 import { logger } from '../lib/logger';
-import { verifyUserToken } from '../middleware/auth';
+import { checkSession, verifyUserToken } from '../middleware/auth';
 import { isChatMember } from '../services/access';
 import { createMessage } from '../services/messages';
 
@@ -23,6 +23,15 @@ export function getIO(): Server {
 /** Безопасная рассылка: в тестах и скриптах сокета может не быть. */
 export function emitToChat(chatId: number | string, event: string, payload: unknown) {
   io?.to(chatRoom(chatId)).emit(event, payload);
+}
+
+export function isOnline(userId: number): boolean {
+  return connections.has(userId);
+}
+
+/** Разрывает все соединения пользователя (после отзыва сессий). */
+export function disconnectUser(userId: number) {
+  io?.in(userRoom(userId)).disconnectSockets(true);
 }
 
 export function emitToUser(userId: number, event: string, payload: unknown) {
@@ -52,9 +61,9 @@ export function initSocket(server: HttpServer): Server {
     try {
       const token = socket.handshake.auth?.token;
       if (typeof token !== 'string') return next(new Error('unauthorized'));
-      const { userId } = verifyUserToken(token);
-      const { rows } = await pool.query('SELECT is_active FROM users WHERE id = $1', [userId]);
-      if (!rows[0]?.is_active) return next(new Error('unauthorized'));
+      const payload = verifyUserToken(token);
+      const { userId } = payload;
+      if (await checkSession(payload)) return next(new Error('unauthorized'));
       socket.data.userId = userId;
       next();
     } catch {
@@ -65,7 +74,9 @@ export function initSocket(server: HttpServer): Server {
   io.on('connection', (socket: Socket) => {
     const userId: number = socket.data.userId;
     socket.join(userRoom(userId));
+    const wasOnline = connections.has(userId);
     connections.set(userId, (connections.get(userId) || 0) + 1);
+    if (!wasOnline) io?.emit('presence', { user_id: userId, online: true });
     logger.debug({ userId, socket: socket.id }, 'socket connected');
 
     socket.on('join_chat', async (chatId: unknown, ack?: (r: { ok: boolean }) => void) => {
@@ -118,8 +129,12 @@ export function initSocket(server: HttpServer): Server {
 
     socket.on('disconnecting', () => {
       const left = (connections.get(userId) || 1) - 1;
-      if (left <= 0) connections.delete(userId);
-      else connections.set(userId, left);
+      if (left <= 0) {
+        connections.delete(userId);
+        const lastSeen = new Date();
+        pool.query('UPDATE users SET last_seen_at = $1 WHERE id = $2', [lastSeen, userId]).catch(() => undefined);
+        io?.emit('presence', { user_id: userId, online: false, last_seen_at: lastSeen.toISOString() });
+      } else connections.set(userId, left);
       for (const room of socket.rooms) {
         if (room.startsWith('chat:')) setImmediate(() => emitOnline(room.slice(5)));
       }

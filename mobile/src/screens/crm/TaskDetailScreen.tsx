@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -30,14 +30,11 @@ import {
   FileText,
   Trash2,
   Pencil,
-  Send,
   History,
-  PlayCircle,
   CheckCircle2,
   XCircle,
   Archive,
   ArrowRight,
-  ArrowDownUp,
   Image as ImageIcon,
   FileVideo,
   FileAudio,
@@ -45,7 +42,6 @@ import {
   FileArchive,
   File,
   MoreHorizontal,
-  X,
   SendHorizonal,
   Eye,
   AlertCircle,
@@ -54,20 +50,17 @@ import {
   Sparkles,
 } from 'lucide-react-native';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
-import { SERVER_URL } from '../../utils';
-import { pick, types, isCancel } from '@react-native-documents/picker';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
+import { signedFileUrl } from '../../services/http';
+import DateTimePickerModal from '../../components/DateTimePickerModal';
+import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
 
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = {
-  new: { label: 'Новая', bg: '#F3F4F6', text: '#6B7280', icon: Sparkles },
-  in_progress: { label: 'В работе', bg: '#1F7A52', text: '#FFFFFF', icon: PlayCircle },
-  on_review: { label: 'На проверке', bg: '#FEF3C7', text: '#92400E', icon: Eye },
-  done: { label: 'Выполнена', bg: '#D1FAE5', text: '#065F46', icon: CheckCircle2 },
-  rejected: { label: 'Отклонена', bg: '#7F1D1D', text: '#FFFFFF', icon: XCircle },
-  archived: { label: 'В архиве', bg: '#F3F4F6', text: '#9CA3AF', icon: Archive },
-  overdue: { label: 'Просрочена', bg: '#7F1D1D', text: '#FFFFFF', icon: AlertCircle },
-};
+// Цвета и подписи статусов — общие для всех экранов (см. taskStatus.tsx).
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = Object.fromEntries(
+  Object.entries(TASK_STATUS).map(([k, m]) => [k, { label: m.label, bg: m.soft, text: m.color, icon: m.icon }]),
+);
 
 const IMPORTANCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   green: { label: 'Низкий приоритет', color: '#065F46', bg: '#D1FAE5' },
@@ -95,54 +88,50 @@ export default function TaskDetailScreen({ navigation }: any) {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [showAssigneesModal, setShowAssigneesModal] = useState(false);
+  // Переход, для которого вводится комментарий (обязательный — например, отклонение).
+  const [commentTarget, setCommentTarget] = useState<{ to: string; action: string; required: boolean } | null>(null);
+  const [peopleModal, setPeopleModal] = useState<null | 'assignees' | 'watchers'>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [roleCommentField, setRoleCommentField] = useState<null | 'executor_comment' | 'watcher_comment'>(null);
+  const [roleCommentText, setRoleCommentText] = useState('');
+  const [newCheckpointTitle, setNewCheckpointTitle] = useState('');
+  const [newCheckpointDate, setNewCheckpointDate] = useState<Date | null>(null);
+  const [showCheckpointPicker, setShowCheckpointPicker] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const taskData = await api.getTask(taskId);
+      // Четыре запроса параллельно (раньше шли по очереди).
+      const [taskData, historyData, commentsData, user] = await Promise.all([
+        api.getTask(taskId),
+        api.getTaskHistory(taskId).catch(() => []),
+        api.getTaskComments(taskId).catch(() => []),
+        api.getCurrentUser().catch(() => null),
+      ]);
       setTask(taskData);
-
-      try {
-        const historyData = await api.getTaskHistory(taskId);
-        setHistory(historyData);
-      } catch (e) {
-        setHistory([]);
-      }
-
-      try {
-        const commentsData = await api.getTaskComments(taskId);
-        setComments(commentsData);
-      } catch (e) {
-        setComments([]);
-      }
-
-      try {
-        const user = await api.getCurrentUser();
-        setCurrentUser(user);
-      } catch (e) {
-        setCurrentUser(null);
-      }
+      setHistory(historyData);
+      setComments(commentsData);
+      setCurrentUser(user);
     } catch (e: any) {
       Alert.alert('Ошибка загрузки', e.message || 'Не удалось загрузить задачу');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [taskId]);
 
   useEffect(() => {
     loadData();
-  }, [taskId]);
+  }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
   };
 
-  const isCreator = task?.creator_id === currentUser?.id;
-  const isAssignee =
-    task?.assignees?.some((a: any) => a.id === currentUser?.id) || false;
+  const isCreator = task?.is_creator ?? task?.creator_id === currentUser?.id;
+  const isAssignee = task?.is_assignee ?? (task?.assignees?.some((a: any) => a.id === currentUser?.id) || false);
+  const isWatcher = task?.is_watcher ?? (task?.watchers?.some((w: any) => w.id === currentUser?.id) || false);
 
   const handleTransition = async (toStatus: string, comment?: string) => {
     setTransitioning(true);
@@ -156,66 +145,159 @@ export default function TaskDetailScreen({ navigation }: any) {
     }
   };
 
-  const handleTake = () => {
-    Alert.alert('Взять в работу?', 'Задача будет переведена в статус «В работе»', [
-      { text: 'Отмена', style: 'cancel' },
-      { text: 'Взять', onPress: () => handleTransition('in_progress') },
-    ]);
-  };
-
-  const handleSendToReview = () => {
-    Alert.alert(
-      'Отправить на проверку?',
-      'Создатель получит уведомление для проверки результата',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Отправить', onPress: () => handleTransition('on_review') },
-      ],
-    );
-  };
-
-  const handleAccept = () => {
-    Alert.alert('Принять задачу?', 'Задача будет помечена как выполненная', [
-      { text: 'Отмена', style: 'cancel' },
-      { text: 'Принять', onPress: () => handleTransition('done') },
-    ]);
-  };
-
-  const handleReject = () => setShowRejectModal(true);
-
   const submitReject = async () => {
-    if (!rejectComment.trim()) {
-      Alert.alert('Ошибка', 'Укажите причину отклонения');
+    const target = commentTarget || { to: 'rejected', action: 'Отклонить', required: true };
+    if (target.required && !rejectComment.trim()) {
+      Alert.alert('Комментарий', target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий');
       return;
     }
     setTransitioning(true);
     try {
-      await api.transitionTask(taskId, 'rejected', rejectComment.trim());
+      await api.transitionTask(taskId, target.to, rejectComment.trim() || undefined);
       setShowRejectModal(false);
       setRejectComment('');
+      setCommentTarget(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось отклонить задачу');
+      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
     } finally {
       setTransitioning(false);
     }
   };
 
-  const handleReturnToWork = () => {
-    Alert.alert(
-      'Вернуть на доработку?',
-      'Задача будет возвращена в статус «В работе»',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Вернуть', onPress: () => handleTransition('in_progress') },
-      ],
-    );
+  /** Кнопка действия со статусом (список приходит с сервера — всегда совпадает с правами). */
+  const runTransition = (t: { to: string; action: string; comment: string | null }) => {
+    if (t.comment === 'required') {
+      setCommentTarget({ to: t.to, action: t.action, required: true });
+      setShowRejectModal(true);
+      return;
+    }
+    const hint: Record<string, string> = {
+      in_progress: 'Задача перейдёт в статус «В работе».',
+      on_review: 'Создатель получит задачу на проверку.',
+      done: 'Задача будет отмечена как выполненная.',
+      archived: 'Задача переместится в архив. Её можно будет вернуть.',
+    };
+    Alert.alert(`${t.action}?`, hint[t.to] || '', [
+      { text: 'Отмена', style: 'cancel' },
+      ...(t.comment === 'optional'
+        ? [
+            {
+              text: 'С комментарием',
+              onPress: () => {
+                setCommentTarget({ to: t.to, action: t.action, required: false });
+                setShowRejectModal(true);
+              },
+            },
+          ]
+        : []),
+      { text: t.action, onPress: () => handleTransition(t.to) },
+    ]);
   };
 
-  const handleArchive = () => {
-    Alert.alert('Архивировать задачу?', 'Задача будет перемещена в архив', [
+  // ===== Разархивация (п. 13): задача возвращается в статус, где была до архива =====
+  const handleUnarchive = () => {
+    Alert.alert('Вернуть задачу из архива?', 'Задача вернётся в статус, в котором была до архивации.', [
       { text: 'Отмена', style: 'cancel' },
-      { text: 'Архивировать', onPress: () => handleTransition('archived') },
+      {
+        text: 'Разархивировать',
+        onPress: async () => {
+          setTransitioning(true);
+          try {
+            await api.unarchiveTask(taskId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось разархивировать');
+          } finally {
+            setTransitioning(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  // ===== Удаление (по ТЗ — в архив с пометкой «удалена», можно вернуть) =====
+  const handleDelete = () => {
+    setShowMenu(false);
+    Alert.alert('Удалить задачу?', 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteTask(taskId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить задачу');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleEdit = () => {
+    setShowMenu(false);
+    navigation.navigate('CreateTask', { taskId });
+  };
+
+  // ===== Комментарии исполнителя / наблюдателя =====
+  const startRoleComment = (field: 'executor_comment' | 'watcher_comment') => {
+    setRoleCommentField(field);
+    setRoleCommentText((task as any)?.[field] || '');
+  };
+
+  const saveRoleComment = async () => {
+    if (!roleCommentField) return;
+    try {
+      await api.updateTask(taskId, { [roleCommentField]: roleCommentText.trim() || null } as any);
+      setRoleCommentField(null);
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось сохранить');
+    }
+  };
+
+  // ===== Контрольные точки =====
+  const addCheckpoint = async () => {
+    if (!newCheckpointTitle.trim() || !newCheckpointDate) {
+      Alert.alert('Контрольная точка', 'Укажите название и дату');
+      return;
+    }
+    try {
+      await api.addCheckpoint(taskId, newCheckpointTitle.trim(), newCheckpointDate.toISOString());
+      setNewCheckpointTitle('');
+      setNewCheckpointDate(null);
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось добавить');
+    }
+  };
+
+  const setCheckpointStatus = async (cpId: number, status: 'pending' | 'completed' | 'missed') => {
+    try {
+      await api.updateCheckpoint(taskId, cpId, { status });
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Ошибка', e.message || 'Не удалось изменить');
+    }
+  };
+
+  const removeCheckpoint = (cpId: number) => {
+    Alert.alert('Удалить контрольную точку?', '', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteCheckpoint(taskId, cpId);
+            loadData();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось удалить');
+          }
+        },
+      },
     ]);
   };
 
@@ -271,11 +353,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   const handlePickFile = async () => {
     try {
-      const result = await pick({
-        type: [types.allFiles],
-        allowMultiSelection: false,
-        copyTo: 'cachesDirectory',
-      });
+      const result = await pick({ type: [types.allFiles], allowMultiSelection: false });
       const file = result[0];
       if (!file || !file.uri) return;
 
@@ -295,7 +373,7 @@ export default function TaskDetailScreen({ navigation }: any) {
         setUploadingFile(false);
       }
     } catch (e: any) {
-      if (!isCancel(e)) {
+      if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
         Alert.alert('Ошибка', 'Не удалось выбрать файл');
       }
     }
@@ -323,11 +401,13 @@ export default function TaskDetailScreen({ navigation }: any) {
     );
   };
 
-  const handleOpenFile = (fileUrl: string) => {
-    const fullUrl = `${SERVER_URL}${fileUrl}`;
-    Linking.openURL(fullUrl).catch(() => {
-      Alert.alert('Ошибка', 'Не удалось открыть файл');
-    });
+  const handleOpenFile = async (fileUrl: string) => {
+    try {
+      // Файлы задач доступны только участникам: открываем по подписанной ссылке.
+      await Linking.openURL(await signedFileUrl(fileUrl));
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть файл', e?.message || '');
+    }
   };
 
   const getFileIconData = (
@@ -385,6 +465,19 @@ export default function TaskDetailScreen({ navigation }: any) {
     }
   };
 
+  /** Короткая дата для истории: «4 окт., 18:20» — помещается на узком экране. */
+  const formatShortDate = (iso: string): string => {
+    const d = new Date(iso);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleString('ru-RU', {
+      day: 'numeric',
+      month: 'short',
+      ...(sameYear ? {} : { year: '2-digit' }),
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const getInitials = (name: string): string => {
     if (!name) return '?';
     return name
@@ -420,13 +513,9 @@ export default function TaskDetailScreen({ navigation }: any) {
     );
   }
 
-  const statusConf = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
-  const StatusIcon = statusConf.icon;
   const importanceConf = IMPORTANCE_CONFIG[task.importance || 'yellow'];
   const deadline = task.executor_deadline || task.hard_deadline;
 
-  // Показываем архив для создателя когда done ИЛИ overdue
-  const canArchive = isCreator && (task.status_new === 'done' || task.status_new === 'overdue');
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -444,7 +533,13 @@ export default function TaskDetailScreen({ navigation }: any) {
         <View style={styles.headerCenter}>
           <Text style={styles.headerLabel}>ДЕТАЛИ ЗАДАЧИ</Text>
         </View>
-        <View style={{ width: 40 }} />
+        {isCreator && task.status_new !== 'archived' ? (
+          <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
+            <MoreHorizontal size={22} color="#141414" strokeWidth={2} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -469,12 +564,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           <View style={styles.heroCard}>
             {/* Приоритет + статус */}
             <View style={styles.heroBadges}>
-              <View style={[styles.statusBadge, { backgroundColor: statusConf.bg }]}>
-                <StatusIcon size={14} color={statusConf.text} strokeWidth={2} />
-                <Text style={[styles.statusBadgeText, { color: statusConf.text }]}>
-                  {statusConf.label}
-                </Text>
-              </View>
+              <StatusPill status={task.status_new} overdue={task.is_overdue} />
               <View
                 style={[styles.importanceBadge, { backgroundColor: importanceConf.bg }]}
               >
@@ -487,8 +577,25 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </View>
 
+            {task.is_overdue && (
+              <View style={styles.overdueBanner}>
+                <AlertCircle size={14} color="#B91C1C" strokeWidth={2.4} />
+                <Text style={styles.overdueText}>Просрочена</Text>
+              </View>
+            )}
+
             {/* Большой заголовок */}
             <Text style={styles.heroTitle}>{task.title}</Text>
+
+            {(isCreator || isAssignee || isWatcher || task.is_supervisor) && (
+              <View style={styles.myRolesRow}>
+                <Text style={styles.myRolesLabel}>Вы:</Text>
+                {isCreator && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>💻 создатель</Text></View>}
+                {isAssignee && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>🔧 исполнитель</Text></View>}
+                {isWatcher && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>👁 наблюдатель</Text></View>}
+                {task.is_supervisor && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>руководитель участника</Text></View>}
+              </View>
+            )}
 
             {/* Описание */}
             {task.description ? (
@@ -525,7 +632,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             {/* Исполнители — клик открывает список */}
             <TouchableOpacity
               style={styles.infoCard}
-              onPress={() => setShowAssigneesModal(true)}
+              onPress={() => setPeopleModal('assignees')}
               activeOpacity={0.7}
             >
               <View style={styles.infoIconWrap}>
@@ -573,18 +680,23 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </TouchableOpacity>
 
-            {/* Наблюдатели */}
-            <View style={styles.infoCard}>
+            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает */}
+            <TouchableOpacity style={styles.infoCard} onPress={() => setPeopleModal('watchers')} activeOpacity={0.7}>
               <View style={styles.infoIconWrap}>
                 <Eye size={18} color="#1F7A52" strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Наблюдатели</Text>
-              <Text style={styles.infoValue} numberOfLines={1}>
-                {task.watchers?.length
-                  ? `${task.watchers.length} чел.`
-                  : 'Нет'}
-              </Text>
-            </View>
+              <View style={styles.infoValueRow}>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {task.watchers?.length
+                    ? task.watchers.length === 1
+                      ? task.watchers[0].display_name || task.watchers[0].username
+                      : `${task.watchers.length} чел.`
+                    : 'Создатель'}
+                </Text>
+                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Дедлайн проверки (если есть) */}
@@ -600,113 +712,185 @@ export default function TaskDetailScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* ===== БЛОК ДЕЙСТВИЙ ===== */}
-          {task.status_new !== 'archived' && task.status_new !== 'done' && task.status_new !== 'overdue' && (
+          {/* ===== СТАТУС: этапы, подсказка и доступные действия ===== */}
+          {task.status_new !== 'archived' && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>ДЕЙСТВИЯ</Text>
-
-              {isAssignee && task.status_new === 'new' && (
-                <TouchableOpacity
-                  onPress={handleTake}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <PlayCircle size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Взять в работу</Text>
-                </TouchableOpacity>
-              )}
-
-              {isAssignee && task.status_new === 'in_progress' && (
-                <TouchableOpacity
-                  onPress={handleSendToReview}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <Send size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Отправить на проверку</Text>
-                </TouchableOpacity>
-              )}
-
-              {isCreator && task.status_new === 'on_review' && (
-                <View style={styles.dualActions}>
-                  <TouchableOpacity
-                    onPress={handleAccept}
-                    disabled={transitioning}
-                    style={styles.actionBtnHalfAccept}
-                    activeOpacity={0.85}
-                  >
-                    <CheckCircle2 size={18} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={styles.actionBtnHalfText}>Принять</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleReject}
-                    disabled={transitioning}
-                    style={styles.actionBtnHalfReject}
-                    activeOpacity={0.85}
-                  >
-                    <XCircle size={18} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={styles.actionBtnHalfText}>Отклонить</Text>
-                  </TouchableOpacity>
+              <Text style={styles.sectionTitle}>СТАТУС</Text>
+              <View style={styles.statusCard}>
+                <StatusTrack status={task.status_new} />
+                <View style={[styles.hintBox, { backgroundColor: statusMeta(task.status_new).soft }]}>
+                  <Text style={[styles.hintText, { color: statusMeta(task.status_new).color }]}>
+                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee })}
+                  </Text>
                 </View>
-              )}
-
-              {isAssignee && task.status_new === 'rejected' && (
-                <TouchableOpacity
-                  onPress={handleReturnToWork}
-                  disabled={transitioning}
-                  style={styles.actionBtnPrimary}
-                  activeOpacity={0.85}
-                >
-                  <ArrowDownUp size={20} color="#FFFFFF" strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Вернуть на доработку</Text>
-                </TouchableOpacity>
-              )}
-
-              {!(isAssignee && task.status_new === 'new') &&
-                !(isAssignee && task.status_new === 'in_progress') &&
-                !(isCreator && task.status_new === 'on_review') &&
-                !(isAssignee && task.status_new === 'rejected') && (
-                  <View style={styles.noActionsBox}>
-                    <AlertCircle size={18} color="#BDBDBD" strokeWidth={2} />
-                    <Text style={styles.noActionsText}>
-                      {isCreator
-                        ? 'Ожидается действие исполнителя'
-                        : isAssignee
-                          ? 'Ожидается действие создателя'
-                          : 'У вас нет прав на действия с этой задачей'}
-                    </Text>
+                {(task.available_transitions || []).length > 0 ? (
+                  <View style={styles.transitionList}>
+                    {(task.available_transitions || []).map((t) => {
+                      const tone =
+                        t.style === 'success' ? '#16A34A' : t.style === 'danger' ? '#DC2626' : t.style === 'primary' ? '#1F7A52' : null;
+                      return (
+                        <TouchableOpacity
+                          key={t.to}
+                          onPress={() => runTransition(t)}
+                          disabled={transitioning}
+                          style={[styles.transitionBtn, tone ? { backgroundColor: tone, borderColor: tone } : styles.transitionBtnNeutral]}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.transitionText, { color: tone ? '#FFFFFF' : '#141414' }]}>{t.action}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
+                ) : (
+                  !isCreator &&
+                  !isAssignee && <Text style={styles.noActionsText}>Вы наблюдаете за задачей — менять статус могут создатель и исполнители.</Text>
                 )}
+              </View>
             </View>
           )}
 
-          {/* ===== АРХИВИРОВАНИЕ: для создателя, когда done ИЛИ overdue ===== */}
-          {canArchive && (
+          {/* ===== В АРХИВЕ: пометка и разархивация ===== */}
+          {task.status_new === 'archived' && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>АРХИВ</Text>
-              <TouchableOpacity
-                onPress={handleArchive}
-                disabled={transitioning}
-                style={styles.archiveCard}
-                activeOpacity={0.7}
-              >
+              <View style={styles.archiveCard}>
                 <View style={styles.archiveIconWrap}>
                   <Archive size={20} color="#6F6F73" strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.archiveTitle}>Архивировать задачу</Text>
+                  <Text style={styles.archiveTitle}>
+                    {task.archived_as === 'deleted' ? 'Задача удалена' : 'Задача в архиве'}
+                  </Text>
                   <Text style={styles.archiveSubtitle}>
-                    {task.status_new === 'overdue'
-                      ? 'Просроченная задача будет перемещена в архив'
-                      : 'Завершённая задача будет перемещена в архив'}
+                    {task.archived_at ? formatDate(task.archived_at) : ''}
                   </Text>
                 </View>
-                <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
-              </TouchableOpacity>
+              </View>
+              {isCreator && (
+                <TouchableOpacity onPress={handleUnarchive} disabled={transitioning} style={styles.actionBtnPrimary} activeOpacity={0.85}>
+                  <Archive size={20} color="#FFFFFF" strokeWidth={2} />
+                  <Text style={styles.actionBtnPrimaryText}>Разархивировать</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
+
+          {/* ===== КОНТРОЛЬНЫЕ ТОЧКИ ===== */}
+          {((task.checkpoints || []).length > 0 || (isCreator && task.status_new !== 'archived')) && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>КОНТРОЛЬНЫЕ ТОЧКИ</Text>
+                <View style={styles.sectionBadge}>
+                  <Text style={styles.sectionBadgeText}>{(task.checkpoints || []).length}</Text>
+                </View>
+              </View>
+              {(task.checkpoints || []).map((cp) => {
+                const done = cp.status === 'completed';
+                const missed = cp.status === 'missed';
+                const late = !done && !missed && new Date(cp.deadline) < new Date();
+                const canMark = (isCreator || isWatcher) && task.status_new !== 'archived';
+                return (
+                  <View key={cp.id} style={styles.checkpointRow}>
+                    <TouchableOpacity
+                      disabled={!canMark}
+                      onPress={() => setCheckpointStatus(cp.id, done ? 'pending' : 'completed')}
+                      style={[styles.checkpointBox, done && styles.checkpointBoxDone, missed && styles.checkpointBoxMissed]}
+                      accessibilityLabel={done ? 'Отметить как невыполненную' : 'Отметить выполненной'}
+                    >
+                      {done && <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />}
+                      {missed && <XCircle size={16} color="#FFFFFF" strokeWidth={2.5} />}
+                    </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checkpointTitle, done && styles.checkpointTitleDone]}>{cp.title}</Text>
+                      <Text style={[styles.checkpointDate, late && { color: '#B91C1C' }]}>
+                        {formatShortDate(cp.deadline)}
+                        {done && cp.completed_by_name ? ` · отметил ${cp.completed_by_name}` : ''}
+                        {missed ? ' · не выполнена' : late ? ' · срок прошёл' : ''}
+                      </Text>
+                    </View>
+                    {canMark && !done && !missed && (
+                      <TouchableOpacity onPress={() => setCheckpointStatus(cp.id, 'missed')} style={styles.checkpointAction}>
+                        <Text style={styles.checkpointActionText}>Не выполнена</Text>
+                      </TouchableOpacity>
+                    )}
+                    {isCreator && task.status_new !== 'archived' && (
+                      <TouchableOpacity onPress={() => removeCheckpoint(cp.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Trash2 size={16} color="#BDBDBD" strokeWidth={2} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+              {isCreator && task.status_new !== 'archived' && (
+                <View style={styles.checkpointAdd}>
+                  <TextInput
+                    style={styles.checkpointInput}
+                    value={newCheckpointTitle}
+                    onChangeText={setNewCheckpointTitle}
+                    placeholder="Новая контрольная точка"
+                    placeholderTextColor="#BDBDBD"
+                  />
+                  <TouchableOpacity onPress={() => setShowCheckpointPicker(true)} style={styles.checkpointDateBtn}>
+                    <CalendarDays size={16} color="#1F7A52" strokeWidth={2} />
+                    <Text style={styles.checkpointDateBtnText}>
+                      {newCheckpointDate ? formatShortDate(newCheckpointDate.toISOString()) : 'Дата'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={addCheckpoint} style={styles.checkpointAddBtn} accessibilityLabel="Добавить контрольную точку">
+                    <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* ===== КОММЕНТАРИИ ИСПОЛНИТЕЛЯ И НАБЛЮДАТЕЛЯ ===== */}
+          {(['executor_comment', 'watcher_comment'] as const).map((field) => {
+            const canEdit =
+              task.status_new !== 'archived' &&
+              (isCreator || (field === 'executor_comment' ? isAssignee : isWatcher));
+            const value = (task as any)[field] as string | null;
+            if (!value && !canEdit) return null;
+            const title = field === 'executor_comment' ? 'КОММЕНТАРИЙ ИСПОЛНИТЕЛЯ' : 'КОММЕНТАРИЙ НАБЛЮДАТЕЛЯ';
+            return (
+              <View key={field} style={styles.section}>
+                <Text style={styles.sectionTitle}>{title}</Text>
+                {roleCommentField === field ? (
+                  <View style={styles.roleCommentCard}>
+                    <TextInput
+                      style={styles.roleCommentInput}
+                      value={roleCommentText}
+                      onChangeText={setRoleCommentText}
+                      placeholder={field === 'executor_comment' ? 'Что сделано, результат, проблемы…' : 'Замечания по выполнению…'}
+                      placeholderTextColor="#BDBDBD"
+                      multiline
+                      autoFocus
+                    />
+                    <View style={styles.dualActions}>
+                      <TouchableOpacity onPress={() => setRoleCommentField(null)} style={styles.roleCommentCancel}>
+                        <Text style={styles.roleCommentCancelText}>Отмена</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={saveRoleComment} style={styles.roleCommentSave}>
+                        <Text style={styles.actionBtnHalfText}>Сохранить</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.roleCommentCard}
+                    disabled={!canEdit}
+                    onPress={() => startRoleComment(field)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={value ? styles.roleCommentText : styles.roleCommentPlaceholder}>
+                      {value || 'Нажмите, чтобы написать'}
+                    </Text>
+                    {canEdit && <Pencil size={14} color="#BDBDBD" strokeWidth={2} />}
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
 
           {/* ===== ФАЙЛЫ ===== */}
           <View style={styles.section}>
@@ -839,15 +1023,16 @@ export default function TaskDetailScreen({ navigation }: any) {
                                 {getInitials(item.changed_by_name)}
                               </Text>
                             </View>
-                            <Text style={styles.timelineUser}>
+                            <Text style={styles.timelineUser} numberOfLines={1}>
                               {item.changed_by_name}
                             </Text>
                           </View>
-                          <Text style={styles.timelineDate}>
-                            {formatDate(item.created_at)}
+                          <Text style={styles.timelineDate} numberOfLines={1}>
+                            {formatShortDate(item.created_at)}
                           </Text>
                         </View>
 
+                        {item.from_status === item.to_status ? null : (
                         <View style={styles.timelineTransition}>
                           {fromConf ? (
                             <View
@@ -900,6 +1085,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                             </Text>
                           </View>
                         </View>
+                        )}
 
                         {item.comment && (
                           <View style={styles.timelineComment}>
@@ -1080,23 +1266,26 @@ export default function TaskDetailScreen({ navigation }: any) {
       </KeyboardAvoidingView>
 
       {/* ===== СПИСОК ИСПОЛНИТЕЛЕЙ (bottom-sheet) ===== */}
-      <Modal visible={showAssigneesModal} transparent animationType="slide">
+      <Modal visible={!!peopleModal} transparent animationType="slide" onRequestClose={() => setPeopleModal(null)}>
         <TouchableOpacity
           activeOpacity={1}
-          onPress={() => setShowAssigneesModal(false)}
+          onPress={() => setPeopleModal(null)}
           style={assigneeStyles.overlay}
         >
           <View style={assigneeStyles.sheet}>
             <View style={assigneeStyles.handle} />
-            <Text style={assigneeStyles.title}>ИСПОЛНИТЕЛИ</Text>
+            <Text style={assigneeStyles.title}>{peopleModal === 'watchers' ? 'НАБЛЮДАТЕЛИ' : 'ИСПОЛНИТЕЛИ'}</Text>
             <ScrollView style={{ maxHeight: 420 }}>
-              {(task.assignees || []).map((a: any) => (
+              {peopleModal === 'watchers' && !(task.watchers || []).length && (
+                <Text style={assigneeStyles.username}>Отдельных наблюдателей нет — за задачей следит создатель.</Text>
+              )}
+              {((peopleModal === 'watchers' ? task.watchers : task.assignees) || []).map((a: any) => (
                 <TouchableOpacity
                   key={a.id}
                   style={assigneeStyles.row}
                   activeOpacity={0.7}
                   onPress={() => {
-                    setShowAssigneesModal(false);
+                    setPeopleModal(null);
                     navigation.navigate('UserProfile', { userId: a.id });
                   }}
                 >
@@ -1115,6 +1304,35 @@ export default function TaskDetailScreen({ navigation }: any) {
         </TouchableOpacity>
       </Modal>
 
+      {/* ===== МЕНЮ СОЗДАТЕЛЯ ===== */}
+      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setShowMenu(false)} style={assigneeStyles.overlay}>
+          <View style={assigneeStyles.sheet}>
+            <View style={assigneeStyles.handle} />
+            <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
+              <Pencil size={20} color="#1F7A52" strokeWidth={2} />
+              <Text style={assigneeStyles.name}>Редактировать задачу</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
+              <Trash2 size={20} color="#DC2626" strokeWidth={2} />
+              <Text style={[assigneeStyles.name, { color: '#DC2626' }]}>Удалить (в архив)</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <DateTimePickerModal
+        visible={showCheckpointPicker}
+        initialDate={newCheckpointDate}
+        minDate={new Date()}
+        title="Срок контрольной точки"
+        onClose={() => setShowCheckpointPicker(false)}
+        onSave={(d: Date) => {
+          setNewCheckpointDate(d);
+          setShowCheckpointPicker(false);
+        }}
+      />
+
       {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
       <Modal visible={showRejectModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -1122,10 +1340,14 @@ export default function TaskDetailScreen({ navigation }: any) {
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <XCircle size={24} color="#DC2626" strokeWidth={2} />
-              <Text style={styles.modalTitle}>Отклонить задачу</Text>
+              <Text style={styles.modalTitle}>{commentTarget?.action || 'Отклонить задачу'}</Text>
             </View>
             <Text style={styles.modalSubtitle}>
-              Укажите причину отклонения. Исполнитель увидит этот комментарий.
+              {commentTarget?.to === 'rejected' || !commentTarget
+                ? 'Укажите причину отклонения. Исполнитель увидит этот комментарий.'
+                : commentTarget.required
+                  ? 'Напишите, что нужно доработать. Комментарий попадёт в историю задачи.'
+                  : 'Комментарий необязателен и попадёт в историю задачи.'}
             </Text>
             <TextInput
               style={styles.rejectInput}
@@ -1143,6 +1365,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 onPress={() => {
                   setShowRejectModal(false);
                   setRejectComment('');
+                  setCommentTarget(null);
                 }}
                 style={styles.modalBtnCancel}
                 activeOpacity={0.7}
@@ -1151,17 +1374,22 @@ export default function TaskDetailScreen({ navigation }: any) {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={submitReject}
-                disabled={transitioning || !rejectComment.trim()}
+                disabled={transitioning || (commentTarget?.required !== false && !rejectComment.trim())}
                 style={[
                   styles.modalBtnReject,
                   {
-                    backgroundColor: rejectComment.trim() ? '#7F1D1D' : '#ECECE8',
+                    backgroundColor:
+                      commentTarget?.required === false || rejectComment.trim()
+                        ? commentTarget && commentTarget.to !== 'rejected'
+                          ? '#1F7A52'
+                          : '#7F1D1D'
+                        : '#ECECE8',
                   },
                 ]}
                 activeOpacity={0.85}
               >
                 <Text style={styles.modalBtnRejectText}>
-                  {transitioning ? 'Отклоняем...' : 'Отклонить'}
+                  {transitioning ? 'Сохраняем…' : commentTarget?.action || 'Отклонить'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1173,6 +1401,40 @@ export default function TaskDetailScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  statusCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, gap: 14 },
+  hintBox: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  hintText: { fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  transitionList: { gap: 8 },
+  transitionBtn: { height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  transitionBtnNeutral: { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' },
+  transitionText: { fontSize: 15, fontWeight: '700' },
+  overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
+  overdueText: { fontSize: 12, fontWeight: '700', color: '#B91C1C' },
+  myRolesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },
+  myRolesLabel: { fontSize: 12, color: '#6F6F73', fontWeight: '600' },
+  myRoleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: '#F3F4F6' },
+  myRoleText: { fontSize: 12, fontWeight: '600', color: '#141414' },
+  checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, marginBottom: 8 },
+  checkpointBox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' },
+  checkpointBoxDone: { backgroundColor: '#1F7A52', borderColor: '#1F7A52' },
+  checkpointBoxMissed: { backgroundColor: '#B91C1C', borderColor: '#B91C1C' },
+  checkpointTitle: { fontSize: 14, fontWeight: '600', color: '#141414' },
+  checkpointTitleDone: { textDecorationLine: 'line-through', color: '#6F6F73' },
+  checkpointDate: { fontSize: 12, color: '#6F6F73', marginTop: 2 },
+  checkpointAction: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF2F2' },
+  checkpointActionText: { fontSize: 11, fontWeight: '700', color: '#B91C1C' },
+  checkpointAdd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkpointInput: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#141414' },
+  checkpointDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, backgroundColor: '#ECFDF5' },
+  checkpointDateBtnText: { fontSize: 12, fontWeight: '600', color: '#1F7A52' },
+  checkpointAddBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
+  roleCommentCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, flexWrap: 'wrap' },
+  roleCommentText: { flex: 1, fontSize: 14, color: '#141414', lineHeight: 20 },
+  roleCommentPlaceholder: { flex: 1, fontSize: 14, color: '#BDBDBD', fontStyle: 'italic' },
+  roleCommentInput: { width: '100%', minHeight: 80, fontSize: 14, color: '#141414', textAlignVertical: 'top' },
+  roleCommentCancel: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  roleCommentCancelText: { fontSize: 14, fontWeight: '600', color: '#6F6F73' },
+  roleCommentSave: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   // ===== LOADING =====
@@ -1644,11 +1906,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
   timelineAvatarWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
+    minWidth: 0,
   },
   timelineAvatar: {
     width: 24,
@@ -1666,11 +1931,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#141414',
+    flexShrink: 1,
   },
   timelineDate: {
     fontSize: 11,
     color: '#6F6F73',
     fontWeight: '500',
+    flexShrink: 0,
   },
   timelineTransition: {
     flexDirection: 'row',

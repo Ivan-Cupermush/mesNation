@@ -82,8 +82,9 @@ android {
         applicationId "com.mesnation"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // CI передаёт номер сборки: каждая новая APK ставится поверх старой.
+        versionCode project.hasProperty('APP_VERSION_CODE') ? APP_VERSION_CODE.toInteger() : 1
+        versionName project.hasProperty('APP_VERSION_NAME') ? APP_VERSION_NAME : "1.0"
     }
     signingConfigs {
         debug {

@@ -252,8 +252,9 @@ describe('сокеты и сообщения', () => {
     await as(c.mgr1).delete(`/api/messages/${ack.message.id}?scope=me`);
     await new Promise((r) => setTimeout(r, 200));
     expect(leaked).toBe(false);
-    expect((await as(c.mgr2).get(`/api/messages/${chatId}`)).body).toHaveLength(1);
-    expect((await as(c.mgr1).get(`/api/messages/${chatId}`)).body).toHaveLength(0);
+    const regular = (r: any) => (r.body as any[]).filter((m) => m.content_type !== 'service');
+    expect(regular(await as(c.mgr2).get(`/api/messages/${chatId}`))).toHaveLength(1);
+    expect(regular(await as(c.mgr1).get(`/api/messages/${chatId}`))).toHaveLength(0);
 
     a.close();
     b.close();
@@ -289,7 +290,269 @@ describe('сотрудники: активность и пароли', () => {
 
   it('сброс пароля возвращает новый пароль один раз', async () => {
     const r = await as(c.dir).post(`/api/users/${c.mgr2.id}/reset-password`);
-    expect(r.body.password).toMatch(/^[A-Za-z0-9]{10}$/);
-    expect((await as().post('/api/auth/login', { username: 'mgr2', password: r.body.password })).status).toBe(200);
+    expect(r.body.password).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect((await as(c.mgr2).get('/api/auth/me')).status).toBe(401); // старая сессия завершена
+    c.mgr2 = await login(app, 'mgr2', r.body.password);
+  });
+});
+
+describe('отложенная отправка', () => {
+  it('сообщение уходит в назначенное время и только один раз', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Позже', user_ids: [c.mgr2.id] });
+    const chatId = chat.body.id;
+    const past = await as(c.mgr1).post(`/api/chats/${chatId}/scheduled`, { text: 'x', send_at: new Date(Date.now() - 1000).toISOString() });
+    expect(past.status).toBe(400);
+    const s = await as(c.mgr1).post(`/api/chats/${chatId}/scheduled`, {
+      text: 'Напоминание', send_at: new Date(Date.now() + 120_000).toISOString(),
+    });
+    expect(s.status).toBe(201);
+    expect((await as(c.mgr2).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(0); // чужие не видны
+    expect((await as(c.mgr1).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(1);
+    expect((await as(c.mgr1).post(`/api/scheduled/${s.body.id}/send-now`)).status).toBe(200);
+    const { dispatchDueMessages } = await import('../src/services/scheduledMessages');
+    await dispatchDueMessages();
+    const msgs = (await as(c.mgr2).get(`/api/messages/${chatId}`)).body as any[];
+    expect(msgs.filter((m) => m.text === 'Напоминание')).toHaveLength(1);
+    expect((await as(c.mgr1).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(0);
+  });
+});
+
+describe('заметки: вложения, копия, PDF, отправка в чат', () => {
+  it('полный сценарий', async () => {
+    const note = await as(c.mgr1).post('/api/notes', { title: 'План встречи', content: 'Обсудить квартальный отчёт' });
+    expect(note.status).toBe(201);
+    const noteId = note.body.id;
+
+    const file = await as(c.mgr1).upload(`/api/notes/${noteId}/files`, 'file', Buffer.from('hello'), 'Отчёт.txt');
+    expect(file.status).toBe(201);
+    expect(file.body.file_name).toBe('Отчёт.txt');
+    expect((await as(c.mgr2).get(`/api/notes/${noteId}`)).status).toBe(403);
+    expect((await as(c.mgr2).get(file.body.file_url)).status).toBe(403);
+
+    const full = await as(c.mgr1).get(`/api/notes/${noteId}`);
+    expect(full.body.files).toHaveLength(1);
+    expect(full.body.files_count).toBe(1);
+
+    const copy = await as(c.mgr1).post(`/api/notes/${noteId}/duplicate`);
+    expect(copy.body.title).toBe('План встречи (копия)');
+    expect(copy.body.files).toHaveLength(1);
+    // Удаление копии не удаляет файл оригинала.
+    expect((await as(c.mgr1).delete(`/api/notes/${copy.body.id}`)).status).toBe(200);
+    expect((await as(c.mgr1).get(file.body.file_url)).status).toBe(200);
+
+    const link = await as(c.mgr1).get(`/api/notes/${noteId}/pdf-link`);
+    const pdf = await as().get(link.body.url);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect((await as().get('/api/notes-pdf?token=bad')).status).toBe(401);
+
+    // Отправка в чат: получатель видит карточку и принимает заметку себе.
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    expect((await as(c.mgr1).post(`/api/notes/${noteId}/share`, { chat_id: 999999 })).status).toBe(403);
+    const msg = await as(c.mgr1).post(`/api/notes/${noteId}/share`, { chat_id: chat.body.id });
+    expect(msg.status).toBe(201);
+    expect(msg.body.content_type).toBe('note');
+    expect(msg.body.note_share.title).toBe('План встречи');
+
+    const shareId = msg.body.note_share_id;
+    expect((await as(c.bk).get(`/api/notes/shared/${shareId}`)).status).toBe(403);
+    expect((await as(c.mgr2).get(file.body.file_url)).status).toBe(200);
+
+    const accepted = await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    expect(accepted.status).toBe(201);
+    expect(accepted.body.user_id).toBe(c.mgr2.id);
+    expect(accepted.body.content).toBe('Обсудить квартальный отчёт');
+    expect(accepted.body.files).toHaveLength(1);
+    // Повторное принятие не плодит копии.
+    const again = await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    expect(again.body.id).toBe(accepted.body.id);
+    const shared = await as(c.mgr2).get(`/api/notes/shared/${shareId}`);
+    expect(shared.body.is_accepted).toBe(true);
+    const history = (await as(c.mgr2).get(`/api/messages/${chat.body.id}`)).body as any[];
+    expect(history.find((m) => m.id === msg.body.id).note_share.accepted_user_ids).toContain(c.mgr2.id);
+  });
+});
+
+describe('название компании', () => {
+  it('видно всем, менять может только директор', async () => {
+    expect((await as(c.mgr1).patch('/api/company', { company_name: 'Взлом' })).status).toBe(403);
+    expect((await as(c.dir).patch('/api/company', { company_name: '  ' })).status).toBe(400);
+    const r = await as(c.dir).patch('/api/company', { company_name: 'ООО «Новое имя»' });
+    expect(r.body.company_name).toBe('ООО «Новое имя»');
+    expect((await as(c.mgr1).get('/api/auth/me')).body.company_name).toBe('ООО «Новое имя»');
+  });
+});
+
+describe('безопасность сессий', () => {
+  it('смена пароля завершает другие сессии и выдаёт новый токен', async () => {
+    const u = await as(c.dir).post('/api/role-tree/users', {
+      username: 'sess', email: 'sess@test.ru', password: 'first-pass-1', role_node_id: c.nodes.mgrNode,
+    });
+    expect(u.status).toBe(201);
+    const phone = await login(app, 'sess', 'first-pass-1');
+    const laptop = await login(app, 'sess', 'first-pass-1');
+    expect((await as(phone).post('/api/auth/change-password', { current_password: 'first-pass-1', new_password: 'short' })).status).toBe(400);
+    const r = await as(phone).post('/api/auth/change-password', { current_password: 'first-pass-1', new_password: 'second-pass-2' });
+    expect(r.status).toBe(200);
+    expect((await as(laptop).get('/api/auth/me')).status).toBe(401);
+    expect((await as({ ...phone, token: r.body.token }).get('/api/auth/me')).status).toBe(200);
+  });
+
+  it('«выйти на всех устройствах» отзывает токены, сброс пароля админом тоже', async () => {
+    const a = await login(app, 'sess', 'second-pass-2');
+    expect((await as(a).post('/api/auth/logout-all')).status).toBe(200);
+    expect((await as(a).get('/api/auth/me')).status).toBe(401);
+    const b = await login(app, 'sess', 'second-pass-2');
+    const reset = await as(c.dir).post(`/api/users/${b.id}/reset-password`);
+    expect(reset.status).toBe(200);
+    expect((await as(b).get('/api/auth/me')).status).toBe(401);
+  });
+
+  it('распространённые пароли не принимаются', async () => {
+    const r = await as(c.dir).post('/api/role-tree/users', {
+      username: 'weak', email: 'weak@test.ru', password: '12345678', role_node_id: c.nodes.mgrNode,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('события безопасности пишутся в журнал', async () => {
+    const { rows } = await pool.query("SELECT action FROM audit_log WHERE action IN ('login', 'login_failed', 'password_reset')");
+    const actions = new Set(rows.map((r) => r.action));
+    expect(actions.has('login')).toBe(true);
+    expect(actions.has('login_failed')).toBe(true);
+    expect(actions.has('password_reset')).toBe(true);
+  });
+});
+
+describe('мессенджер как в Telegram', () => {
+  it('участник группы не может исключать и переименовывать, админ — может', async () => {
+    const g = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Права', user_ids: [c.mgr2.id, c.bk.id] });
+    const gid = g.body.id;
+    expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(403);
+    expect((await as(c.mgr2).patch(`/api/chats/${gid}`, { name: 'Хаос' })).status).toBe(403);
+    expect((await as(c.mgr2).post(`/api/chats/${gid}/members`, { user_ids: [c.acc.id] })).status).toBe(200);
+    const info = await as(c.mgr2).get(`/api/chats/${gid}`);
+    expect(info.body.my_rights).toMatchObject({ can_add_users: true, can_ban_users: false, can_change_info: false });
+    expect((await as(c.mgr1).post(`/api/chats/${gid}/admins`, { user_id: c.mgr2.id })).status).toBeLessThan(300);
+    expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(200);
+    const texts = ((await as(c.mgr1).get(`/api/messages/${gid}`)).body as any[])
+      .filter((m) => m.content_type === 'service')
+      .map((m) => m.text);
+    expect(texts.some((t) => t.includes('создаёт группу'))).toBe(true);
+    expect(texts.some((t) => t.includes('исключает'))).toBe(true);
+  });
+
+  it('непрочитанные и отметка «прочитано»', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.acc.id] });
+    const id = chat.body.id;
+    const m1 = await as(c.mgr1).upload('/api/upload', 'file', Buffer.from('x'), 'a.txt').field('chatId', String(id));
+    expect(m1.status).toBe(201);
+    let list = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === id).unread_count).toBe(1);
+    expect((await as(c.mgr1).get(`/api/chats/${id}`)).body.peer_last_read_id).toBeLessThan(m1.body.id);
+    await as(c.acc).post(`/api/chats/${id}/read`, { message_id: m1.body.id });
+    list = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === id).unread_count).toBe(0);
+    expect((await as(c.mgr1).get(`/api/chats/${id}`)).body.peer_last_read_id).toBe(m1.body.id);
+  });
+
+  it('удаление личного чата скрывает его только у себя, новое сообщение возвращает', async () => {
+    const chat = await as(c.mgr2).post('/api/chats', { type: 'private', user_ids: [c.acc.id] });
+    const id = chat.body.id;
+    expect((await as(c.mgr2).delete(`/api/chats/${id}`)).body.action).toBe('hidden');
+    expect(((await as(c.mgr2).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(false);
+    expect(((await as(c.acc).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(true);
+    await as(c.acc).upload('/api/upload', 'file', Buffer.from('y'), 'b.txt').field('chatId', String(id));
+    expect(((await as(c.mgr2).get('/api/chats')).body as any[]).some((x) => x.id === id)).toBe(true);
+  });
+
+  it('владелец уходит — права переходят администратору', async () => {
+    const g = await as(c.acc).post('/api/chats', { type: 'group', name: 'Наследство', user_ids: [c.bk.id, c.mgr1.id] });
+    await as(c.acc).post(`/api/chats/${g.body.id}/admins`, { user_id: c.mgr1.id });
+    expect((await as(c.acc).delete(`/api/chats/${g.body.id}?leave=true`)).body.action).toBe('left');
+    const info = await as(c.mgr1).get(`/api/chats/${g.body.id}`);
+    expect(info.body.created_by).toBe(c.mgr1.id);
+    expect(info.body.my_rights.is_creator).toBe(true);
+  });
+
+  it('фото: размеры, превью и альбом', async () => {
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 800, height: 400, channels: 3, background: '#1F7A52' } }).png().toBuffer();
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Фото', user_ids: [c.mgr2.id] });
+    const send = () =>
+      as(c.mgr1).upload('/api/upload', 'file', png, 'p.png').field('chatId', String(chat.body.id)).field('media_group_id', 'album-1');
+    const [a, b] = [await send(), await send()];
+    expect(a.body).toMatchObject({ media_kind: 'photo', media_width: 800, media_height: 400, media_group_id: 'album-1' });
+    expect(b.body.thumb_url).toMatch(/^\/uploads\/thumbs\//);
+    const asFile = await as(c.mgr1)
+      .upload('/api/upload', 'file', png, 'p.png')
+      .field('chatId', String(chat.body.id))
+      .field('as_file', 'true');
+    expect(asFile.body).toMatchObject({ media_kind: 'file', thumb_url: null, media_group_id: null });
+  });
+
+  it('викторина с пояснением, остановка опроса', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Квиз', user_ids: [c.mgr2.id] });
+    const p = await as(c.mgr1).post('/api/polls', {
+      chat_id: chat.body.id, question: '2+2?', options: ['3', '4'], is_quiz: true, correct_option_index: 1, explanation: 'Арифметика',
+    });
+    expect(p.status).toBe(201);
+    expect(p.body.poll.explanation).toBe('Арифметика'); // автор видит
+    const before = await as(c.mgr2).get(`/api/polls/${p.body.poll.id}`);
+    expect(before.body.poll.explanation).toBeNull();
+    const voted = await as(c.mgr2).post(`/api/polls/${p.body.poll.id}/vote`, { option_ids: [before.body.poll.options[0].id] });
+    expect(voted.body.poll.explanation).toBe('Арифметика');
+    const closed = await as(c.mgr1).post(`/api/polls/${p.body.poll.id}/close`);
+    expect(closed.body.poll.is_closed).toBe(true);
+  });
+
+  it('статус в сети', async () => {
+    const r = await as(c.mgr1).get(`/api/users/presence?ids=${c.mgr2.id},${c.acc.id}`);
+    expect(r.body).toHaveLength(2);
+    expect(r.body[0]).toHaveProperty('online');
+  });
+});
+
+describe('список чатов', () => {
+  it('закреплённые чаты идут первыми, превью знает тип вложения', async () => {
+    const a = await as(c.bk).post('/api/chats', { type: 'group', name: 'Первый', user_ids: [c.acc.id] });
+    const b = await as(c.bk).post('/api/chats', { type: 'group', name: 'Второй', user_ids: [c.acc.id] });
+    await as(c.bk).upload('/api/upload', 'file', Buffer.from('x'), 'doc.txt').field('chatId', String(b.body.id));
+    expect((await as(c.bk).patch(`/api/chats/${a.body.id}/membership`, { pinned: true })).status).toBe(200);
+    const list = (await as(c.bk).get('/api/chats')).body as any[];
+    expect(list[0].id).toBe(a.body.id);
+    const second = list.find((x) => x.id === b.body.id);
+    expect(second.last_message.media_kind).toBe('file');
+    // У собеседника порядок свой.
+    const other = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(other.find((x) => x.id === a.body.id).pinned_at).toBeNull();
+  });
+});
+
+describe('жизненный цикл задачи', () => {
+  it('сервер отдаёт доступные действия, полный цикл с возвратом на доработку', async () => {
+    const t = (await as(c.mgr1).post('/api/tasks', { title: 'Цикл', assignee_ids: [c.mgr2.id] })).body;
+    const actions = async (who: any) => ((await as(who).get(`/api/tasks/${t.id}`)).body.available_transitions as any[]).map((a) => a.to);
+    expect(await actions(c.mgr2)).toEqual(expect.arrayContaining(['in_progress', 'on_review']));
+    expect(await actions(c.mgr1)).toEqual([]);
+    await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' });
+    await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'on_review' });
+    expect(await actions(c.mgr2)).toEqual(['in_progress']); // отозвать с проверки
+    expect(await actions(c.mgr1)).toEqual(expect.arrayContaining(['done', 'rejected']));
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'done' })).status).toBe(200);
+    // Вернуть принятую задачу можно только с комментарием.
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' })).status).toBe(400);
+    const back = await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress', comment: 'Добавь итоги' });
+    expect(back.body.status_new).toBe('in_progress');
+  });
+
+  it('задачу самому себе можно завершить без проверки, чужую — нет', async () => {
+    const own = (await as(c.mgr1).post('/api/tasks', { title: 'Себе', assignee_ids: [c.mgr1.id] })).body;
+    const acts = (await as(c.mgr1).get(`/api/tasks/${own.id}`)).body.available_transitions.map((a: any) => a.to);
+    expect(acts).toContain('done');
+    expect(acts).not.toContain('on_review');
+    expect((await as(c.mgr1).post(`/api/tasks/${own.id}/transition`, { to_status: 'done' })).body.status_new).toBe('done');
+    const other = (await as(c.mgr1).post('/api/tasks', { title: 'Чужая', assignee_ids: [c.mgr2.id] })).body;
+    expect((await as(c.mgr2).post(`/api/tasks/${other.id}/transition`, { to_status: 'done' })).status).toBe(403);
   });
 });

@@ -44,7 +44,8 @@ const getTaskColor = (task: Task): string => {
 };
 
 const getTaskThickness = (task: Task): number => {
-  return PRIORITY_THICKNESS[task.importance] || PRIORITY_THICKNESS.low;
+  const key = task.importance === 'red' ? 'high' : task.importance === 'yellow' ? 'medium' : 'low';
+  return PRIORITY_THICKNESS[key];
 };
 
 const getMonthDays = (year: number, month: number): CalendarDay[] => {
@@ -150,7 +151,7 @@ export default function TaskCalendar({ tasks, onPressTask }: TaskCalendarProps) 
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
   
   // Защита от undefined
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
   
   const currentMonth = useMemo(() => {
     const now = new Date();
@@ -264,8 +265,8 @@ export default function TaskCalendar({ tasks, onPressTask }: TaskCalendarProps) 
                       style={[
                         styles.taskLine,
                         {
-                          left: position.left + '%',
-                          width: position.width + '%',
+                          left: `${position.left}%`,
+                          width: `${position.width}%`,
                           top,
                           height: thickness,
                           backgroundColor: taskColor,

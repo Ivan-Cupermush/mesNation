@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,92 +9,84 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Image,
+  Alert,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import {
-  Search,
-  Plus,
-  Pin,
-  MessageCircle,
-  UserRound,
-  Users,
-} from 'lucide-react-native';
-import { getToken, SERVER_URL } from '../utils';
+import { Search, Plus, Pin, PinOff, MessageCircle, UserRound, Users, Check, CheckCheck, X, Trash2, LogOut, MailOpen } from 'lucide-react-native';
+import { SERVER_URL } from '../config';
+import { request } from '../services/http';
+import { subscribe } from '../services/socket';
+import { fuzzyMatch } from '../utils/fuzzySearch';
+import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
+import { C, hashColor, initials, messagePreview } from '../components/chat/chatUtils';
 
-// ===== Утилиты =====
-const AVATAR_COLORS = [
-  '#1F7A52',
-  '#3B82F6',
-  '#8B5CF6',
-  '#EC4899',
-  '#F59E0B',
-  '#0EA5E9',
-  '#14B8A6',
-  '#EF4444',
-];
-
-const hashColor = (s: string) => {
-  const sum = s.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
-};
-
-const initials = (name: string) =>
-  (name || '?')
-    .split(' ')
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+/**
+ * Список чатов как в Telegram: закреплённые сверху, счётчики непрочитанных,
+ * галочки прочтения своего последнего сообщения, «в сети» у собеседников,
+ * фильтры (все / личные / группы / непрочитанные), поиск по чатам и
+ * сотрудникам, долгое нажатие — закрепить, прочитать, удалить или выйти.
+ */
 
 const formatTime = (iso?: string) => {
   if (!iso) return '';
   const d = new Date(iso);
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  }
-  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const diffDays = (now.getTime() - d.getTime()) / 86400000;
+  if (diffDays < 6) return d.toLocaleDateString('ru-RU', { weekday: 'short' });
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: d.getFullYear() === now.getFullYear() ? undefined : '2-digit' });
 };
 
-export default function ChatListScreen({ navigation, onLogout }: any) {
+type Filter = 'all' | 'private' | 'groups' | 'unread';
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'all', label: 'Все' },
+  { key: 'private', label: 'Личные' },
+  { key: 'groups', label: 'Группы' },
+  { key: 'unread', label: 'Непрочитанные' },
+];
+
+export default function ChatListScreen({ navigation }: any) {
   const [chats, setChats] = useState<any[]>([]);
   const [meId, setMeId] = useState<number | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [online, setOnline] = useState<Set<number>>(new Set());
+  const [users, setUsers] = useState<any[]>([]);
+  const [menuChat, setMenuChat] = useState<any>(null);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadChats = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
     try {
-      const [meRes, chatsRes] = await Promise.all([
-        fetch(`${SERVER_URL}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${SERVER_URL}/api/chats`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-      if (meRes.ok) {
-        const me = await meRes.json();
-        setMeId(me.id);
+      const [me, list] = await Promise.all([request<any>('/api/auth/me'), request<any[]>('/api/chats')]);
+      setMeId(me.id);
+      setCompanyName(me.company_name || null);
+      setChats(list);
+      setError(null);
+      const peers = list.filter((c) => c.type === 'private' && c.peer).map((c) => c.peer.id);
+      if (peers.length) {
+        request<any[]>('/api/users/presence', { query: { ids: peers.join(',') } })
+          .then((r) => setOnline(new Set(r.filter((p) => p.online).map((p) => p.user_id))))
+          .catch(() => undefined);
       }
-      if (chatsRes.ok) {
-        const data = await chatsRes.json();
-        const sorted = [...data].sort(
-          (a, b) =>
-            new Date(b.last_message?.created_at || 0).getTime() -
-            new Date(a.last_message?.created_at || 0).getTime(),
-        );
-        setChats(sorted);
-      }
-    } catch (e) {
-      // тихо — покажем пустое состояние
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось загрузить чаты');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   }, []);
+
+  const scheduleReload = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(loadChats, 300);
+  }, [loadChats]);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,106 +94,279 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
     }, [loadChats]),
   );
 
-  const filtered = query.trim()
-    ? chats.filter((c) =>
-        (c.name || '').toLowerCase().includes(query.trim().toLowerCase()),
-      )
-    : chats;
+  // Новые сообщения, новые чаты и прочтения обновляют список сразу.
+  useEffect(() => {
+    const unsubs = [
+      subscribe('chat_activity', scheduleReload),
+      subscribe('chat_created', scheduleReload),
+      subscribe('removed_from_chat', scheduleReload),
+      subscribe('chat_deleted', scheduleReload),
+      subscribe('presence', (p: any) =>
+        setOnline((prev) => {
+          const next = new Set(prev);
+          if (p.online) next.add(p.user_id);
+          else next.delete(p.user_id);
+          return next;
+        }),
+      ),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [scheduleReload]);
+
+  // Сотрудники для поиска «написать новому человеку».
+  useEffect(() => {
+    if (query.trim() && !users.length) request<any[]>('/api/users').then(setUsers).catch(() => undefined);
+  }, [query, users.length]);
+
+  const visible = useMemo(() => {
+    let list = chats;
+    if (filter === 'private') list = list.filter((c) => c.type === 'private');
+    if (filter === 'groups') list = list.filter((c) => c.type === 'group');
+    if (filter === 'unread') list = list.filter((c) => c.unread_count > 0);
+    if (query.trim()) {
+      list = list
+        .map((c) => ({ c, r: fuzzyMatch(c.name || '', query) }))
+        .filter((x) => x.r.match)
+        .sort((a, b) => a.r.rank - b.r.rank)
+        .map((x) => x.c);
+    }
+    return list;
+  }, [chats, filter, query]);
+
+  const peopleResults = useMemo(() => {
+    if (!query.trim()) return [];
+    const withChat = new Set(chats.filter((c) => c.type === 'private' && c.peer).map((c) => c.peer.id));
+    return users
+      .filter((u) => u.id !== meId && !withChat.has(u.id))
+      .map((u) => ({ u, r: fuzzyMatch(`${u.display_name || ''} ${u.username || ''} ${u.role_name || ''}`, query) }))
+      .filter((x) => x.r.match)
+      .sort((a, b) => a.r.rank - b.r.rank)
+      .slice(0, 8)
+      .map((x) => x.u);
+  }, [users, query, chats, meId]);
+
+  const unreadTotal = chats.reduce((n, c) => n + (c.unread_count > 0 ? 1 : 0), 0);
 
   const openChat = (item: any) => {
-    if (item.is_supergroup) {
-      navigation.navigate('TopicList', {
-        chatId: item.id.toString(),
-        chatName: item.name,
-      });
-    } else {
-      navigation.navigate('Chat', {
-        chatId: item.id.toString(),
-        chatName: item.name,
-      });
+    if (item.is_supergroup) navigation.navigate('TopicList', { chatId: String(item.id), chatName: item.name });
+    else navigation.navigate('Chat', { chatId: String(item.id), chatName: item.name });
+  };
+
+  const startPrivate = async (user: any) => {
+    try {
+      const chat = await request<any>('/api/chats', { method: 'POST', body: { type: 'private', user_ids: [user.id] } });
+      setQuery('');
+      navigation.navigate('Chat', { chatId: String(chat.id), chatName: chat.name });
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть чат', e?.message || '');
     }
   };
 
-  const renderChat = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.chatCard}
-      activeOpacity={0.7}
-      onPress={() => openChat(item)}
-    >
-      <View
-        style={[styles.avatar, { backgroundColor: hashColor(item.name || '?') }]}
-      >
-        <Text style={styles.avatarText}>{initials(item.name)}</Text>
-      </View>
+  // ===== Действия над чатом =====
+  const togglePin = async (chat: any) => {
+    try {
+      await request(`/api/chats/${chat.id}/membership`, { method: 'PATCH', body: { pinned: !chat.pinned_at } });
+      loadChats();
+    } catch (e: any) {
+      Alert.alert('Не удалось', e?.message || '');
+    }
+  };
 
-      <View style={styles.chatCenter}>
-        <View style={styles.chatNameRow}>
-          <Text style={styles.chatName} numberOfLines={1}>
-            {item.name || 'Чат'}
-          </Text>
-          {item.is_supergroup && (
-            <Users size={14} color="#BDBDBD" strokeWidth={2} />
-          )}
+  const markRead = async (chat: any) => {
+    if (!chat.last_message) return;
+    try {
+      await request(`/api/chats/${chat.id}/read`, { method: 'POST', body: { message_id: chat.last_message.id } });
+      loadChats();
+    } catch {
+      // не критично
+    }
+  };
+
+  const removeChat = (chat: any) => {
+    const isCreator = chat.created_by === meId;
+    if (chat.type === 'private') {
+      Alert.alert('Удалить чат?', `Переписка с ${chat.name} исчезнет из вашего списка. У собеседника она останется; если он напишет — чат вернётся.`, [
+        { text: 'Отмена', style: 'cancel' },
+        { text: 'Удалить', style: 'destructive', onPress: () => request(`/api/chats/${chat.id}`, { method: 'DELETE' }).then(loadChats) },
+      ]);
+      return;
+    }
+    Alert.alert(
+      isCreator ? 'Удалить или покинуть группу?' : 'Покинуть группу?',
+      isCreator
+        ? 'Удаление закроет группу для всех участников. Если просто выйти — владельцем станет администратор или самый давний участник.'
+        : `Вы перестанете получать сообщения «${chat.name}».`,
+      [
+        { text: 'Отмена', style: 'cancel' },
+        ...(isCreator
+          ? [{ text: 'Удалить для всех', style: 'destructive' as const, onPress: () => request(`/api/chats/${chat.id}`, { method: 'DELETE' }).then(loadChats) }]
+          : []),
+        { text: 'Покинуть', style: 'destructive' as const, onPress: () => request(`/api/chats/${chat.id}`, { method: 'DELETE', query: { leave: 'true' } }).then(loadChats) },
+      ],
+    );
+  };
+
+  const menuActions = (chat: any): SheetAction[] => [
+    {
+      key: 'pin',
+      label: chat.pinned_at ? 'Открепить' : 'Закрепить',
+      icon: chat.pinned_at ? <PinOff size={20} color={C.text} /> : <Pin size={20} color={C.text} />,
+      onPress: () => togglePin(chat),
+    },
+    ...(chat.unread_count > 0
+      ? [{ key: 'read', label: 'Отметить прочитанным', icon: <MailOpen size={20} color={C.text} />, onPress: () => markRead(chat) }]
+      : []),
+    {
+      key: 'remove',
+      label: chat.type === 'private' ? 'Удалить чат' : chat.created_by === meId ? 'Удалить или покинуть' : 'Покинуть группу',
+      danger: true,
+      icon: chat.type === 'private' ? <Trash2 size={20} color={C.danger} /> : <LogOut size={20} color={C.danger} />,
+      onPress: () => removeChat(chat),
+    },
+  ];
+
+  // ===== Отрисовка =====
+  const lastLine = (item: any) => {
+    const lm = item.last_message;
+    if (!lm) return { prefix: '', text: item.type === 'group' ? 'Группа создана' : 'Нет сообщений' };
+    if (lm.content_type === 'service') return { prefix: '', text: lm.text };
+    const preview = messagePreview({ ...lm, poll: lm.poll_question ? { question: lm.poll_question } : undefined });
+    const prefix = lm.sender_id === meId ? 'Вы: ' : item.type === 'group' && lm.sender_name ? `${lm.sender_name.split(' ')[0]}: ` : '';
+    return { prefix, text: preview };
+  };
+
+  const renderChat = ({ item }: any) => {
+    const { prefix, text } = lastLine(item);
+    const lm = item.last_message;
+    const mineLast = lm && lm.sender_id === meId && lm.content_type !== 'service';
+    const read = mineLast && lm.id <= (item.peer_last_read_id || 0);
+    const peerOnline = item.type === 'private' && item.peer && online.has(item.peer.id);
+    return (
+      <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item)} onLongPress={() => setMenuChat(item)} delayLongPress={300}>
+        <View>
+          <View style={[styles.avatar, { backgroundColor: hashColor(item.name || '?') }]}>
+            {item.avatar_url ? (
+              <Image source={{ uri: SERVER_URL + item.avatar_url }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>{initials(item.name)}</Text>
+            )}
+          </View>
+          {peerOnline && <View style={styles.onlineDot} />}
         </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>
-          {item.last_message
-            ? (item.last_message.sender_id === meId ? 'Вы: ' : '') +
-              (item.last_message.text || '📎 Вложение')
-            : 'Нет сообщений'}
-        </Text>
-      </View>
 
-      <View style={styles.chatRight}>
-        <Text style={styles.time}>
-          {formatTime(item.last_message?.created_at)}
-        </Text>
-        {item.is_pinned ? (
-          <Pin size={14} color="#1F7A52" strokeWidth={2} />
-        ) : null}
-      </View>
-    </TouchableOpacity>
+        <View style={styles.rowBody}>
+          <View style={styles.rowTop}>
+            {item.type === 'group' && <Users size={15} color={C.textMuted} strokeWidth={2.2} />}
+            <Text style={styles.name} numberOfLines={1}>
+              {item.name || 'Чат'}
+            </Text>
+            {mineLast && (read ? <CheckCheck size={16} color={C.accent} /> : <Check size={15} color={C.accent} />)}
+            <Text style={[styles.time, item.unread_count > 0 && { color: C.accent }]}>{formatTime(lm?.created_at || item.created_at)}</Text>
+          </View>
+          <View style={styles.rowBottom}>
+            <Text style={styles.preview} numberOfLines={2}>
+              {prefix ? <Text style={styles.previewPrefix}>{prefix}</Text> : null}
+              {text}
+            </Text>
+            {item.unread_count > 0 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{item.unread_count > 99 ? '99+' : item.unread_count}</Text>
+              </View>
+            ) : item.pinned_at ? (
+              <Pin size={15} color="#A1A1AA" style={{ transform: [{ rotate: '45deg' }] }} />
+            ) : null}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const header = (
+    <>
+      {query.trim() && peopleResults.length > 0 && (
+        <View>
+          <Text style={styles.sectionLabel}>СОТРУДНИКИ</Text>
+          {peopleResults.map((u) => (
+            <TouchableOpacity key={u.id} style={styles.row} onPress={() => startPrivate(u)} activeOpacity={0.6}>
+              <View style={[styles.avatar, { backgroundColor: hashColor(u.display_name || u.username) }]}>
+                {u.avatar_url ? (
+                  <Image source={{ uri: SERVER_URL + u.avatar_url }} style={styles.avatarImg} />
+                ) : (
+                  <Text style={styles.avatarText}>{initials(u.display_name || u.username)}</Text>
+                )}
+              </View>
+              <View style={styles.rowBody}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {u.display_name || u.username}
+                </Text>
+                <Text style={styles.preview} numberOfLines={1}>
+                  {u.role_name || `@${u.username}`} · написать
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+          {visible.length > 0 && <Text style={styles.sectionLabel}>ЧАТЫ</Text>}
+        </View>
+      )}
+    </>
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* ===== HEADER ===== */}
       <View style={styles.header}>
-        <Text style={styles.title}>ЧАТЫ</Text>
-        <TouchableOpacity
-          style={styles.profileBtn}
-          onPress={() => navigation.navigate('Profile')}
-          activeOpacity={0.7}
-        >
-          <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>ЧАТЫ</Text>
+          {companyName ? (
+            <Text style={styles.companyName} numberOfLines={1}>
+              {companyName}
+            </Text>
+          ) : null}
+        </View>
+        <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7} accessibilityLabel="Профиль">
+          <UserRound size={20} color={C.accent} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
-      {/* ===== ПОИСК ===== */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Search size={20} color="#6F6F73" strokeWidth={2} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Поиск чатов..."
-            placeholderTextColor="#BDBDBD"
-            value={query}
-            onChangeText={setQuery}
-          />
-        </View>
+      <View style={styles.searchBar}>
+        <Search size={18} color={C.textMuted} strokeWidth={2} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Поиск чатов и сотрудников"
+          placeholderTextColor="#A1A1AA"
+          value={query}
+          onChangeText={setQuery}
+        />
+        {query ? (
+          <TouchableOpacity onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Очистить">
+            <X size={18} color={C.textMuted} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
-      {/* ===== СПИСОК ===== */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} style={styles.filtersWrap}>
+        {FILTERS.map((f) => (
+          <TouchableOpacity key={f.key} onPress={() => setFilter(f.key)} style={[styles.chip, filter === f.key && styles.chipActive]} activeOpacity={0.8}>
+            <Text style={[styles.chipText, filter === f.key && styles.chipTextActive]}>
+              {f.label}
+              {f.key === 'unread' && unreadTotal ? ` ${unreadTotal}` : ''}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
       {loading && chats.length === 0 ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={C.accent} />
         </View>
       ) : (
         <FlatList
-          data={filtered}
+          data={visible}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderChat}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={header}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -209,186 +374,114 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
                 setRefreshing(true);
                 loadChats();
               }}
-              tintColor="#1F7A52"
+              tintColor={C.accent}
+              colors={[C.accent]}
             />
           }
           ListEmptyComponent={
-            <View style={styles.emptyBlock}>
-              <MessageCircle size={40} color="#BDBDBD" strokeWidth={1.5} />
-              <Text style={styles.emptyTitle}>
-                {query.trim() ? 'Ничего не найдено' : 'Пока нет чатов'}
-              </Text>
-              <Text style={styles.emptySubtitle}>
-                {query.trim()
-                  ? 'Попробуйте другой запрос'
-                  : 'Нажмите «+», чтобы начать переписку'}
-              </Text>
-            </View>
+            peopleResults.length ? null : (
+              <View style={styles.empty}>
+                <MessageCircle size={44} color="#C4C4C8" strokeWidth={1.5} />
+                <Text style={styles.emptyTitle}>
+                  {error ? 'Нет связи' : query.trim() ? 'Ничего не найдено' : filter === 'unread' ? 'Всё прочитано' : 'Пока нет чатов'}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  {error || (query.trim() ? 'Попробуйте другой запрос' : filter !== 'all' ? 'В этом разделе пусто' : 'Нажмите «+», чтобы написать коллеге или создать группу')}
+                </Text>
+              </View>
+            )
           }
         />
       )}
 
-      {/* ===== FAB: создать чат ===== */}
-      <TouchableOpacity
-        onPress={() => navigation.navigate('CreateChat')}
-        activeOpacity={0.85}
-        style={styles.fab}
-      >
-        <Plus size={24} color="#FFFFFF" strokeWidth={2.5} />
+      <TouchableOpacity onPress={() => navigation.navigate('CreateChat')} activeOpacity={0.85} style={styles.fab} accessibilityLabel="Новый чат">
+        <Plus size={26} color="#FFFFFF" strokeWidth={2.5} />
       </TouchableOpacity>
+
+      <ActionSheet
+        visible={!!menuChat}
+        title={menuChat?.name}
+        actions={menuChat ? menuActions(menuChat) : []}
+        onClose={() => setMenuChat(null)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
-
-  // ===== HEADER =====
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 40,
+    fontSize: 36,
     fontWeight: '900',
-    color: '#141414',
+    color: C.text,
     letterSpacing: -0.5,
-    lineHeight: 44,
+    lineHeight: 40,
   },
-  profileBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-
-  // ===== SEARCH =====
-  searchContainer: { paddingHorizontal: 24, marginBottom: 16 },
+  companyName: { fontSize: 14, color: C.textMuted, fontWeight: '600', marginTop: 1 },
+  profileBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    height: 48,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 24,
-    elevation: 4,
+    gap: 8,
+    marginHorizontal: 16,
+    paddingHorizontal: 12,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#F2F3F1',
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#141414',
-    marginLeft: 12,
-    fontWeight: '500',
-    padding: 0,
+  searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
+  filtersWrap: { flexGrow: 0 },
+  filters: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  chip: { paddingHorizontal: 14, height: 32, borderRadius: 16, backgroundColor: '#F2F3F1', justifyContent: 'center' },
+  chipActive: { backgroundColor: C.accent },
+  chipText: { fontSize: 14, color: C.textMuted, fontWeight: '600' },
+  chipTextActive: { color: '#FFFFFF' },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: C.textMuted, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, backgroundColor: '#FAFAF9' },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 9, gap: 12 },
+  avatar: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 54, height: 54, borderRadius: 27 },
+  avatarText: { color: '#FFFFFF', fontSize: 19, fontWeight: '700' },
+  onlineDot: {
+    position: 'absolute',
+    right: 1,
+    bottom: 1,
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
   },
-
-  // ===== LIST =====
-  listContent: {
-    paddingHorizontal: 24,
-    paddingBottom: 120,
-    gap: 12,
-  },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-
-  // ===== CHAT CARD =====
-  chatCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 16,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    elevation: 3,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  chatCenter: { flex: 1 },
-  chatNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  chatName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#141414',
-    flexShrink: 1,
-  },
-  lastMessage: {
-    fontSize: 13,
-    color: '#6F6F73',
-    fontWeight: '500',
-  },
-  chatRight: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  time: {
-    fontSize: 12,
-    color: '#BDBDBD',
-    fontWeight: '500',
-  },
-
-  // ===== EMPTY =====
-  emptyBlock: { alignItems: 'center', paddingTop: 64 },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#141414',
-    marginTop: 16,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: '#6F6F73',
-    marginTop: 4,
-  },
-
-  // ===== FAB =====
+  rowBody: { flex: 1, minHeight: 54, justifyContent: 'center' },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  name: { flex: 1, fontSize: 16, fontWeight: '700', color: C.text },
+  time: { fontSize: 13, color: C.textMuted, marginLeft: 4 },
+  rowBottom: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+  preview: { flex: 1, fontSize: 15, color: C.textMuted, lineHeight: 20 },
+  previewPrefix: { color: C.text },
+  badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  separator: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 80 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  empty: { alignItems: 'center', paddingTop: 70, paddingHorizontal: 40, gap: 6 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginTop: 8 },
+  emptySubtitle: { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 20 },
   fab: {
     position: 'absolute',
-    right: 24,
-    bottom: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#1F7A52',
-    justifyContent: 'center',
+    right: 20,
+    bottom: 20,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: C.accent,
     alignItems: 'center',
-    shadowColor: '#1F7A52',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    justifyContent: 'center',
+    shadowColor: C.accent,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
 });

@@ -160,9 +160,11 @@ export type ChatPermission = 'change_info' | 'delete_messages' | 'ban_users' | '
  * Обычный участник (так было договорено с заказчиком) может всё, кроме назначения
  * администраторов. Не участник не может ничего.
  */
+const MEMBER_PERMISSIONS: ChatPermission[] = ['add_users', 'pin_messages'];
+
 export async function getChatRights(chatId: number, userId: number) {
   const { rows } = await pool.query(
-    `SELECT c.created_by, c.type, cm.user_id AS member, ca.permissions
+    `SELECT c.created_by, c.type, c.name, c.is_supergroup, cm.user_id AS member, ca.permissions
      FROM chats c
      LEFT JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = $2
      LEFT JOIN chat_admins ca ON ca.chat_id = c.id AND ca.user_id = $2
@@ -178,9 +180,21 @@ export async function getChatRights(chatId: number, userId: number) {
     if (!isMember) return false;
     if (isCreator) return true;
     if (isAdmin) return (r.permissions as string[]).includes(perm);
-    return perm !== 'add_admins';
+    // Обычный участник (как в Telegram по умолчанию): приглашать людей и
+    // закреплять сообщения. Исключать, удалять чужие сообщения, менять
+    // название/фото/темы и назначать админов — только владелец и админы.
+    return MEMBER_PERMISSIONS.includes(perm);
   };
-  return { isMember, isCreator, isAdmin, type: r.type as string, createdBy: r.created_by as number, can };
+  return {
+    isMember,
+    isCreator,
+    isAdmin,
+    type: r.type as string,
+    name: r.name as string | null,
+    isSupergroup: !!r.is_supergroup,
+    createdBy: r.created_by as number,
+    can,
+  };
 }
 
 export async function assertChatPermission(chatId: number, userId: number, perm: ChatPermission, message?: string) {

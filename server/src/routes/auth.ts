@@ -1,11 +1,12 @@
 import { Router, Response } from 'express';
-import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
 import sharp from 'sharp';
 import path from 'path';
 import { z } from 'zod';
 import pool, { withTransaction } from '../db/pool';
-import { AuthRequest, authenticate, signUserToken } from '../middleware/auth';
+import { AuthRequest, authenticate, issueUserToken } from '../middleware/auth';
+import { hashPassword, passwordSchema, verifyPassword } from '../lib/passwords';
+import { audit, revokeSessions } from '../services/audit';
 import { validate } from '../lib/validate';
 import { badRequest, conflict, forbidden, unauthorized } from '../lib/errors';
 import { logger } from '../lib/logger';
@@ -25,10 +26,18 @@ const loginLimiter = rateLimit({
   message: { error: 'Слишком много попыток входа. Попробуйте через 15 минут.' },
 });
 
-export const passwordSchema = z
-  .string({ error: 'Пароль обязателен' })
-  .min(6, 'Пароль должен быть не короче 6 символов')
-  .max(128, 'Пароль слишком длинный');
+// Распределённый подбор пароля к одной учётной записи с разных адресов.
+const accountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  skipSuccessfulRequests: true,
+  standardHeaders: false,
+  legacyHeaders: false,
+  keyGenerator: (req) => `acct:${String(req.body?.username || req.body?.email || '').trim().toLowerCase()}`,
+  message: { error: 'Слишком много попыток входа в эту учётную запись. Попробуйте через 15 минут.' },
+});
+
+export { passwordSchema };
 export const usernameSchema = z
   .string({ error: 'Логин обязателен' })
   .trim()
@@ -111,7 +120,7 @@ router.post('/setup-company', validate(setupSchema), async (req, res) => {
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [body.company_name],
     );
-    const hash = await bcrypt.hash(body.password, 10);
+    const hash = await hashPassword(body.password);
     const user = (
       await client.query(
         `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
@@ -124,8 +133,9 @@ router.post('/setup-company', validate(setupSchema), async (req, res) => {
     return user;
   });
   logger.info({ userId: result.id }, 'Компания создана');
+  await audit('user_created', { actorId: result.id, targetId: result.id, ip: req.ip, meta: { setup: true } });
   res.status(201).json({
-    token: signUserToken({ userId: result.id, username: result.username }),
+    token: await issueUserToken(result.id),
     user: result,
     company_name: body.company_name,
   });
@@ -149,7 +159,7 @@ const loginSchema = z
   })
   .refine((v) => v.username || v.email, { message: 'Введите логин или email' });
 
-router.post('/login', loginLimiter, validate(loginSchema), async (req, res) => {
+router.post('/login', loginLimiter, accountLimiter, validate(loginSchema), async (req, res) => {
   const { username, email, password } = req.body as z.infer<typeof loginSchema>;
   const login = (username || email || '').toLowerCase();
   // Можно войти и по логину, и по email — в любом из двух полей.
@@ -160,18 +170,27 @@ router.post('/login', loginLimiter, validate(loginSchema), async (req, res) => {
     [login],
   );
   const user = rows[0];
-  const ok = user && (await bcrypt.compare(password, user.password_hash));
+  const ok = await verifyPassword(password, user?.password_hash);
   if (!ok) {
-    logger.warn({ login }, 'Неудачная попытка входа');
+    await audit('login_failed', { targetId: user?.id ?? null, ip: req.ip, meta: { login: login.slice(0, 100) } });
     throw unauthorized('Неверный логин или пароль');
   }
   if (!user.is_active) throw forbidden('Учётная запись деактивирована. Обратитесь к администратору.');
+  await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
+  await audit('login', { actorId: user.id, targetId: user.id, ip: req.ip });
   const { password_hash: _h, is_active: _a, ...safe } = user;
-  res.json({ token: signUserToken({ userId: user.id, username: user.username }), user: safe });
+  res.json({ token: await issueUserToken(user.id), user: safe });
 });
 
-/** Выход: токены не хранятся на сервере, поэтому достаточно удалить его на клиенте. */
+/** Выход с этого устройства: клиент удаляет свой токен. */
 router.post('/logout', (_req, res) => {
+  res.json({ success: true });
+});
+
+/** Выход на всех устройствах: все выданные ранее токены перестают работать. */
+router.post('/logout-all', authenticate, async (req: AuthRequest, res: Response) => {
+  await revokeSessions(req.userId!);
+  await audit('logout_all', { actorId: req.userId, targetId: req.userId, ip: req.ip });
   res.json({ success: true });
 });
 
@@ -215,9 +234,16 @@ const changePasswordSchema = z.object({
 router.post('/change-password', authenticate, validate(changePasswordSchema), async (req: AuthRequest, res: Response) => {
   const { current_password, new_password } = req.body as z.infer<typeof changePasswordSchema>;
   const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.userId]);
-  if (!(await bcrypt.compare(current_password, rows[0].password_hash))) throw badRequest('Текущий пароль неверный');
-  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [await bcrypt.hash(new_password, 10), req.userId]);
-  res.json({ success: true });
+  if (!(await verifyPassword(current_password, rows[0].password_hash))) throw badRequest('Текущий пароль неверный');
+  if (current_password === new_password) throw badRequest('Новый пароль совпадает с текущим');
+  await pool.query('UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2', [
+    await hashPassword(new_password),
+    req.userId,
+  ]);
+  // Остальные устройства выходят, это устройство получает новый токен.
+  await revokeSessions(req.userId!);
+  await audit('password_changed', { actorId: req.userId, targetId: req.userId, ip: req.ip });
+  res.json({ success: true, token: await issueUserToken(req.userId!) });
 });
 
 const avatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 10, imagesOnly: true, prefix: 'u_' });

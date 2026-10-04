@@ -7,10 +7,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { SERVER_URL } from '../utils';
-import * as RNFS from 'react-native-fs';
+import { setToken } from '../services/http';
 
 export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess: (token: string, user: any) => void }) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [companyName, setCompanyName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
@@ -33,8 +33,8 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
       Alert.alert('Ошибка', 'Введите корректный email');
       return;
     }
-    if (password.length < 4) {
-      Alert.alert('Ошибка', 'Пароль должен быть не менее 4 символов');
+    if (password.length < 8) {
+      Alert.alert('Ошибка', 'Пароль должен быть не менее 8 символов');
       return;
     }
     if (password !== confirmPassword) {
@@ -60,11 +60,7 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
       if (!res.ok) throw new Error(data.error || 'Ошибка создания компании');
 
       // Сохраняем токен локально
-      await RNFS.writeFile(
-        `${RNFS.DocumentDirectoryPath}/token.txt`,
-        data.token,
-        'utf8'
-      );
+      await setToken(data.token);
 
       Alert.alert(
         '🎉 Компания создана!',
@@ -81,7 +77,7 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={colors.background}
       />
       <KeyboardAvoidingView
@@ -148,7 +144,7 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
               icon="📧"
             />
             <Input
-              label="Пароль * (мин. 4 символа)"
+              label="Пароль * (мин. 6 символов)"
               placeholder="••••••••"
               value={password}
               onChangeText={setPassword}

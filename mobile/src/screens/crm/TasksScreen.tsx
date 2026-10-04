@@ -7,10 +7,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Search, SlidersHorizontal, X, Plus, Flag, CalendarDays, Users,
-  ChevronRight, List, CalendarRange, ArrowDownUp, UserRound,
+  ChevronRight, List, CalendarRange, ArrowDownUp, UserRound, Monitor, Wrench, Eye,
 } from 'lucide-react-native';
 import TaskCalendar from '../../components/tasks/TaskCalendar';
 import { api, Task } from '../../services/api';
+import { StatusPill, StatusSegments } from '../../components/tasks/taskStatus';
 
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 
@@ -22,13 +23,42 @@ const hashColor = (s: string) => {
 const initials = (name: string) =>
   (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-const filters = [
+const BASE_FILTERS = [
   { id: 'all', label: 'Все' },
-  { id: 'mine', label: 'Мои' },
-  { id: 'created', label: 'Созданные' },
+  { id: 'mine', label: 'Исполняю' },
+  { id: 'watching', label: 'Наблюдаю' },
+  { id: 'created', label: 'Создал' },
   { id: 'overdue', label: 'Просроченные' },
   { id: 'archived', label: 'Архив' },
 ];
+const TEAM_FILTER = { id: 'team', label: 'Команда' };
+
+/**
+ * Иконка роли на плашке задачи: 💻 — создал, 🔧 — исполняю, 👁 — наблюдаю.
+ * Если ролей несколько, показываются все (например, создал и исполняю).
+ */
+function RoleIcons({ task }: { task: Task }) {
+  const roles: { key: string; Icon: any; color: string; label: string }[] = [];
+  if (task.is_creator) roles.push({ key: 'c', Icon: Monitor, color: '#3B82F6', label: 'Вы создатель' });
+  if (task.is_assignee) roles.push({ key: 'a', Icon: Wrench, color: '#1F7A52', label: 'Вы исполнитель' });
+  if (task.is_watcher && !task.is_creator) roles.push({ key: 'w', Icon: Eye, color: '#8B5CF6', label: 'Вы наблюдатель' });
+  if (!roles.length && task.is_supervisor !== false && !task.is_creator && !task.is_assignee && !task.is_watcher) {
+    roles.push({ key: 's', Icon: Users, color: '#F59E0B', label: 'Задача вашей команды' });
+  }
+  return (
+    <View style={{ flexDirection: 'row', gap: 4 }} accessibilityLabel={roles.map((r) => r.label).join(', ')}>
+      {roles.map(({ key, Icon, color }) => (
+        <View key={key} style={[roleIconStyles.wrap, { backgroundColor: color + '1A' }]}>
+          <Icon size={14} color={color} strokeWidth={2.2} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const roleIconStyles = StyleSheet.create({
+  wrap: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+});
 
 const PRIORITY_CONFIG: Record<string, { color: string; label: string }> = {
   green: { color: '#1F7A52', label: 'Низкий' },
@@ -36,15 +66,6 @@ const PRIORITY_CONFIG: Record<string, { color: string; label: string }> = {
   red: { color: '#DC2626', label: 'Высокий' },
 };
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-  new: { bg: '#F3F4F6', text: '#6B7280', label: 'Новая' },
-  in_progress: { bg: '#1F7A52', text: '#FFFFFF', label: 'В работе' },
-  on_review: { bg: '#FEF3C7', text: '#92400E', label: 'На проверке' },
-  done: { bg: '#D1FAE5', text: '#065F46', label: 'Завершена' },
-  rejected: { bg: '#7F1D1D', text: '#FFFFFF', label: 'Отклонена' },
-  overdue: { bg: '#7F1D1D', text: '#FFFFFF', label: 'Просрочена' },
-  archived: { bg: '#F3F4F6', text: '#9CA3AF', label: 'В архиве' },
-};
 
 const fmtDeadline = (iso: string | null) => {
   if (!iso) return 'Без срока';
@@ -67,23 +88,37 @@ export default function TasksScreen({ navigation }: any) {
   const [sortBy, setSortBy] = useState<'deadline' | 'priority'>('deadline');
   const [showSortModal, setShowSortModal] = useState(false);
 
+  const [teamTasks, setTeamTasks] = useState<Task[]>([]);
+  const [isManager, setIsManager] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     try {
       const [me, list] = await Promise.all([
-        api.getCurrentUser().catch(() => null),
-        api.getTasks({ include_archived: true }).catch(() => []),
+        api.getCurrentUser(),
+        api.getTasks({ include_archived: true }),
       ]);
-      if (me) setMeId(me.id);
-      setTasks(Array.isArray(list) ? list : []);
-    } catch (e) {}
+      setMeId(me.id);
+      setIsManager(me.is_director || me.has_subordinates);
+      setTasks(list);
+      if (me.is_director || me.has_subordinates) {
+        setTeamTasks(await api.getTasks({ filter: 'team', include_archived: true }));
+      }
+      setError(null);
+    } catch (e: any) {
+      // Раньше ошибка глушилась и экран показывал «Задач пока нет».
+      setError(e?.message || 'Не удалось загрузить задачи');
+    }
     setLoading(false);
     setRefreshing(false);
   }, []);
 
+  const filters = isManager ? [...BASE_FILTERS.slice(0, 4), TEAM_FILTER, ...BASE_FILTERS.slice(4)] : BASE_FILTERS;
+
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const filteredTasks = useMemo(() => {
-    let list = [...tasks];
+    let list = activeFilter === 'team' ? [...teamTasks] : [...tasks];
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -94,13 +129,20 @@ export default function TasksScreen({ navigation }: any) {
     }
     switch (activeFilter) {
       case 'mine':
-        list = list.filter((t) => (t.assignees || []).some((a) => a.id === meId));
+        list = list.filter((t) => t.is_assignee && t.status_new !== 'archived');
+        break;
+      case 'watching':
+        list = list.filter((t) => t.is_watcher && !t.is_creator && t.status_new !== 'archived');
         break;
       case 'created':
-        list = list.filter((t) => t.creator_id === meId);
+        list = list.filter((t) => t.creator_id === meId && t.status_new !== 'archived');
+        break;
+      case 'team':
+        list = list.filter((t) => t.status_new !== 'archived');
         break;
       case 'overdue':
-        list = list.filter((t) => t.status_new === 'overdue');
+        // Просрочка вычисляется сервером по дедлайну (статус 'overdue' никто не выставлял).
+        list = list.filter((t) => t.is_overdue || t.status_new === 'overdue');
         break;
       case 'archived':
         list = list.filter((t) => t.status_new === 'archived');
@@ -127,11 +169,10 @@ export default function TasksScreen({ navigation }: any) {
       return dA - dB;
     });
     return list;
-  }, [tasks, searchQuery, activeFilter, sortBy, meId]);
+  }, [tasks, teamTasks, searchQuery, activeFilter, sortBy, meId]);
 
   const renderTaskCard = (task: Task) => {
     const priority = PRIORITY_CONFIG[task.importance] || PRIORITY_CONFIG.yellow;
-    const status = STATUS_CONFIG[task.status_new] || STATUS_CONFIG.new;
     const deadline = task.executor_deadline || task.hard_deadline;
     const assignees = task.assignees || [];
     return (
@@ -144,10 +185,18 @@ export default function TasksScreen({ navigation }: any) {
           <View style={styles.priorityRow}>
             <Flag size={16} color={priority.color} strokeWidth={2} />
             <Text style={[styles.priorityLabel, { color: priority.color }]}>{priority.label}</Text>
+            {task.is_overdue && <Text style={styles.overdueTag}>просрочена</Text>}
+            {task.archived_as === 'deleted' && <Text style={styles.deletedTag}>удалена</Text>}
           </View>
-          <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <RoleIcons task={task} />
+            <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+          </View>
         </View>
         <Text style={styles.taskTitle} numberOfLines={2}>{task.title}</Text>
+        <View style={styles.progressRow}>
+          <StatusSegments status={task.status_new} />
+        </View>
         {task.description ? (
           <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
         ) : null}
@@ -177,13 +226,17 @@ export default function TasksScreen({ navigation }: any) {
               <Text style={styles.noAssignees}>Нет исполнителей</Text>
             )}
           </View>
+          {(task.watchers_count ?? 0) > 0 && (
+            <View style={styles.deadlineRow}>
+              <Eye size={14} color="#6F6F73" strokeWidth={2} />
+              <Text style={styles.deadlineText}>{task.watchers_count}</Text>
+            </View>
+          )}
           <View style={styles.deadlineRow}>
-            <CalendarDays size={14} color="#6F6F73" strokeWidth={2} />
-            <Text style={styles.deadlineText}>{fmtDeadline(deadline)}</Text>
+            <CalendarDays size={14} color={task.is_overdue ? '#B91C1C' : '#6F6F73'} strokeWidth={2} />
+            <Text style={[styles.deadlineText, task.is_overdue && { color: '#B91C1C', fontWeight: '700' }]}>{fmtDeadline(deadline)}</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
-            <Text style={[styles.statusText, { color: status.text }]}>{status.label}</Text>
-          </View>
+          <StatusPill status={task.status_new} overdue={task.is_overdue} />
         </View>
       </TouchableOpacity>
     );
@@ -273,6 +326,12 @@ export default function TasksScreen({ navigation }: any) {
         )}
       </View>
 
+      {error ? (
+        <TouchableOpacity onPress={() => { setLoading(true); loadData(); }} style={styles.errorBox}>
+          <Text style={styles.errorText}>{error} · Повторить</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {loading && tasks.length === 0 ? (
         <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
       ) : viewMode === 'list' ? (
@@ -349,6 +408,11 @@ export default function TasksScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  progressRow: { marginTop: 6, marginBottom: 2 },
+  overdueTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: '#B91C1C' },
+  deletedTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: '#6F6F73' },
+  errorBox: { marginHorizontal: 20, marginBottom: 8, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2' },
+  errorText: { color: '#DC2626', fontSize: 13, fontWeight: '600' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 },

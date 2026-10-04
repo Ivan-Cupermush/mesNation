@@ -1,14 +1,13 @@
 import { Router, Response } from 'express';
-import path from 'path';
-import sharp from 'sharp';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { id, paramId, validate } from '../lib/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
-import { UPLOAD_DIRS, isImage, makeUploader, removeFile } from '../lib/uploads';
+import { UPLOAD_DIRS, makeUploader, removeFile } from '../lib/uploads';
 import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
 import { MESSAGE_SELECT, createMessage, serializeMessage } from '../services/messages';
+import { processUpload } from '../services/media';
 import { emitToChat, emitToUser } from '../realtime/socket';
 
 /** Монтируется на /api (после authenticate). */
@@ -79,13 +78,16 @@ async function loadMessage(messageId: number) {
   return rows[0];
 }
 
-const editSchema = z.object({ text: z.string().trim().min(1, 'Текст обязателен').max(4000) });
+const editSchema = z.object({ text: z.string().trim().max(4000) });
 
 router.patch('/messages/:id', validate(editSchema), async (req: AuthRequest, res: Response) => {
   const msg = await loadMessage(paramId(req));
   if (msg.sender_id !== req.userId) throw forbidden('Редактировать можно только свои сообщения');
+  if (msg.poll_id || msg.note_share_id || msg.content_type === 'service') throw badRequest('Это сообщение нельзя изменить');
+  // У фото и файлов подпись можно убрать, у текстового сообщения текст обязателен.
+  if (!req.body.text && !msg.file_url) throw badRequest('Текст обязателен');
   await assertChatMember(msg.chat_id, req.userId!);
-  await pool.query('UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2', [req.body.text, msg.id]);
+  await pool.query('UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2', [req.body.text || null, msg.id]);
   const updated = serializeMessage(await loadMessage(msg.id));
   emitToChat(msg.chat_id, 'message_edited', updated);
   res.json(updated);
@@ -145,6 +147,7 @@ router.post('/messages/forward', validate(forwardSchema), async (req: AuthReques
   await assertChatMember(original.chat_id, req.userId!);
   await assertChatMember(toChatId, req.userId!);
   if (original.poll_id) throw badRequest('Опросы пересылать нельзя');
+  if (original.content_type === 'service') throw badRequest('Служебные сообщения не пересылаются');
   if (comment) {
     await createMessage({ chatId: toChatId, senderId: req.userId!, text: comment, topicId: topicId ?? null });
   }
@@ -156,6 +159,14 @@ router.post('/messages/forward', validate(forwardSchema), async (req: AuthReques
     fileUrl: original.file_url,
     fileName: original.file_name,
     thumbUrl: original.thumb_url,
+    contentType: original.content_type || 'text',
+    noteShareId: original.note_share_id ?? null,
+    mediaKind: original.media_kind ?? null,
+    mediaWidth: original.media_width ?? null,
+    mediaHeight: original.media_height ?? null,
+    mediaDuration: original.media_duration === null ? null : Number(original.media_duration),
+    fileSize: original.file_size === null ? null : Number(original.file_size),
+    mimeType: original.mime_type ?? null,
     forwardedFromUserId: original.forwarded_from_user_id ?? original.sender_id,
     forwardedFromMessageId: original.forwarded_from_message_id ?? original.id,
   });
@@ -188,12 +199,18 @@ router.post('/messages/reply-to-another-chat', validate(replyElsewhereSchema), a
 
 // ---------- Файлы в чате ----------
 
-const chatUpload = makeUploader({ dir: UPLOAD_DIRS.chat, maxSizeMb: 100 });
+const chatUpload = makeUploader({ dir: UPLOAD_DIRS.chat, maxSizeMb: 200 });
+const optionalId = id.optional().or(z.literal('').transform(() => undefined));
 const uploadSchema = z.object({
   chatId: id,
-  topicId: id.optional().or(z.literal('').transform(() => undefined)),
+  topicId: optionalId,
   client_id: z.string().max(64).optional(),
   caption: z.string().trim().max(4000).optional(),
+  reply_to_message_id: optionalId,
+  // Несколько фото/видео, отправленных вместе, показываются альбомом.
+  media_group_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+  // «Отправить как файл»: без сжатия и превью.
+  as_file: z.enum(['true', 'false']).optional(),
 });
 
 router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: Response) => {
@@ -203,31 +220,108 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
     // Отправитель — всегда владелец токена; senderId из запроса игнорируется.
     const body = uploadSchema.parse(req.body);
     await assertChatMember(body.chatId, req.userId!);
-    let thumbUrl: string | null = null;
-    if (isImage(file)) {
-      const thumbName = 'thumb_' + path.basename(file.filename, path.extname(file.filename)) + '.jpg';
-      try {
-        await sharp(file.path).rotate().resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFile(path.join(UPLOAD_DIRS.thumbs, thumbName));
-        thumbUrl = `/uploads/thumbs/${thumbName}`;
-      } catch {
-        // Не картинка, хоть и с таким расширением — отправим как обычный файл.
-      }
-    }
+    const media = await processUpload(file, body.as_file === 'true');
     const message = await createMessage({
       chatId: body.chatId,
       senderId: req.userId!,
       topicId: body.topicId ?? null,
       text: body.caption || null,
       clientId: body.client_id ?? null,
+      replyToMessageId: body.reply_to_message_id ?? null,
       fileUrl: `/uploads/${file.filename}`,
       fileName: file.originalname,
-      thumbUrl,
+      thumbUrl: media.thumbUrl,
+      contentType: media.kind === 'file' ? 'file' : media.kind,
+      mediaGroupId: media.kind === 'file' ? null : body.media_group_id ?? null,
+      mediaKind: media.kind,
+      mediaWidth: media.width,
+      mediaHeight: media.height,
+      mediaDuration: media.duration,
+      fileSize: file.size,
+      mimeType: file.mimetype,
     });
     res.status(201).json(message);
   } catch (err) {
     removeFile(file.path);
     throw err;
   }
+});
+
+// ---------- Отложенная отправка ----------
+
+const scheduleSchema = z.object({
+  text: z.string().trim().min(1, 'Пустое сообщение').max(4000),
+  send_at: z.coerce.date({ error: 'Некорректное время отправки' }),
+  topic_id: id.nullish(),
+  reply_to_message_id: id.nullish(),
+});
+
+function assertFuture(sendAt: Date) {
+  const now = Date.now();
+  if (sendAt.getTime() < now + 30_000) throw badRequest('Время отправки должно быть в будущем');
+  if (sendAt.getTime() > now + 366 * 86400_000) throw badRequest('Можно запланировать не дальше чем на год');
+}
+
+/** Мои запланированные сообщения в чате (другие участники их не видят). */
+router.get('/chats/:id/scheduled', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const topicId = req.query.topic_id ? id.parse(req.query.topic_id) : null;
+  const { rows } = await pool.query(
+    `SELECT * FROM scheduled_messages
+     WHERE chat_id = $1 AND sender_id = $2 AND status = 'pending' AND topic_id IS NOT DISTINCT FROM $3
+     ORDER BY send_at`,
+    [chatId, req.userId, topicId],
+  );
+  res.json(rows);
+});
+
+router.post('/chats/:id/scheduled', validate(scheduleSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const body = req.body as z.infer<typeof scheduleSchema>;
+  assertFuture(body.send_at);
+  const { rows } = await pool.query(
+    `INSERT INTO scheduled_messages (chat_id, topic_id, sender_id, text, reply_to_message_id, send_at)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [chatId, body.topic_id ?? null, req.userId, body.text, body.reply_to_message_id ?? null, body.send_at],
+  );
+  res.status(201).json(rows[0]);
+});
+
+async function loadOwnScheduled(req: AuthRequest) {
+  const { rows } = await pool.query(
+    `SELECT * FROM scheduled_messages WHERE id = $1 AND sender_id = $2 AND status = 'pending'`,
+    [paramId(req), req.userId],
+  );
+  if (!rows.length) throw notFound('Запланированное сообщение не найдено или уже отправлено');
+  return rows[0];
+}
+
+router.patch('/scheduled/:id', validate(scheduleSchema.pick({ text: true, send_at: true }).partial()), async (req: AuthRequest, res: Response) => {
+  const s = await loadOwnScheduled(req);
+  const { text, send_at } = req.body as { text?: string; send_at?: Date };
+  if (send_at) assertFuture(send_at);
+  const { rows } = await pool.query(
+    'UPDATE scheduled_messages SET text = COALESCE($1, text), send_at = COALESCE($2, send_at) WHERE id = $3 RETURNING *',
+    [text ?? null, send_at ?? null, s.id],
+  );
+  res.json(rows[0]);
+});
+
+router.delete('/scheduled/:id', async (req: AuthRequest, res: Response) => {
+  const s = await loadOwnScheduled(req);
+  await pool.query(`UPDATE scheduled_messages SET status = 'cancelled' WHERE id = $1`, [s.id]);
+  res.json({ success: true });
+});
+
+/** «Отправить сейчас» — запланированное сообщение уходит немедленно. */
+router.post('/scheduled/:id/send-now', async (req: AuthRequest, res: Response) => {
+  const s = await loadOwnScheduled(req);
+  await pool.query('UPDATE scheduled_messages SET send_at = NOW() WHERE id = $1', [s.id]);
+  const { dispatchDueMessages } = await import('../services/scheduledMessages');
+  await dispatchDueMessages();
+  res.json({ success: true });
 });
 
 export default router;

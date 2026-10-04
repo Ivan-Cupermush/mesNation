@@ -1,4 +1,7 @@
-import { SERVER_URL, getToken } from '../utils';
+import { request as httpRequest, upload, ApiError, UploadFile } from './http';
+import { SERVER_URL } from '../config';
+
+export { ApiError };
 
 // ================================================================
 // ========== ЗАДАЧИ (Tasks) — интерфейсы ========================
@@ -16,7 +19,10 @@ export interface TaskCheckpoint {
   task_id: number;
   title: string;
   deadline: string;
-  status: 'pending' | 'done';
+  status: 'pending' | 'completed' | 'missed';
+  completed_at?: string | null;
+  completed_by?: number | null;
+  completed_by_name?: string | null;
 }
 
 export interface TaskCanvasPost {
@@ -44,8 +50,17 @@ export interface TaskFile {
   uploaded_at: string;
 }
 
+export interface TaskTransition {
+  to: string;
+  action: string;
+  comment: 'required' | 'optional' | null;
+  style: 'primary' | 'success' | 'danger' | 'neutral';
+}
+
 export interface Task {
   id: number;
+  /** Действия со статусом, доступные текущему пользователю (приходят с сервера). */
+  available_transitions?: TaskTransition[];
   title: string;
   description: string;
   importance: 'green' | 'yellow' | 'red';
@@ -60,6 +75,17 @@ export interface Task {
   creator_name?: string;
   creator?: TaskAssignee;
   watcher_id: number | null;
+  /** Просрочена: не завершена, а дедлайн прошёл (вычисляет сервер). */
+  is_overdue?: boolean;
+  /** Роли текущего пользователя в задаче — для иконок на плашке. */
+  is_creator?: boolean;
+  is_assignee?: boolean;
+  is_watcher?: boolean;
+  /** Руководитель участника: видит задачу, но не управляет ей. */
+  is_supervisor?: boolean;
+  comments_count?: number;
+  files_count?: number;
+  status_before_archive?: string | null;
   executor_comment: string | null;
   watcher_comment: string | null;
   archived_as: string | null;
@@ -107,9 +133,48 @@ export interface RoleNode {
   level: number;
   color: string;
   icon: string;
+  /** Прямые члены роли (активные). */
   users_count: number;
+  /** Глубина от корня по фактической структуре дерева. */
+  depth: number;
+  /** Корень дерева = позиция директора. */
+  is_root: boolean;
   created_by: number | null;
   created_at: string;
+}
+
+export interface CurrentUser {
+  id: number;
+  username: string;
+  email: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  is_active: boolean;
+  role_id: number | null;
+  role_name: string | null;
+  role_color?: string | null;
+  role_icon?: string | null;
+  role_depth: number | null;
+  department_id: number | null;
+  is_director: boolean;
+  has_subordinates: boolean;
+  company_name: string | null;
+}
+
+export interface Employee {
+  id: number;
+  username: string;
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_active: boolean;
+  deactivated_at?: string | null;
+  role_node_id: number | null;
+  role_name: string | null;
+  role_color?: string | null;
+  role_icon?: string | null;
+  is_director: boolean;
+  can_manage?: boolean;
 }
 
 export interface UserInSubtree {
@@ -133,6 +198,41 @@ export interface Note {
   note_date: string;
   created_at: string;
   updated_at: string;
+  files_count?: number;
+  files?: NoteFile[];
+}
+
+export interface NoteFile {
+  id: number;
+  note_id: number;
+  file_url: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+}
+
+/** Заметка, отправленная во внутренний чат (снимок на момент отправки). */
+export interface SharedNote {
+  id: number;
+  title: string;
+  content: string;
+  files: { file_url: string; file_name: string; file_size: number | null; mime_type: string | null }[];
+  sender_id: number;
+  sender_name: string;
+  created_at: string;
+  accepted_note_id: number | null;
+  is_accepted: boolean;
+}
+
+/** Краткая карточка пересланной заметки внутри сообщения. */
+export interface NoteShareCard {
+  id: number;
+  title: string;
+  preview: string;
+  files_count: number;
+  sender_id: number;
+  accepted_user_ids: number[];
 }
 
 export interface DayWithNotes {
@@ -305,22 +405,15 @@ export interface KnowledgeStats {
 // ========== БАЗОВАЯ ФУНКЦИЯ ЗАПРОСА ============================
 // ================================================================
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = await getToken();
-  if (!token) throw new Error('Нет токена');
-
-  const res = await fetch(`${SERVER_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(options?.headers || {}),
-    },
+/**
+ * Совместимость со старым стилем вызовов request(path, { method, body: JSON.stringify(...) }).
+ * Вся работа (токен, таймаут, 401, ошибки) — в services/http.ts.
+ */
+function request<T>(path: string, options?: { method?: string; body?: string }): Promise<T> {
+  return httpRequest<T>(path, {
+    method: (options?.method as any) || 'GET',
+    body: options?.body !== undefined ? JSON.parse(options.body) : undefined,
   });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
-  return data;
 }
 
 // ================================================================
@@ -329,21 +422,37 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
-  getCurrentUser: () =>
-    request<{
-      id: number;
-      username: string;
-      email: string;
-      display_name: string;
-      avatar_url: string | null;
-      role_id: number;
-      role_name?: string;
-      department_id: number | null;
-    }>('/api/auth/me'),
+  getCurrentUser: () => request<CurrentUser>('/api/auth/me'),
+
+  renameCompany: (company_name: string) =>
+    request<{ company_name: string }>('/api/company', { method: 'PATCH', body: JSON.stringify({ company_name }) }),
+
+  changePassword: (current_password: string, new_password: string) =>
+    httpRequest<{ success: boolean; token?: string }>('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
+
+  /** Завершить все сессии (на всех устройствах, включая это). */
+  logoutAll: () => httpRequest<{ success: boolean }>('/api/auth/logout-all', { method: 'POST', body: {} }),
+
+  // ==================== СОТРУДНИКИ ====================
+  getUsers: (includeInactive = false) =>
+    httpRequest<Employee[]>('/api/users', { query: { include_inactive: includeInactive || undefined } }),
+
+  getUser: (id: number) => httpRequest<CurrentUser & { can_manage: boolean }>(`/api/users/${id}`),
+
+  /** Кому можно ставить задачи: себе, вниз по дереву и коллегам своего уровня. */
+  getAssignableUsers: () => httpRequest<UserInSubtree[]>('/api/users/assignable'),
+
+  setUserActive: (id: number, is_active: boolean) =>
+    httpRequest<CurrentUser>(`/api/users/${id}/active`, { method: 'PATCH', body: { is_active } }),
+
+  /** Без пароля — сервер сгенерирует новый и вернёт его один раз. */
+  resetUserPassword: (id: number, password?: string) =>
+    httpRequest<{ password: string }>(`/api/users/${id}/reset-password`, { method: 'POST', body: password ? { password } : {} }),
 
   // ==================== ЗАДАЧИ (Tasks) ====================
   getTasks: (params?: {
-    filter?: 'all' | 'mine' | 'created' | 'watching' | 'review';
+    filter?: 'all' | 'mine' | 'created' | 'watching' | 'review' | 'team';
+    overdue?: boolean;
     status?: string;
     importance?: string;
     sort_by?: 'deadline' | 'priority';
@@ -361,6 +470,7 @@ export const api = {
     importance?: 'green' | 'yellow' | 'red';
     hard_deadline?: string;
     executor_deadline?: string;
+    reviewer_deadline?: string;
     assignee_ids: number[];
     watcher_ids?: number[];
     checkpoints?: { title: string; deadline: string }[];
@@ -374,14 +484,15 @@ export const api = {
     id: number,
     data: Partial<{
       title: string;
-      description: string;
+      description: string | null;
       importance: 'green' | 'yellow' | 'red';
       hard_deadline: string | null;
       executor_deadline: string | null;
       reviewer_deadline: string | null;
       executor_comment: string | null;
       watcher_comment: string | null;
-      archived_as: string | null;
+      assignee_ids: number[];
+      watcher_ids: number[];
     }>,
   ) =>
     request<Task>(`/api/tasks/${id}`, {
@@ -389,8 +500,20 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  deleteTask: (id: number) =>
-    request<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
+  /** «Удаление» = архив с пометкой «удалена» (можно разархивировать). */
+  deleteTask: (id: number, reason?: string) =>
+    httpRequest<{ success: boolean }>(`/api/tasks/${id}`, { method: 'DELETE', query: { reason } }),
+
+  unarchiveTask: (id: number) => httpRequest<Task>(`/api/tasks/${id}/unarchive`, { method: 'POST' }),
+
+  addCheckpoint: (taskId: number, title: string, deadline: string) =>
+    httpRequest<TaskCheckpoint>(`/api/tasks/${taskId}/checkpoints`, { method: 'POST', body: { title, deadline } }),
+
+  updateCheckpoint: (taskId: number, checkpointId: number, data: Partial<Pick<TaskCheckpoint, 'title' | 'deadline' | 'status'>>) =>
+    httpRequest<TaskCheckpoint>(`/api/tasks/${taskId}/checkpoints/${checkpointId}`, { method: 'PATCH', body: data }),
+
+  deleteCheckpoint: (taskId: number, checkpointId: number) =>
+    httpRequest<{ success: boolean }>(`/api/tasks/${taskId}/checkpoints/${checkpointId}`, { method: 'DELETE' }),
 
   transitionTask: (id: number, to_status: string, comment?: string) =>
     request<Task>(`/api/tasks/${id}/transition`, {
@@ -421,36 +544,8 @@ export const api = {
       method: 'DELETE',
     }),
 
-  uploadTaskFile: async (
-    taskId: number,
-    fileUri: string,
-    fileName: string,
-    fileType: string,
-    fileSize: number,
-  ) => {
-    const token = await getToken();
-    if (!token) throw new Error('Нет токена');
-
-    const formData = new FormData();
-    formData.append('file', {
-      uri: fileUri,
-      name: fileName,
-      type: fileType,
-    } as any);
-
-    const res = await fetch(`${SERVER_URL}/api/tasks/${taskId}/files`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
-      },
-      body: formData,
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Ошибка загрузки файла');
-    return data;
-  },
+  uploadTaskFile: (taskId: number, fileUri: string, fileName: string, fileType: string, _fileSize?: number) =>
+    upload<TaskFile>(`/api/tasks/${taskId}/files`, 'file', { uri: fileUri, name: fileName, type: fileType }),
 
   deleteTaskFile: (taskId: number, fileId: number) =>
     request<{ success: boolean }>(`/api/tasks/${taskId}/files/${fileId}`, {
@@ -463,47 +558,11 @@ export const api = {
   getUsersInSubtree: (nodeId: number) =>
     request<UserInSubtree[]>(`/api/role-tree/users/in-subtree/${nodeId}`),
 
-  /**
-   * Получает всех пользователей из поддерева текущего юзера.
-   * Используется в CreateTaskScreen для выбора исполнителей/наблюдателей.
-   * 
-   * Фолбэк: если в поддереве пусто (директор один в системе) — 
-   * берём всех пользователей системы через /api/users
-   */
-  getSubtreeUsers: async (): Promise<UserInSubtree[]> => {
-    try {
-      const me = await api.getCurrentUser();
-      if (!me.role_id) return [];
-      
-      // Пробуем получить поддерево
-      const users = await api.getUsersInSubtree(me.role_id).catch(() => []);
-      
-      // Фолбэк: если поддерево пустое — берём всех пользователей
-      if (!users || users.length === 0) {
-        try {
-          const allUsers = await request<any[]>('/api/users');
-          const mapped: UserInSubtree[] = (allUsers || []).map((u: any) => ({
-            id: u.id,
-            username: u.username,
-            display_name: u.display_name || u.username,
-            avatar_url: u.avatar_url || null,
-            role_name: 'Сотрудник',
-          }));
-          // Исключаем себя
-          return mapped.filter((u) => u.id !== me.id);
-        } catch (fallbackErr) {
-          console.log('getSubtreeUsers fallback error:', fallbackErr);
-          return [];
-        }
-      }
-      
-      // Исключаем самого себя
-      return users.filter((u) => u.id !== me.id);
-    } catch (e) {
-      console.log('getSubtreeUsers error:', e);
-      return [];
-    }
-  },
+  /** Кандидаты в исполнители (себе, вниз по дереву, коллегам своего уровня). */
+  getSubtreeUsers: (): Promise<UserInSubtree[]> => httpRequest<UserInSubtree[]>('/api/users/assignable'),
+
+  /** Люди, привязанные непосредственно к роли (без поддерева). */
+  getRoleUsers: (nodeId: number) => httpRequest<UserInSubtree[]>(`/api/role-tree/${nodeId}/users`),
 
   createRoleNode: (data: {
     name: string;
@@ -534,8 +593,8 @@ export const api = {
       body: JSON.stringify({ role_node_id: roleNodeId }),
     }),
 
-  getAllUsersWithRoles: () =>
-    request<any[]>(`/api/users`).catch(() => []),
+  getAllUsersWithRoles: (includeInactive = false) =>
+    httpRequest<Employee[]>('/api/users', { query: { include_inactive: includeInactive || undefined } }),
 
   createUser: (data: {
     username: string;
@@ -580,6 +639,28 @@ export const api = {
 
   deleteNote: (id: number) =>
     request<{ success: boolean }>(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  getNote: (id: number) => request<Note>(`/api/notes/${id}`),
+
+  duplicateNote: (id: number) => request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body: '{}' }),
+
+  uploadNoteFile: (noteId: number, file: UploadFile) => upload<NoteFile>(`/api/notes/${noteId}/files`, 'file', file),
+
+  deleteNoteFile: (noteId: number, fileId: number) =>
+    request<{ success: boolean }>(`/api/notes/${noteId}/files/${fileId}`, { method: 'DELETE' }),
+
+  /** Ссылка на PDF (живёт 10 минут), открывается во внешнем приложении. */
+  getNotePdfUrl: async (noteId: number) => {
+    const { url } = await request<{ url: string }>(`/api/notes/${noteId}/pdf-link`);
+    return `${SERVER_URL}${url}`;
+  },
+
+  shareNote: (noteId: number, data: { chat_id: number; topic_id?: number | null; comment?: string }) =>
+    request<any>(`/api/notes/${noteId}/share`, { method: 'POST', body: JSON.stringify(data) }),
+
+  getSharedNote: (shareId: number) => request<SharedNote>(`/api/notes/shared/${shareId}`),
+
+  acceptSharedNote: (shareId: number) => request<Note>(`/api/notes/shared/${shareId}/accept`, { method: 'POST', body: '{}' }),
 
   // ==================== KPI ПРОДАЖИ ====================
   getSalesTargets: () => request<SalesTarget[]>('/api/kpi/sales/targets'),
@@ -639,34 +720,8 @@ export const api = {
   getSalesSummary: (period: 'week' | 'month' | 'quarter' = 'month') =>
     request<SalesSummary>(`/api/kpi/sales/summary?period=${period}`),
 
-  previewImport: async (
-    fileUri: string,
-    fileName: string,
-    fileType: string,
-  ): Promise<ImportPreview> => {
-    const token = await getToken();
-    if (!token) throw new Error('Нет токена');
-
-    const formData = new FormData();
-    formData.append('file', {
-      uri: fileUri,
-      name: fileName,
-      type: fileType,
-    } as any);
-
-    const res = await fetch(`${SERVER_URL}/api/kpi/sales/import/preview`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
-      },
-      body: formData,
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Ошибка загрузки файла');
-    return data;
-  },
+  previewImport: (fileUri: string, fileName: string, fileType: string | null): Promise<ImportPreview> =>
+    upload<ImportPreview>('/api/kpi/sales/import/preview', 'file', { uri: fileUri, name: fileName, type: fileType }),
 
   confirmImport: (importId: number, mapping: Record<string, string | null>) =>
     request<ImportResult>('/api/kpi/sales/import/confirm', {
@@ -724,34 +779,12 @@ export const api = {
   deleteKnowledgeDocument: (id: number): Promise<void> =>
     request<void>(`/api/knowledge/documents/${id}`, { method: 'DELETE' }),
 
-  uploadKnowledgeDocument: async (
+  uploadKnowledgeDocument: (
     file: { uri: string; name: string; type: string },
     tags: string[] = [],
     description?: string,
-  ): Promise<KnowledgeDocument> => {
-    const formData = new FormData();
-    formData.append('file', {
-      uri: file.uri,
-      name: file.name,
-      type: file.type,
-    } as any);
-    formData.append('tags', JSON.stringify(tags));
-    if (description) formData.append('description', description);
-
-    const token = await getToken();
-    const response = await fetch(`${SERVER_URL}/api/knowledge/documents`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
-      },
-      body: formData,
-    });
-
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Ошибка загрузки');
-    return data;
-  },
+  ): Promise<KnowledgeDocument> =>
+    upload<KnowledgeDocument>('/api/knowledge/documents', 'file', file, { tags: JSON.stringify(tags), description }),
 
   getKnowledgeStats: (): Promise<KnowledgeStats> =>
     request<KnowledgeStats>('/api/knowledge/stats'),
@@ -778,39 +811,11 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  importKpiReport: async (fileUri: string, fileName: string, fileType: string) => {
-    const token = await getToken();
-    if (!token) throw new Error('Нет токена');
-    const formData = new FormData();
-    formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
-    const res = await fetch(`${SERVER_URL}/api/kpi/sales/import-report`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-      body: formData,
-    });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({} as any));
-      throw new Error((e as any).error || 'Ошибка импорта отчёта');
-    }
-    return res.json();
-  },
+  importKpiReport: (fileUri: string, fileName: string, fileType: string) =>
+    upload<any>('/api/kpi/sales/import-report', 'file', { uri: fileUri, name: fileName, type: fileType }),
 
-  importReport: async (fileUri: string, fileName: string, fileType: string) => {
-    const token = await getToken();
-    if (!token) throw new Error('Нет токена');
-    const formData = new FormData();
-    formData.append('file', { uri: fileUri, name: fileName, type: fileType } as any);
-    const res = await fetch(`${SERVER_URL}/api/kpi/sales/import-report`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-      body: formData,
-    });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({} as any));
-      throw new Error((e as any).error || 'Ошибка импорта отчёта');
-    }
-    return res.json();
-  },
+  importReport: (fileUri: string, fileName: string, fileType: string) =>
+    upload<any>('/api/kpi/sales/import-report', 'file', { uri: fileUri, name: fileName, type: fileType }),
 
   // Выход из системы
   logout: (): Promise<void> =>

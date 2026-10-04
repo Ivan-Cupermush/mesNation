@@ -29,16 +29,32 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 import { api } from '../../services/api';
-import { getToken, SERVER_URL } from '../../utils';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
 interface User {
   id: number;
   username: string;
   display_name: string;
-  avatar_url?: string;
+  avatar_url?: string | null;
 }
 
-export default function CreateTaskScreen({ navigation }: any) {
+interface DraftCheckpoint {
+  id?: number;
+  title: string;
+  deadline: Date;
+}
+
+interface PickedFile {
+  uri: string;
+  name: string;
+  type: string | null;
+  size: number | null;
+}
+
+export default function CreateTaskScreen({ navigation, route }: any) {
+  // Если передан taskId — экран работает как редактор существующей задачи.
+  const editTaskId: number | undefined = route?.params?.taskId;
+  const isEdit = !!editTaskId;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [importance, setImportance] = useState<'green' | 'yellow' | 'red'>('yellow');
@@ -54,28 +70,65 @@ export default function CreateTaskScreen({ navigation }: any) {
   const [showReviewerDatePicker, setShowReviewerDatePicker] = useState(false);
 
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [watcherCandidates, setWatcherCandidates] = useState<User[]>([]);
+  const [meId, setMeId] = useState<number | null>(null);
+  const [checkpoints, setCheckpoints] = useState<DraftCheckpoint[]>([]);
+  const [newCpTitle, setNewCpTitle] = useState('');
+  const [showCpPicker, setShowCpPicker] = useState(false);
+  const [files, setFiles] = useState<PickedFile[]>([]);
+  const [prefilling, setPrefilling] = useState(isEdit);
 
   useEffect(() => {
     loadUsers();
+    if (editTaskId) prefill(editTaskId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUsers = async () => {
     try {
-      let users = await api.getSubtreeUsers().catch(() => []);
-      if (!users || users.length === 0) {
-        const tok = await getToken();
-        const res = await fetch(`${SERVER_URL}/api/users`, {
-          headers: { Authorization: `Bearer ${tok}` },
-        });
-        if (res.ok) {
-          const all = await res.json();
-          const me = await api.getCurrentUser().catch(() => null);
-          users = (all || []).filter((u: any) => u.id !== me?.id);
-        }
+      // Сервер сам считает, кому можно ставить задачи: себе, вниз по дереву
+      // и коллегам своего уровня. Раньше список брался по устаревшему полю
+      // и без самого пользователя, поэтому подчинённые иногда не отображались.
+      const [assignable, all, me] = await Promise.all([api.getAssignableUsers(), api.getUsers(), api.getCurrentUser()]);
+      setAvailableUsers(assignable);
+      // Наблюдателем можно назначить любого активного сотрудника.
+      setWatcherCandidates(all.map((u) => ({ id: u.id, username: u.username, display_name: u.display_name || u.username, avatar_url: u.avatar_url })));
+      setMeId(me.id);
+    } catch (e: any) {
+      Alert.alert('Не удалось загрузить сотрудников', e?.message || '');
+    }
+  };
+
+  const prefill = async (id: number) => {
+    try {
+      const task = await api.getTask(id);
+      setTitle(task.title);
+      setDescription(task.description || '');
+      setImportance(task.importance);
+      const ex = task.executor_deadline || task.hard_deadline;
+      setExecutorDeadline(ex ? new Date(ex) : null);
+      setReviewerDeadline(task.reviewer_deadline ? new Date(task.reviewer_deadline) : null);
+      setSelectedAssignees((task.assignees || []) as User[]);
+      setSelectedWatchers((task.watchers || []) as User[]);
+    } catch (e: any) {
+      Alert.alert('Не удалось загрузить задачу', e?.message || '');
+      navigation.goBack();
+    } finally {
+      setPrefilling(false);
+    }
+  };
+
+  const pickFiles = async () => {
+    try {
+      const picked = await pick({ type: [types.allFiles], allowMultiSelection: true });
+      setFiles((prev) => [
+        ...prev,
+        ...picked.filter((f) => f.uri).map((f) => ({ uri: f.uri, name: f.name || 'file', type: f.type ?? null, size: f.size ?? null })),
+      ]);
+    } catch (e: any) {
+      if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
+        Alert.alert('Ошибка', 'Не удалось выбрать файл');
       }
-      setAvailableUsers(users || []);
-    } catch (e) {
-      console.log('Ошибка загрузки пользователей:', e);
     }
   };
 
@@ -99,27 +152,54 @@ export default function CreateTaskScreen({ navigation }: any) {
       Alert.alert('Ошибка', 'Выберите хотя бы одного исполнителя');
       return;
     }
+    if (executorDeadline && reviewerDeadline && reviewerDeadline < executorDeadline) {
+      Alert.alert('Ошибка', 'Дедлайн проверки не может быть раньше дедлайна выполнения');
+      return;
+    }
 
     setLoading(true);
     try {
-      const payload: any = {
+      if (isEdit) {
+        await api.updateTask(editTaskId!, {
+          title: title.trim(),
+          description: description.trim() || null,
+          importance,
+          executor_deadline: executorDeadline ? executorDeadline.toISOString() : null,
+          reviewer_deadline: reviewerDeadline ? reviewerDeadline.toISOString() : null,
+          assignee_ids: selectedAssignees.map((u) => u.id),
+          watcher_ids: selectedWatchers.map((u) => u.id),
+        });
+        navigation.goBack();
+        return;
+      }
+      const task = await api.createTask({
         title: title.trim(),
         description: description.trim() || undefined,
         importance,
         assignee_ids: selectedAssignees.map((u) => u.id),
-      };
-      if (selectedWatchers.length > 0) {
-        payload.watcher_ids = selectedWatchers.map((u) => u.id);
+        watcher_ids: selectedWatchers.length ? selectedWatchers.map((u) => u.id) : undefined,
+        executor_deadline: executorDeadline?.toISOString(),
+        reviewer_deadline: reviewerDeadline?.toISOString(),
+        checkpoints: checkpoints.map((c) => ({ title: c.title, deadline: c.deadline.toISOString() })),
+      });
+      // Файлы загружаем после создания задачи; ошибка одного файла не теряет задачу.
+      const failed: string[] = [];
+      for (const f of files) {
+        try {
+          await api.uploadTaskFile(task.id, f.uri, f.name, f.type || 'application/octet-stream');
+        } catch {
+          failed.push(f.name);
+        }
       }
-      if (executorDeadline) payload.executor_deadline = executorDeadline.toISOString();
-      if (reviewerDeadline) payload.reviewer_deadline = reviewerDeadline.toISOString();
-
-      await api.createTask(payload);
-      Alert.alert('Успех', 'Задача создана', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      if (failed.length) {
+        Alert.alert('Задача создана', `Не удалось прикрепить: ${failed.join(', ')}. Добавьте их в карточке задачи.`, [
+          { text: 'OK', onPress: () => navigation.replace('TaskDetail', { taskId: task.id }) },
+        ]);
+      } else {
+        navigation.replace('TaskDetail', { taskId: task.id });
+      }
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось создать задачу');
+      Alert.alert('Ошибка', e.message || 'Не удалось сохранить задачу');
     } finally {
       setLoading(false);
     }
@@ -143,6 +223,7 @@ export default function CreateTaskScreen({ navigation }: any) {
     selected: User[],
     setSelected: React.Dispatch<React.SetStateAction<User[]>>,
     title: string,
+    source: User[],
   ) => (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
@@ -154,7 +235,8 @@ export default function CreateTaskScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={availableUsers}
+            data={source}
+            ListEmptyComponent={<Text style={styles.fieldHint}>Нет доступных сотрудников</Text>}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={{ padding: 16, gap: 8 }}
             renderItem={({ item }) => {
@@ -176,7 +258,11 @@ export default function CreateTaskScreen({ navigation }: any) {
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.userName}>{item.display_name || item.username}</Text>
+                    <Text style={styles.userName}>
+                      {item.display_name || item.username}
+                      {item.id === meId ? ' (я)' : ''}
+                    </Text>
+                    {(item as any).role_name ? <Text style={styles.fieldHint}>{(item as any).role_name}</Text> : null}
                   </View>
                   {isSelected && (
                     <View style={styles.checkCircle}>
@@ -210,7 +296,7 @@ export default function CreateTaskScreen({ navigation }: any) {
           <ChevronLeft size={24} color="#141414" strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>СОЗДАТЬ ЗАДАЧУ</Text>
+          <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
         </View>
         <TouchableOpacity
           onPress={handleCreate}
@@ -228,6 +314,11 @@ export default function CreateTaskScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {prefilling ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color="#1F7A52" />
+        </View>
+      ) : (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -455,6 +546,7 @@ export default function CreateTaskScreen({ navigation }: any) {
         </View>
 
         {/* ===== КАРТОЧКА 5: Файлы ===== */}
+        {!isEdit && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
@@ -463,17 +555,65 @@ export default function CreateTaskScreen({ navigation }: any) {
             <Text style={styles.cardTitle}>Файлы</Text>
           </View>
 
-          <TouchableOpacity style={styles.addBtn} activeOpacity={0.7}>
+          {files.map((f, i) => (
+            <View key={`${f.uri}-${i}`} style={styles.fileRow}>
+              <Paperclip size={16} color="#6F6F73" strokeWidth={2} />
+              <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
+              <TouchableOpacity onPress={() => setFiles((prev) => prev.filter((_, x) => x !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <X size={16} color="#BDBDBD" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.addBtn} activeOpacity={0.7} onPress={pickFiles}>
             <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
             <Text style={styles.addBtnText}>Прикрепить документ</Text>
           </TouchableOpacity>
-          <Text style={styles.fieldHint}>
-            PDF, DOCX, изображения — до 20 МБ
-          </Text>
+          <Text style={styles.fieldHint}>Любые файлы до 50 МБ</Text>
         </View>
+        )}
+
+        {/* ===== КАРТОЧКА 6: Контрольные точки ===== */}
+        {!isEdit && (
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardIconWrap}>
+              <Flag size={18} color="#1F7A52" strokeWidth={2} />
+            </View>
+            <Text style={styles.cardTitle}>Контрольные точки</Text>
+          </View>
+          {checkpoints.map((c, i) => (
+            <View key={i} style={styles.fileRow}>
+              <CalendarDays size={16} color="#6F6F73" strokeWidth={2} />
+              <Text style={styles.fileName} numberOfLines={1}>
+                {c.title} · {c.deadline.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              <TouchableOpacity onPress={() => setCheckpoints((prev) => prev.filter((_, x) => x !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <X size={16} color="#BDBDBD" strokeWidth={2} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TextInput
+            style={styles.textInput}
+            placeholder="Например: черновик отчёта"
+            placeholderTextColor="#BDBDBD"
+            value={newCpTitle}
+            onChangeText={setNewCpTitle}
+          />
+          <TouchableOpacity
+            style={[styles.addBtn, { marginTop: 10 }]}
+            activeOpacity={0.7}
+            onPress={() => (newCpTitle.trim() ? setShowCpPicker(true) : Alert.alert('Контрольная точка', 'Сначала введите название'))}
+          >
+            <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
+            <Text style={styles.addBtnText}>Выбрать дату и добавить</Text>
+          </TouchableOpacity>
+          <Text style={styles.fieldHint}>Промежуточные сроки: наблюдатель отмечает, выполнены ли они</Text>
+        </View>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      )}
 
       {/* ===== МОДАЛКИ ===== */}
       {renderUsersModal(
@@ -482,6 +622,7 @@ export default function CreateTaskScreen({ navigation }: any) {
         selectedAssignees,
         setSelectedAssignees,
         'Исполнители',
+        availableUsers,
       )}
       {renderUsersModal(
         showWatchersModal,
@@ -489,7 +630,21 @@ export default function CreateTaskScreen({ navigation }: any) {
         selectedWatchers,
         setSelectedWatchers,
         'Наблюдатели',
+        watcherCandidates,
       )}
+
+      <DateTimePickerModal
+        visible={showCpPicker}
+        initialDate={executorDeadline}
+        minDate={new Date()}
+        title="Срок контрольной точки"
+        onClose={() => setShowCpPicker(false)}
+        onSave={(d: Date) => {
+          setCheckpoints((prev) => [...prev, { title: newCpTitle.trim(), deadline: d }].sort((a, b) => +a.deadline - +b.deadline));
+          setNewCpTitle('');
+          setShowCpPicker(false);
+        }}
+      />
 
       {/* Кастомный пикер: дедлайн выполнения */}
       <DateTimePickerModal
@@ -498,7 +653,7 @@ export default function CreateTaskScreen({ navigation }: any) {
         minDate={new Date()}
         title="Дедлайн выполнения"
         onClose={() => setShowExecutorDatePicker(false)}
-        onSave={(d) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
+        onSave={(d: Date) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
       />
       {/* Кастомный пикер: дедлайн проверки */}
       <DateTimePickerModal
@@ -507,13 +662,15 @@ export default function CreateTaskScreen({ navigation }: any) {
         minDate={new Date()}
         title="Дедлайн проверки"
         onClose={() => setShowReviewerDatePicker(false)}
-        onSave={(d) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
+        onSave={(d: Date) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  fileName: { flex: 1, fontSize: 14, color: '#141414' },
   container: {
     flex: 1,
     backgroundColor: '#FAFAF8',

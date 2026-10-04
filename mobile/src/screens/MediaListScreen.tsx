@@ -1,133 +1,223 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator,
-  StyleSheet, Platform, Dimensions,
-} from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, useWindowDimensions, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, FileText, ImageIcon } from 'lucide-react-native';
-import { getToken, SERVER_URL } from '../utils';
+import { ChevronLeft, FileText, Link2, BarChart3, Play } from 'lucide-react-native';
+import { SERVER_URL } from '../config';
+import { request, signedFileUrl } from '../services/http';
+import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
+import { C, formatDuration, formatSize } from '../components/chat/chatUtils';
 
-const SCREEN_W = Dimensions.get('window').width;
-const GAP = 4;
-const ITEM_SIZE = (SCREEN_W - 32 - GAP * 2) / 3;
+/**
+ * Общие материалы чата: фото и видео (сетка, открываются во встроенном
+ * просмотрщике), файлы, ссылки и опросы. Подгружаются постранично.
+ */
+
+type Kind = 'images' | 'files' | 'links' | 'polls';
+const TABS: { key: Kind; label: string }[] = [
+  { key: 'images', label: 'Медиа' },
+  { key: 'files', label: 'Файлы' },
+  { key: 'links', label: 'Ссылки' },
+  { key: 'polls', label: 'Опросы' },
+];
+const COLS = 3;
+const GAP = 2;
+const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
 export default function MediaListScreen({ route, navigation }: any) {
-  const { chatId, type } = route.params; // 'files' | 'images'
+  const { chatId, topicId } = route.params;
+  const [kind, setKind] = useState<Kind>(route.params.type === 'media' ? 'images' : route.params.type || 'images');
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cursor, setCursor] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const { width } = useWindowDimensions();
+  const cell = (width - GAP * (COLS - 1)) / COLS;
 
-  const loadItems = async (before?: number) => {
-    const tok = await getToken();
-    if (!tok) return;
-    try {
-      const url = `${SERVER_URL}/api/chats/${chatId}/messages?type=${type}&limit=30${before ? `&before=${before}` : ''}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } });
-      if (res.ok) {
-        const data = await res.json();
+  const load = useCallback(
+    async (before?: number) => {
+      try {
+        const data = await request<any[]>(`/api/chats/${chatId}/messages`, {
+          query: { type: kind === 'images' ? 'media' : kind, limit: 60, before, topic_id: topicId ?? undefined },
+        });
         setItems((prev) => (before ? [...prev, ...data] : data));
-        if (data.length > 0) setCursor(data[data.length - 1].id);
+        setHasMore(data.length >= 60);
+      } catch (e: any) {
+        Alert.alert('Ошибка', e?.message || 'Не удалось загрузить');
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {}
-    setLoading(false);
-  };
-
-  useEffect(() => { loadItems(); }, []);
-
-  const openMessage = (item: any) => {
-    navigation.navigate('Chat', {
-      chatId: String(item.chat_id),
-      chatName: 'Чат',
-      messageId: item.id,
-      topicId: item.topic_id || null,
-    });
-  };
-
-  const isImages = type === 'images';
-
-  const renderFile = ({ item }: any) => (
-    <TouchableOpacity style={styles.fileCard} onPress={() => openMessage(item)} activeOpacity={0.7}>
-      <View style={styles.fileIcon}>
-        <FileText size={22} color="#1F7A52" strokeWidth={2} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.fileName} numberOfLines={1}>{item.file_name || 'Файл'}</Text>
-        <Text style={styles.fileDate}>
-          {new Date(item.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
-        </Text>
-      </View>
-    </TouchableOpacity>
+    },
+    [chatId, kind, topicId],
   );
 
-  const renderImage = ({ item }: any) => (
-    <TouchableOpacity onPress={() => openMessage(item)} activeOpacity={0.8}>
-      <Image
-        source={{ uri: SERVER_URL + (item.thumb_url || item.file_url) }}
-        style={styles.imageItem}
-        resizeMode="cover"
-      />
-    </TouchableOpacity>
-  );
+  useEffect(() => {
+    setLoading(true);
+    setItems([]);
+    load();
+  }, [load]);
+
+  const goToMessage = (item: any) =>
+    navigation.navigate('Chat', { chatId: String(item.chat_id), chatName: 'Чат', messageId: item.id, topicId: item.topic_id || null });
+
+  const openFile = async (item: any) => {
+    try {
+      await Linking.openURL(await signedFileUrl(item.file_url));
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть файл', e?.message || '');
+    }
+  };
+
+  const date = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const renderItem = ({ item, index }: { item: any; index: number }) => {
+    if (kind === 'images') {
+      return (
+        <TouchableOpacity
+          style={{ width: cell, height: cell, marginRight: (index + 1) % COLS ? GAP : 0, marginBottom: GAP }}
+          onPress={() => setViewerIndex(index)}
+          onLongPress={() => goToMessage(item)}
+          activeOpacity={0.85}
+        >
+          {item.thumb_url ? (
+            <Image source={{ uri: SERVER_URL + item.thumb_url }} style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#2B2F2C' }]} />
+          )}
+          {item.media_kind === 'video' && (
+            <View style={styles.videoPill}>
+              <Play size={10} color="#FFFFFF" fill="#FFFFFF" />
+              <Text style={styles.videoText}>{item.media_duration ? formatDuration(item.media_duration) : 'видео'}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    }
+    if (kind === 'files') {
+      return (
+        <TouchableOpacity style={styles.row} onPress={() => openFile(item)} onLongPress={() => goToMessage(item)} activeOpacity={0.6}>
+          <View style={[styles.rowIcon, { backgroundColor: C.accentSoft }]}>
+            <FileText size={22} color={C.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              {item.file_name || 'Файл'}
+            </Text>
+            <Text style={styles.rowSub}>
+              {[formatSize(item.file_size), date(item.created_at), item.sender_display_name || item.sender_name].filter(Boolean).join(' · ')}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    if (kind === 'links') {
+      const urls: string[] = (item.text || '').match(URL_RE) || [];
+      return (
+        <TouchableOpacity style={styles.row} onPress={() => urls[0] && Linking.openURL(urls[0])} onLongPress={() => goToMessage(item)} activeOpacity={0.6}>
+          <View style={[styles.rowIcon, { backgroundColor: '#E0F2FE' }]}>
+            <Link2 size={22} color="#0EA5E9" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.rowTitle, { color: '#0284C7' }]} numberOfLines={1}>
+              {urls[0] || item.text}
+            </Text>
+            <Text style={styles.rowSub} numberOfLines={2}>
+              {item.text}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    return (
+      <TouchableOpacity style={styles.row} onPress={() => goToMessage(item)} activeOpacity={0.6}>
+        <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
+          <BarChart3 size={22} color="#F59E0B" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowTitle} numberOfLines={2}>
+            {item.poll_question || 'Опрос'}
+          </Text>
+          <Text style={styles.rowSub}>
+            {date(item.created_at)} · {item.sender_display_name || item.sender_name}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const viewerItems: ViewerItem[] = kind === 'images' ? items.map((m) => ({ ...m, sender_name: m.sender_display_name || m.sender_name })) : [];
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
+          <ChevronLeft size={26} color={C.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isImages ? 'МЕДИА' : 'ФАЙЛЫ'}</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.headerTitle}>Материалы чата</Text>
+        <View style={styles.iconBtn} />
       </View>
-
+      <View style={styles.tabs}>
+        {TABS.map((t) => (
+          <TouchableOpacity key={t.key} style={[styles.tab, kind === t.key && styles.tabActive]} onPress={() => setKind(t.key)}>
+            <Text style={[styles.tabText, kind === t.key && styles.tabTextActive]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       {loading ? (
-        <View style={styles.loadingWrap}><ActivityIndicator size="large" color="#1F7A52" /></View>
-      ) : items.length === 0 ? (
-        <View style={styles.emptyCard}>
-          {isImages ? <ImageIcon size={32} color="#BDBDBD" strokeWidth={1.5} /> : <FileText size={32} color="#BDBDBD" strokeWidth={1.5} />}
-          <Text style={styles.emptyTitle}>{isImages ? 'Нет медиа' : 'Нет файлов'}</Text>
-          <Text style={styles.emptySubtitle}>В этом чате пока пусто</Text>
-        </View>
+        <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} />
       ) : (
         <FlatList
+          key={kind === 'images' ? 'grid' : 'list'}
           data={items}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={isImages ? renderImage : renderFile}
-          numColumns={isImages ? 3 : 1}
-          columnWrapperStyle={isImages ? { gap: GAP } : undefined}
-          contentContainerStyle={isImages ? { padding: 16, gap: GAP } : { padding: 16, gap: 10 }}
-          onEndReached={() => cursor && loadItems(cursor)}
+          numColumns={kind === 'images' ? COLS : 1}
+          keyExtractor={(m) => String(m.id)}
+          renderItem={renderItem}
+          onEndReached={() => hasMore && items.length && load(items[items.length - 1].id)}
           onEndReachedThreshold={0.5}
+          ItemSeparatorComponent={kind === 'images' ? undefined : () => <View style={styles.sep} />}
+          ListEmptyComponent={<Text style={styles.empty}>Здесь пока пусто</Text>}
         />
       )}
+      <MediaViewer
+        visible={viewerIndex !== null}
+        items={viewerItems}
+        initialIndex={viewerIndex || 0}
+        onClose={() => setViewerIndex(null)}
+        onShowInChat={(it) => {
+          setViewerIndex(null);
+          goToMessage(it);
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ECECE8',
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 4 },
+  iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: C.text, textAlign: 'center' },
+  tabs: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: C.accent },
+  tabText: { fontSize: 14, fontWeight: '600', color: C.textMuted },
+  tabTextActive: { color: C.accent },
+  videoPill: {
+    position: 'absolute',
+    left: 5,
+    bottom: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  headerBackBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
-  headerTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1,
-  },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  imageItem: { width: ITEM_SIZE, height: ITEM_SIZE, borderRadius: 10, backgroundColor: '#ECECE8' },
-  fileCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#FFFFFF', borderRadius: 18, padding: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 12, elevation: 2,
-  },
-  fileIcon: {
-    width: 44, height: 44, borderRadius: 12, backgroundColor: '#ECFDF5',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  fileName: { fontSize: 14, fontWeight: '600', color: '#141414' },
-  fileDate: { fontSize: 12, color: '#6F6F73', marginTop: 2 },
-  emptyCard: { marginHorizontal: 16, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 32, alignItems: 'center', gap: 8 },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#141414', marginTop: 4 },
-  emptySubtitle: { fontSize: 12, color: '#6F6F73' },
+  videoText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
+  rowIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  rowTitle: { fontSize: 15, fontWeight: '600', color: C.text },
+  rowSub: { fontSize: 13, color: C.textMuted, marginTop: 2 },
+  sep: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 74 },
+  empty: { textAlign: 'center', color: C.textMuted, marginTop: 50 },
 });

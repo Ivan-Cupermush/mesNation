@@ -47,8 +47,18 @@ async function canAccessFile(url: string, userId: number): Promise<boolean> {
       `SELECT 1 FROM note_files nf JOIN notes n ON n.id = nf.note_id
        WHERE nf.file_url = $1 AND n.user_id = $2 LIMIT 1`,
       [url, userId],
-    ).catch(() => ({ rows: [] as unknown[] }));
-    return rows.length > 0;
+    );
+    if (rows.length) return true;
+    // Вложения пересланной заметки видят участники чата, куда её отправили.
+    const shared = await pool.query(
+      `SELECT DISTINCT m.chat_id FROM note_shares s JOIN messages m ON m.note_share_id = s.id
+       WHERE s.files @> jsonb_build_array(jsonb_build_object('file_url', $1::text)) AND m.deleted_for_all IS NOT TRUE`,
+      [url],
+    );
+    for (const r of shared.rows) {
+      if (await isChatMember(r.chat_id, userId)) return true;
+    }
+    return false;
   }
 
   // Файлы сообщений: доступ у участников любого чата, где файл был отправлен

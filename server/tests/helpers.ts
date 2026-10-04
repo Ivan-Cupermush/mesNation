@@ -26,6 +26,7 @@ export function client(app: Express, actor?: Actor) {
     patch: (url: string, body?: object) => auth(request(app).patch(url)).send(body ?? {}),
     put: (url: string, body?: object) => auth(request(app).put(url)).send(body ?? {}),
     delete: (url: string) => auth(request(app).delete(url)),
+    upload: (url: string, field: string, data: Buffer, name: string) => auth(request(app).post(url)).attach(field, data, name),
   };
 }
 

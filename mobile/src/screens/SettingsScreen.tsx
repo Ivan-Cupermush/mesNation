@@ -8,6 +8,9 @@ import {
   Platform,
   Alert,
   Image,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -20,6 +23,8 @@ import {
   Crown,
   Shield,
   Settings as SettingsIcon,
+  Building2,
+  Pencil,
 } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
@@ -39,6 +44,24 @@ const initials = (name: string) =>
 
 export default function SettingsScreen({ navigation, onLogout }: any) {
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [companyDraft, setCompanyDraft] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const saveCompanyName = async () => {
+    const value = companyDraft.trim();
+    if (!value) return;
+    setRenaming(true);
+    try {
+      const r = await api.renameCompany(value);
+      setCurrentUser((u: any) => ({ ...u, company_name: r.company_name }));
+      setRenameOpen(false);
+    } catch (e: any) {
+      Alert.alert('Ошибка', e?.message || 'Не удалось переименовать компанию');
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   useEffect(() => {
     api.getCurrentUser().then(setCurrentUser).catch(console.error);
@@ -100,10 +123,10 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
 
   const name = currentUser?.display_name || currentUser?.username || '';
   const roleName = currentUser?.role_name || 'Сотрудник';
-  const isAdmin =
-    roleName === 'director' ||
-    roleName === 'admin' ||
-    (roleName || '').toLowerCase().includes('руководитель');
+  // Права определяются положением в дереве ролей, а не названием должности:
+  // раньше раздел скрывался у директора, чья должность называлась иначе.
+  const isDirector = !!currentUser?.is_director;
+  const isAdmin = isDirector || !!currentUser?.has_subordinates;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -150,17 +173,13 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                 </Text>
                 <View style={styles.roleRow}>
                   <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
-                    {isAdmin ? (
+                    {isDirector ? (
                       <Crown size={10} color="#1F7A52" strokeWidth={2.5} />
                     ) : (
                       <Shield size={10} color="#1F7A52" strokeWidth={2.5} />
                     )}
                     <Text style={[styles.roleBadgeText, { color: '#1F7A52' }]}>
-                      {roleName === 'director'
-                        ? 'Директор'
-                        : roleName === 'admin'
-                          ? 'Администратор'
-                          : roleName}
+                      {roleName === 'director' ? 'Директор' : roleName === 'admin' ? 'Администратор' : roleName}
                     </Text>
                   </View>
                 </View>
@@ -173,6 +192,36 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
               <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
             </View>
           </TouchableOpacity>
+        )}
+
+        {/* ===== КОМПАНИЯ ===== */}
+        {!!currentUser?.company_name && (
+          <>
+            <Text style={styles.sectionTitle}>КОМПАНИЯ</Text>
+            <View style={styles.card}>
+              <View style={styles.actionRow}>
+                <View style={[styles.actionIconWrap, { backgroundColor: '#E3F1EA' }]}>
+                  <Building2 size={20} color="#1F7A52" strokeWidth={2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.actionTitle}>{currentUser.company_name}</Text>
+                  <Text style={styles.actionSub}>Название компании</Text>
+                </View>
+                {isDirector && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCompanyDraft(currentUser.company_name);
+                      setRenameOpen(true);
+                    }}
+                    hitSlop={10}
+                    accessibilityLabel="Переименовать компанию"
+                  >
+                    <Pencil size={18} color="#6F6F73" strokeWidth={2} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </>
         )}
 
         {/* ===== АДМИНИСТРИРОВАНИЕ ===== */}
@@ -233,11 +282,55 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Название компании</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={companyDraft}
+              onChangeText={setCompanyDraft}
+              maxLength={200}
+              autoFocus
+              placeholder="ООО «Компания»"
+              placeholderTextColor="#BDBDBD"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setRenameOpen(false)} style={styles.modalBtn}>
+                <Text style={styles.modalBtnText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={saveCompanyName}
+                disabled={renaming || !companyDraft.trim()}
+                style={[styles.modalBtn, styles.modalBtnPrimary]}
+              >
+                {renaming ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: '#FFFFFF' }]}>Сохранить</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
+  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#141414', marginBottom: 14 },
+  modalInput: {
+    height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#ECECE8',
+    paddingHorizontal: 14, fontSize: 16, color: '#141414', backgroundColor: '#FAFAF8',
+  },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
+  modalBtn: { minWidth: 100, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  modalBtnPrimary: { backgroundColor: '#1F7A52' },
+  modalBtnText: { fontSize: 15, fontWeight: '700', color: '#141414' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   scrollContent: { padding: 20, gap: 16 },

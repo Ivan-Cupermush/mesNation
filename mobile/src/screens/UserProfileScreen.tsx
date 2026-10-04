@@ -8,6 +8,9 @@ import {
   Platform,
   ActivityIndicator,
   Image,
+  Alert,
+  Share,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -18,8 +21,10 @@ import {
   AtSign,
   Mail,
   ChevronRight,
+  KeyRound,
 } from 'lucide-react-native';
-import { getToken, SERVER_URL } from '../utils';
+import { api, CurrentUser } from '../services/api';
+import { publicFileUrl, request } from '../services/http';
 
 type ProfileRouteProp = RouteProp<{ params: { userId: number } }, 'params'>;
 
@@ -40,144 +45,125 @@ export default function UserProfileScreen({ navigation }: any) {
   const route = useRoute<ProfileRouteProp>();
   const userId = route.params.userId;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<(CurrentUser & { can_manage: boolean }) | null>(null);
   const [commonChats, setCommonChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
-  const [avatarMode, setAvatarMode] = useState<'direct' | 'token' | 'fallback'>('direct');
-
-  const loadChatMembers = async (chatId: number, token: string): Promise<any[]> => {
-    try {
-      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.members)) return data.members;
-      }
-    } catch (e) {}
-    try {
-      const res = await fetch(`${SERVER_URL}/api/chats/${chatId}/members`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.members)) return data.members;
-      }
-    } catch (e) {}
-    return [];
-  };
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
 
   const load = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
     try {
-      const usersRes = await fetch(`${SERVER_URL}/api/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (usersRes.ok) {
-        const users = await usersRes.json();
-        setUser(users.find((u: any) => u.id === userId) || null);
-      }
-
-      const chatsRes = await fetch(`${SERVER_URL}/api/chats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (chatsRes.ok) {
-        const chats = await chatsRes.json();
-        const common: any[] = [];
-        for (const c of chats) {
-          if (c.type === 'private') continue;
-          const members = await loadChatMembers(c.id, token);
-          if (members.some((m: any) => m.id === userId)) common.push(c);
-        }
-        setCommonChats(common);
-      }
-    } catch (e) {}
-    setLoading(false);
+      const [profile, chats] = await Promise.all([api.getUser(userId), request<any[]>('/api/chats')]);
+      setUser(profile);
+      // Сервер отдаёт участников вместе со списком чатов — отдельные запросы не нужны.
+      setCommonChats(chats.filter((c) => c.type !== 'private' && (c.members || []).some((m: any) => m.id === userId)));
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось загрузить профиль');
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // ===== Аватар: прямой URL -> токен -> инициалы =====
-  useEffect(() => {
-    if (user?.avatar_url) {
-      setAvatarMode('direct');
-      setAvatarUri(SERVER_URL + user.avatar_url);
-    } else {
-      setAvatarMode('fallback');
-      setAvatarUri(null);
-    }
-  }, [user?.avatar_url]);
+  const avatarUri = publicFileUrl(user?.avatar_url);
 
-  const handleAvatarError = async () => {
-    if (avatarMode === 'direct') {
-      try {
-        const tok = await getToken();
-        const filename = String(user?.avatar_url || '').split('/').pop();
-        const res = await fetch(`${SERVER_URL}/api/file-token/${filename}`, {
-          headers: { Authorization: `Bearer ${tok}` },
-        });
-        const data = await res.json();
-        if (res.ok && data.url) {
-          setAvatarMode('token');
-          setAvatarUri(SERVER_URL + data.url);
-          return;
-        }
-      } catch (e) {}
-      setAvatarMode('fallback');
-      setAvatarUri(null);
-    } else if (avatarMode === 'token') {
-      setAvatarMode('fallback');
-      setAvatarUri(null);
+  // ===== Написать: сервер вернёт существующий личный чат или создаст новый =====
+  const openPrivateChat = async () => {
+    if (!user) return;
+    try {
+      const chat = await request<any>('/api/chats', { method: 'POST', body: { type: 'private', user_ids: [userId] } });
+      navigation.navigate('ChatTab', {
+        screen: 'Chat',
+        params: { chatId: String(chat.id), chatName: user.display_name || user.username },
+      });
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть чат', e?.message || 'Попробуйте ещё раз');
     }
   };
 
-  // ===== Написать: найти личный чат или создать =====
-  const openPrivateChat = async () => {
-    const token = await getToken();
-    if (!token || !user) return;
+  // ===== Управление учётной записью (директор / руководитель) =====
+  const showNewPassword = (password: string) => {
+    Alert.alert(
+      'Новый пароль',
+      `Логин: ${user?.username}\nПароль: ${password}\n\nПередайте его сотруднику. После закрытия окна пароль больше не будет показан.`,
+      [
+        { text: 'Поделиться', onPress: () => Share.share({ message: `Вход в Offix\nЛогин: ${user?.username}\nПароль: ${password}` }) },
+        { text: 'Готово' },
+      ],
+    );
+  };
+
+  const resetPassword = () => {
+    Alert.alert(
+      'Сбросить пароль?',
+      'Будет создан новый случайный пароль. Старый перестанет работать.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Сбросить',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              showNewPassword((await api.resetUserPassword(userId)).password);
+            } catch (e: any) {
+              Alert.alert('Ошибка', e?.message || 'Не удалось сбросить пароль');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const setManualPassword = async () => {
+    if (newPassword.length < 8) return Alert.alert('Слишком короткий пароль', 'Минимум 8 символов');
+    setBusy(true);
     try {
-      const chatsRes = await fetch(`${SERVER_URL}/api/chats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (chatsRes.ok) {
-        const chats = await chatsRes.json();
-        for (const c of chats) {
-          if (c.type !== 'private') continue;
-          const members = await loadChatMembers(c.id, token);
-          if (members.some((m: any) => m.id === userId)) {
-            navigation.navigate('ChatTab', {
-              screen: 'Chat',
-              params: { chatId: String(c.id), chatName: user.display_name || user.username },
-            });
-            return;
-          }
-        }
-      }
-      const res = await fetch(`${SERVER_URL}/api/chats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: 'private', user_ids: [userId] }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        navigation.navigate('ChatTab', {
-          screen: 'Chat',
-          params: { chatId: String(data.id), chatName: user.display_name || user.username },
-        });
-      } else {
-        Alert.alert('Ошибка', data.error || 'Не удалось создать чат');
-      }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      showNewPassword((await api.resetUserPassword(userId, newPassword)).password);
+      setNewPassword('');
+      setShowPasswordInput(false);
+    } catch (e: any) {
+      Alert.alert('Ошибка', e?.message || 'Не удалось задать пароль');
+    } finally {
+      setBusy(false);
     }
+  };
+
+  const toggleActive = () => {
+    if (!user) return;
+    const activate = !user.is_active;
+    Alert.alert(
+      activate ? 'Вернуть доступ?' : 'Деактивировать сотрудника?',
+      activate
+        ? 'Сотрудник снова сможет входить и появится в списках.'
+        : 'Сотрудник не сможет войти, пропадёт из списков участников и исполнителей. Его задачи, сообщения и история сохранятся.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: activate ? 'Активировать' : 'Деактивировать',
+          style: activate ? 'default' : 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await api.setUserActive(userId, activate);
+              await load();
+            } catch (e: any) {
+              Alert.alert('Ошибка', e?.message || 'Не удалось изменить статус');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const openCommonChat = (c: any) => {
@@ -211,6 +197,13 @@ export default function UserProfileScreen({ navigation }: any) {
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color="#1F7A52" />
         </View>
+      ) : error ? (
+        <View style={styles.loadingWrap}>
+          <Text style={styles.emptyText}>{error}</Text>
+          <TouchableOpacity onPress={load} style={{ marginTop: 12 }}>
+            <Text style={styles.accountBtnText}>Повторить</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -220,11 +213,7 @@ export default function UserProfileScreen({ navigation }: any) {
           <View style={styles.heroCard}>
             <View style={styles.avatarWrap}>
               {avatarUri ? (
-                <Image
-                  source={{ uri: avatarUri }}
-                  style={styles.avatarImage}
-                  onError={handleAvatarError}
-                />
+                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
               ) : (
                 <View style={[styles.avatarImage, { backgroundColor: hashColor(name) }]}>
                   <Text style={styles.avatarInitials}>{initials(name)}</Text>
@@ -235,6 +224,12 @@ export default function UserProfileScreen({ navigation }: any) {
               {name || '—'}
             </Text>
             <Text style={styles.heroUsername}>@{user?.username || '…'}</Text>
+            {user?.role_name ? <Text style={styles.heroRole}>{user.role_name}</Text> : null}
+            {user && !user.is_active ? (
+              <View style={styles.inactiveBadge}>
+                <Text style={styles.inactiveBadgeText}>Деактивирован</Text>
+              </View>
+            ) : null}
           </View>
 
           {/* ===== КОНТАКТЫ ===== */}
@@ -250,13 +245,70 @@ export default function UserProfileScreen({ navigation }: any) {
               <AtSign size={16} color="#6F6F73" strokeWidth={2} />
               <Text style={styles.contactText}>@{user?.username || '—'}</Text>
             </View>
-            {user?.email ? (
-              <View style={styles.contactRow}>
-                <Mail size={16} color="#6F6F73" strokeWidth={2} />
-                <Text style={styles.contactText}>{user.email}</Text>
-              </View>
-            ) : null}
+            <View style={styles.contactRow}>
+              <Mail size={16} color="#6F6F73" strokeWidth={2} />
+              <Text style={styles.contactText}>{user?.email || 'email не указан'}</Text>
+            </View>
           </View>
+
+          {/* ===== УЧЁТНАЯ ЗАПИСЬ (видна директору и руководителю сотрудника) ===== */}
+          {user?.can_manage && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardIconWrap}>
+                  <KeyRound size={18} color="#1F7A52" strokeWidth={2} />
+                </View>
+                <Text style={styles.cardTitle}>Учётная запись</Text>
+              </View>
+              <View style={styles.contactRow}>
+                <Text style={styles.accountLabel}>Логин</Text>
+                <Text style={styles.contactText} selectable>{user.username}</Text>
+              </View>
+              <View style={styles.contactRow}>
+                <Text style={styles.accountLabel}>Пароль</Text>
+                <Text style={styles.accountHint}>хранится зашифрованным — его можно только заменить</Text>
+              </View>
+              {showPasswordInput ? (
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Новый пароль (мин. 6 символов)"
+                    placeholderTextColor="#BDBDBD"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity onPress={setManualPassword} disabled={busy} style={styles.accountBtnSmall}>
+                    <Text style={styles.accountBtnText}>Сохранить</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <View style={styles.accountActions}>
+                <TouchableOpacity onPress={resetPassword} disabled={busy} style={styles.accountBtn} activeOpacity={0.7}>
+                  <Text style={styles.accountBtnText}>Сгенерировать пароль</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowPasswordInput((v) => !v)}
+                  disabled={busy}
+                  style={styles.accountBtn}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.accountBtnText}>{showPasswordInput ? 'Скрыть' : 'Задать вручную'}</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                onPress={toggleActive}
+                disabled={busy}
+                style={[styles.accountBtn, styles.accountBtnWide, !user.is_active ? styles.activateBtn : styles.deactivateBtn]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.accountBtnText, { color: user.is_active ? '#DC2626' : '#1F7A52' }]}>
+                  {user.is_active ? 'Деактивировать сотрудника' : 'Активировать сотрудника'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* ===== ОБЩИЕ ГРУППЫ ===== */}
           <View style={styles.card}>
@@ -300,8 +352,8 @@ export default function UserProfileScreen({ navigation }: any) {
       <View style={styles.bottomBar}>
         <TouchableOpacity
           onPress={openPrivateChat}
-          disabled={loading}
-          style={styles.writeBtn}
+          disabled={loading || !user?.is_active}
+          style={[styles.writeBtn, user && !user.is_active && { opacity: 0.5 }]}
           activeOpacity={0.85}
         >
           <MessageCircle size={20} color="#FFFFFF" strokeWidth={2} />
@@ -313,6 +365,20 @@ export default function UserProfileScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  heroRole: { marginTop: 6, fontSize: 13, fontWeight: '700', color: '#1F7A52' },
+  inactiveBadge: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
+  inactiveBadgeText: { fontSize: 12, fontWeight: '700', color: '#DC2626' },
+  accountLabel: { width: 70, fontSize: 13, fontWeight: '600', color: '#6F6F73' },
+  accountHint: { flex: 1, fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' },
+  accountActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  accountBtn: { flex: 1, paddingVertical: 11, borderRadius: 12, backgroundColor: '#ECFDF5', alignItems: 'center' },
+  accountBtnWide: { flex: 0, marginTop: 8 },
+  accountBtnSmall: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: '#ECFDF5' },
+  accountBtnText: { fontSize: 13, fontWeight: '700', color: '#1F7A52' },
+  deactivateBtn: { backgroundColor: '#FEF2F2' },
+  activateBtn: { backgroundColor: '#ECFDF5' },
+  passwordRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
+  passwordInput: { flex: 1, borderWidth: 1, borderColor: '#ECECE8', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: '#141414' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   header: {

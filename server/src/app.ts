@@ -6,9 +6,11 @@ import crypto from 'crypto';
 import { corsOrigins } from './config/env';
 import { logger } from './lib/logger';
 import { errorHandler, notFoundHandler } from './lib/errors';
-import { authenticate } from './middleware/auth';
+import { authenticate, requireDirector } from './middleware/auth';
+import { z } from 'zod';
+import { validate } from './lib/validate';
 import pool from './db/pool';
-import { getCompanyName } from './services/company';
+import { getCompanyName, setCompanyName } from './services/company';
 
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
@@ -18,7 +20,7 @@ import topicsRouter from './routes/topics';
 import pollsRouter from './routes/polls';
 import roleTreeRouter from './routes/roleTree';
 import tasksRouter from './routes/tasks';
-import notesRouter from './routes/notes';
+import notesRouter, { notePdfPublicRouter } from './routes/notes';
 import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
@@ -61,7 +63,20 @@ export function createApp() {
   app.use('/api/kpi', kpiImportRouter);
 
   // ---------- Всё остальное — только с токеном ----------
+  // Подписанная ссылка на PDF заметки открывается во внешнем приложении без токена.
+  app.use('/api/notes-pdf', notePdfPublicRouter);
+
   app.use('/api', authenticate);
+  // Переименовать компанию может только директор.
+  app.patch(
+    '/api/company',
+    requireDirector,
+    validate(z.object({ company_name: z.string().trim().min(1, 'Название компании обязательно').max(200) })),
+    async (req, res) => {
+      await setCompanyName(req.body.company_name);
+      res.json({ company_name: await getCompanyName() });
+    },
+  );
   app.use('/api', filesApiRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/chats', chatsRouter);

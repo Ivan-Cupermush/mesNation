@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -57,9 +58,10 @@ const formatTime = (iso?: string) => {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 };
 
-export default function ChatListScreen({ navigation, onLogout }: any) {
+export default function ChatListScreen({ navigation }: any) {
   const [chats, setChats] = useState<any[]>([]);
   const [meId, setMeId] = useState<number | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
@@ -79,6 +81,7 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
       if (meRes.ok) {
         const me = await meRes.json();
         setMeId(me.id);
+        setCompanyName(me.company_name || null);
       }
       if (chatsRes.ok) {
         const data = await chatsRes.json();
@@ -89,7 +92,7 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
         );
         setChats(sorted);
       }
-    } catch (e) {
+    } catch {
       // тихо — покажем пустое состояние
     }
     setLoading(false);
@@ -131,7 +134,11 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
       <View
         style={[styles.avatar, { backgroundColor: hashColor(item.name || '?') }]}
       >
-        <Text style={styles.avatarText}>{initials(item.name)}</Text>
+        {item.avatar_url ? (
+          <Image source={{ uri: SERVER_URL + item.avatar_url }} style={styles.avatarImg} />
+        ) : (
+          <Text style={styles.avatarText}>{initials(item.name)}</Text>
+        )}
       </View>
 
       <View style={styles.chatCenter}>
@@ -166,7 +173,14 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
-        <Text style={styles.title}>ЧАТЫ</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>ЧАТЫ</Text>
+          {companyName ? (
+            <Text style={styles.companyName} numberOfLines={1}>
+              {companyName}
+            </Text>
+          ) : null}
+        </View>
         <TouchableOpacity
           style={styles.profileBtn}
           onPress={() => navigation.navigate('Profile')}
@@ -241,6 +255,7 @@ export default function ChatListScreen({ navigation, onLogout }: any) {
 }
 
 const styles = StyleSheet.create({
+  companyName: { fontSize: 14, color: '#6F6F73', fontWeight: '600', marginTop: 2 },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   // ===== HEADER =====
@@ -320,6 +335,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 3,
   },
+  avatarImg: { width: 48, height: 48, borderRadius: 24 },
   avatar: {
     width: 48,
     height: 48,

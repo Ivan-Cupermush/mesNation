@@ -25,3 +25,4 @@ jest.mock('socket.io-client', () => ({
   io: () => ({ on: jest.fn(), off: jest.fn(), emit: jest.fn(), removeAllListeners: jest.fn(), disconnect: jest.fn(), connected: false }),
 }));
 global.fetch = jest.fn(async () => ({ ok: false, status: 0, text: async () => '' }));
+jest.mock('@react-native-clipboard/clipboard', () => require('@react-native-clipboard/clipboard/jest/clipboard-mock.js'));

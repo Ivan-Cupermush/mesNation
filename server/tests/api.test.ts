@@ -314,3 +314,69 @@ describe('отложенная отправка', () => {
     expect((await as(c.mgr1).get(`/api/chats/${chatId}/scheduled`)).body).toHaveLength(0);
   });
 });
+
+describe('заметки: вложения, копия, PDF, отправка в чат', () => {
+  it('полный сценарий', async () => {
+    const note = await as(c.mgr1).post('/api/notes', { title: 'План встречи', content: 'Обсудить квартальный отчёт' });
+    expect(note.status).toBe(201);
+    const noteId = note.body.id;
+
+    const file = await as(c.mgr1).upload(`/api/notes/${noteId}/files`, 'file', Buffer.from('hello'), 'Отчёт.txt');
+    expect(file.status).toBe(201);
+    expect(file.body.file_name).toBe('Отчёт.txt');
+    expect((await as(c.mgr2).get(`/api/notes/${noteId}`)).status).toBe(403);
+    expect((await as(c.mgr2).get(file.body.file_url)).status).toBe(403);
+
+    const full = await as(c.mgr1).get(`/api/notes/${noteId}`);
+    expect(full.body.files).toHaveLength(1);
+    expect(full.body.files_count).toBe(1);
+
+    const copy = await as(c.mgr1).post(`/api/notes/${noteId}/duplicate`);
+    expect(copy.body.title).toBe('План встречи (копия)');
+    expect(copy.body.files).toHaveLength(1);
+    // Удаление копии не удаляет файл оригинала.
+    expect((await as(c.mgr1).delete(`/api/notes/${copy.body.id}`)).status).toBe(200);
+    expect((await as(c.mgr1).get(file.body.file_url)).status).toBe(200);
+
+    const link = await as(c.mgr1).get(`/api/notes/${noteId}/pdf-link`);
+    const pdf = await as().get(link.body.url);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect((await as().get('/api/notes-pdf?token=bad')).status).toBe(401);
+
+    // Отправка в чат: получатель видит карточку и принимает заметку себе.
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    expect((await as(c.mgr1).post(`/api/notes/${noteId}/share`, { chat_id: 999999 })).status).toBe(403);
+    const msg = await as(c.mgr1).post(`/api/notes/${noteId}/share`, { chat_id: chat.body.id });
+    expect(msg.status).toBe(201);
+    expect(msg.body.content_type).toBe('note');
+    expect(msg.body.note_share.title).toBe('План встречи');
+
+    const shareId = msg.body.note_share_id;
+    expect((await as(c.bk).get(`/api/notes/shared/${shareId}`)).status).toBe(403);
+    expect((await as(c.mgr2).get(file.body.file_url)).status).toBe(200);
+
+    const accepted = await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    expect(accepted.status).toBe(201);
+    expect(accepted.body.user_id).toBe(c.mgr2.id);
+    expect(accepted.body.content).toBe('Обсудить квартальный отчёт');
+    expect(accepted.body.files).toHaveLength(1);
+    // Повторное принятие не плодит копии.
+    const again = await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    expect(again.body.id).toBe(accepted.body.id);
+    const shared = await as(c.mgr2).get(`/api/notes/shared/${shareId}`);
+    expect(shared.body.is_accepted).toBe(true);
+    const history = (await as(c.mgr2).get(`/api/messages/${chat.body.id}`)).body as any[];
+    expect(history.find((m) => m.id === msg.body.id).note_share.accepted_user_ids).toContain(c.mgr2.id);
+  });
+});
+
+describe('название компании', () => {
+  it('видно всем, менять может только директор', async () => {
+    expect((await as(c.mgr1).patch('/api/company', { company_name: 'Взлом' })).status).toBe(403);
+    expect((await as(c.dir).patch('/api/company', { company_name: '  ' })).status).toBe(400);
+    const r = await as(c.dir).patch('/api/company', { company_name: 'ООО «Новое имя»' });
+    expect(r.body.company_name).toBe('ООО «Новое имя»');
+    expect((await as(c.mgr1).get('/api/auth/me')).body.company_name).toBe('ООО «Новое имя»');
+  });
+});

@@ -1,4 +1,5 @@
-import { request as httpRequest, upload, ApiError } from './http';
+import { request as httpRequest, upload, ApiError, UploadFile } from './http';
+import { SERVER_URL } from '../config';
 
 export { ApiError };
 
@@ -188,6 +189,41 @@ export interface Note {
   note_date: string;
   created_at: string;
   updated_at: string;
+  files_count?: number;
+  files?: NoteFile[];
+}
+
+export interface NoteFile {
+  id: number;
+  note_id: number;
+  file_url: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  created_at: string;
+}
+
+/** Заметка, отправленная во внутренний чат (снимок на момент отправки). */
+export interface SharedNote {
+  id: number;
+  title: string;
+  content: string;
+  files: { file_url: string; file_name: string; file_size: number | null; mime_type: string | null }[];
+  sender_id: number;
+  sender_name: string;
+  created_at: string;
+  accepted_note_id: number | null;
+  is_accepted: boolean;
+}
+
+/** Краткая карточка пересланной заметки внутри сообщения. */
+export interface NoteShareCard {
+  id: number;
+  title: string;
+  preview: string;
+  files_count: number;
+  sender_id: number;
+  accepted_user_ids: number[];
 }
 
 export interface DayWithNotes {
@@ -378,6 +414,9 @@ function request<T>(path: string, options?: { method?: string; body?: string }):
 export const api = {
   // ==================== АВТОРИЗАЦИЯ ====================
   getCurrentUser: () => request<CurrentUser>('/api/auth/me'),
+
+  renameCompany: (company_name: string) =>
+    request<{ company_name: string }>('/api/company', { method: 'PATCH', body: JSON.stringify({ company_name }) }),
 
   changePassword: (current_password: string, new_password: string) =>
     httpRequest<{ success: boolean }>('/api/auth/change-password', { method: 'POST', body: { current_password, new_password } }),
@@ -588,6 +627,28 @@ export const api = {
 
   deleteNote: (id: number) =>
     request<{ success: boolean }>(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  getNote: (id: number) => request<Note>(`/api/notes/${id}`),
+
+  duplicateNote: (id: number) => request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body: '{}' }),
+
+  uploadNoteFile: (noteId: number, file: UploadFile) => upload<NoteFile>(`/api/notes/${noteId}/files`, 'file', file),
+
+  deleteNoteFile: (noteId: number, fileId: number) =>
+    request<{ success: boolean }>(`/api/notes/${noteId}/files/${fileId}`, { method: 'DELETE' }),
+
+  /** Ссылка на PDF (живёт 10 минут), открывается во внешнем приложении. */
+  getNotePdfUrl: async (noteId: number) => {
+    const { url } = await request<{ url: string }>(`/api/notes/${noteId}/pdf-link`);
+    return `${SERVER_URL}${url}`;
+  },
+
+  shareNote: (noteId: number, data: { chat_id: number; topic_id?: number | null; comment?: string }) =>
+    request<any>(`/api/notes/${noteId}/share`, { method: 'POST', body: JSON.stringify(data) }),
+
+  getSharedNote: (shareId: number) => request<SharedNote>(`/api/notes/shared/${shareId}`),
+
+  acceptSharedNote: (shareId: number) => request<Note>(`/api/notes/shared/${shareId}/accept`, { method: 'POST', body: '{}' }),
 
   // ==================== KPI ПРОДАЖИ ====================
   getSalesTargets: () => request<SalesTarget[]>('/api/kpi/sales/targets'),

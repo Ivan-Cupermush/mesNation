@@ -10,6 +10,12 @@ export const MESSAGE_SELECT = `
   m.pinned, m.deleted_for_all, m.content_type, m.poll_id, m.client_id, m.created_at,
   m.forwarded_from_user_id, m.forwarded_from_message_id,
   (SELECT COALESCE(fu.display_name, fu.username) FROM users fu WHERE fu.id = m.forwarded_from_user_id) AS forwarded_from_name,
+  m.note_share_id,
+  (SELECT json_build_object(
+     'id', ns.id, 'title', ns.title, 'preview', LEFT(ns.content, 400),
+     'files_count', jsonb_array_length(ns.files), 'sender_id', ns.sender_id,
+     'accepted_user_ids', COALESCE((SELECT json_agg(a.user_id) FROM note_share_acceptances a WHERE a.share_id = ns.id), '[]'::json))
+   FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_share,
   u.display_name AS sender_display_name,
   u.username     AS sender_name,
   u.avatar_url   AS sender_avatar_url`;
@@ -22,7 +28,7 @@ export const MESSAGE_SELECT = `
 export function serializeMessage(m: any) {
   const { deleted_for_user_ids: _hidden, ...rest } = m;
   if (rest.deleted_for_all) {
-    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null };
+    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null };
   }
   return rest;
 }
@@ -42,6 +48,7 @@ export interface NewMessage {
   pollId?: number | null;
   forwardedFromUserId?: number | null;
   forwardedFromMessageId?: number | null;
+  noteShareId?: number | null;
 }
 
 /**
@@ -77,8 +84,8 @@ export async function createMessage(input: NewMessage) {
     `WITH ins AS (
        INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, client_id,
                              file_url, file_name, thumb_url, external_reply_chat_id, content_type, poll_id,
-                             forwarded_from_user_id, forwarded_from_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                             forwarded_from_user_id, forwarded_from_message_id, note_share_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (sender_id, client_id) WHERE client_id IS NOT NULL DO NOTHING
        RETURNING *
      )
@@ -98,6 +105,7 @@ export async function createMessage(input: NewMessage) {
       input.pollId ?? null,
       input.forwardedFromUserId ?? null,
       input.forwardedFromMessageId ?? null,
+      input.noteShareId ?? null,
     ],
   );
 

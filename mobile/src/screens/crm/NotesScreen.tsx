@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,12 @@ import {
   Platform,
   ActivityIndicator,
   StatusBar,
+  Alert,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Calendar, Star, Plus, FileText, BookOpen, UserRound } from 'lucide-react-native';
+import { Star, Plus, FileText, BookOpen, UserRound, Paperclip } from 'lucide-react-native';
 import { CalendarView } from '../../components/CalendarView';
 import { api, Note, DayWithNotes } from '../../services/api';
 
@@ -47,8 +49,7 @@ export default function NotesScreen({ navigation }: any) {
         const data = await api.getFavoriteNotes();
         setNotes(data);
       } else {
-        const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-        const data = await api.getNotesByDate(dateStr);
+        const data = await api.getNotesByDate(formatLocalDate(selectedDate));
         setNotes(data);
       }
     } catch (e) {
@@ -75,12 +76,56 @@ export default function NotesScreen({ navigation }: any) {
   };
 
   const handleCreateNote = () => {
-    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-    navigation.navigate('NoteEditor', { noteDate: dateStr });
+    navigation.navigate('NoteEditor', { noteDate: formatLocalDate(selectedDate) });
   };
 
   const handleEditNote = (note: Note) => {
     navigation.navigate('NoteEditor', { noteId: note.id, noteDate: note.note_date });
+  };
+
+  const handleNoteActions = (note: Note) => {
+    Alert.alert(note.title || 'Без названия', undefined, [
+      {
+        text: 'Скопировать текст',
+        onPress: () => {
+          Clipboard.setString([note.title, note.content].filter(Boolean).join('\n\n'));
+        },
+      },
+      {
+        text: 'Создать копию',
+        onPress: async () => {
+          try {
+            await api.duplicateNote(note.id);
+            loadNotes();
+            loadDaysWithNotes();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e?.message || 'Не удалось скопировать заметку');
+          }
+        },
+      },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: () =>
+          Alert.alert('Удалить заметку?', 'Заметка и её вложения будут удалены.', [
+            { text: 'Отмена', style: 'cancel' },
+            {
+              text: 'Удалить',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await api.deleteNote(note.id);
+                  setNotes((prev) => prev.filter((n) => n.id !== note.id));
+                  loadDaysWithNotes();
+                } catch (e: any) {
+                  Alert.alert('Ошибка', e?.message || 'Не удалось удалить заметку');
+                }
+              },
+            },
+          ]),
+      },
+      { text: 'Отмена', style: 'cancel' },
+    ]);
   };
 
   const formatDate = (date: Date): string => {
@@ -96,6 +141,7 @@ export default function NotesScreen({ navigation }: any) {
     return (
       <TouchableOpacity
         onPress={() => handleEditNote(item)}
+        onLongPress={() => handleNoteActions(item)}
         style={styles.noteCard}
         activeOpacity={0.7}
       >
@@ -108,7 +154,7 @@ export default function NotesScreen({ navigation }: any) {
               {item.title || 'Без названия'}
             </Text>
             <Text style={styles.noteDate}>
-              {formatDate(new Date(item.note_date))}
+              {formatDate(new Date(item.note_date + 'T00:00:00'))}
             </Text>
           </View>
           {item.is_favorite && (
@@ -120,6 +166,12 @@ export default function NotesScreen({ navigation }: any) {
         <Text style={styles.notePreview} numberOfLines={3}>
           {preview}
         </Text>
+        {item.files_count ? (
+          <View style={styles.filesBadge}>
+            <Paperclip size={13} color="#6F6F73" strokeWidth={2.2} />
+            <Text style={styles.filesBadgeText}>{item.files_count}</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -224,6 +276,8 @@ export default function NotesScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  filesBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
+  filesBadgeText: { fontSize: 12, color: '#6F6F73', fontWeight: '600' },
   container: { flex: 1, backgroundColor: '#FAFAF8' },
 
   // ===== HEADER =====

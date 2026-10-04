@@ -156,6 +156,8 @@ router.post('/messages/forward', validate(forwardSchema), async (req: AuthReques
     fileUrl: original.file_url,
     fileName: original.file_name,
     thumbUrl: original.thumb_url,
+    contentType: original.content_type || 'text',
+    noteShareId: original.note_share_id ?? null,
     forwardedFromUserId: original.forwarded_from_user_id ?? original.sender_id,
     forwardedFromMessageId: original.forwarded_from_message_id ?? original.id,
   });

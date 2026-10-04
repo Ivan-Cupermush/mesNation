@@ -40,6 +40,7 @@ import {
   CalendarClock,
 } from 'lucide-react-native';
 import PollBubble, { PollGlyph } from '../components/PollBubble';
+import NoteShareBubble from '../components/NoteShareBubble';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
 import { api } from '../services/api';
@@ -582,6 +583,20 @@ export default function ChatScreen({ navigation }: any) {
     return 'Участник';
   };
 
+  const onNoteAccepted = (messageId: number, noteId: number) => {
+    setMessages((prev) =>
+      prev.map((x) =>
+        x.id === messageId && x.note_share && currentUserId && !x.note_share.accepted_user_ids.includes(currentUserId)
+          ? { ...x, note_share: { ...x.note_share, accepted_user_ids: [...x.note_share.accepted_user_ids, currentUserId] } }
+          : x,
+      ),
+    );
+    Alert.alert('Заметка сохранена', 'Копия добавлена в ваши заметки на сегодня.', [
+      { text: 'Остаться в чате', style: 'cancel' },
+      { text: 'Открыть', onPress: () => navigation.navigate('NotesTab', { screen: 'NoteEditor', params: { noteId } }) },
+    ]);
+  };
+
   const renderMessage = (m: any) => {
     const mine = isMineMsg(m);
     const senderName = senderNameOf(m);
@@ -650,6 +665,16 @@ export default function ChatScreen({ navigation }: any) {
             />
           )}
 
+          {/* ЗАМЕТКА */}
+          {m.note_share && (
+            <NoteShareBubble
+              card={m.note_share}
+              mine={mine}
+              currentUserId={currentUserId || 0}
+              onAccepted={(noteId) => onNoteAccepted(m.id, noteId)}
+            />
+          )}
+
           {/* Вложение */}
           {m.file_url ? (
             m.thumb_url ? (
@@ -668,7 +693,7 @@ export default function ChatScreen({ navigation }: any) {
             )
           ) : null}
 
-          {m.text && !m.poll ? (
+          {m.text && !m.poll && !m.note_share ? (
             <Text style={[styles.msgText, mine && styles.msgTextMine]}>{m.text}</Text>
           ) : null}
 

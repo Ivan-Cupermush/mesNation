@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { BarChart3, ListTodo, BookOpen, Sparkles, Settings, LogOut, User, Menu, X } from 'lucide-react';

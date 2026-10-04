@@ -1,13 +1,13 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import { SERVER_URL, getToken, clearToken } from '../utils';
 
-// РЎРѕР·РґР°С‘Рј instance axios
+// Создаём instance axios
 export const apiClient = axios.create({
   baseURL: SERVER_URL,
   timeout: 30000,
 });
 
-// РРЅС‚РµСЂС†РµРїС‚РѕСЂ РґР»СЏ РґРѕР±Р°РІР»РµРЅРёСЏ С‚РѕРєРµРЅР°
+// Интерцептор для добавления токена
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
   if (token) {
@@ -16,7 +16,7 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// РРЅС‚РµСЂС†РµРїС‚РѕСЂ РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РѕС€РёР±РѕРє Р°РІС‚РѕСЂРёР·Р°С†РёРё
+// Интерцептор для обработки ошибок авторизации
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -49,7 +49,7 @@ async function request<T>(url: string, options: any = {}): Promise<T> {
   return response.data;
 }
 
-// ==================== РђР’РўРћР РР—РђР¦РРЇ ====================
+// ==================== АВТОРИЗАЦИЯ ====================
 export interface User {
   id: number;
   username: string;
@@ -83,7 +83,7 @@ export const api = {
   logout: (): Promise<void> =>
     request<void>('/api/auth/logout', { method: 'POST' }).catch(() => {}),
 
-  // ==================== Р—РђР”РђР§Р ====================
+  // ==================== ЗАДАЧИ ====================
   getTasks: (params?: any) => request<any[]>('/api/tasks', { params }),
   
   getTaskById: (id: number) => request<any>(`/api/tasks/${id}`),
@@ -120,7 +120,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // ==================== РРњРџРћР Рў ====================
+  // ==================== ИМПОРТ ====================
   previewImport: async (file: File): Promise<any> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -138,7 +138,7 @@ export const api = {
       body: JSON.stringify({ importId, mapping }),
     }),
 
-  // ==================== Р—РђРњР•РўРљР ====================
+  // ==================== ЗАМЕТКИ ====================
   getNotesByDate: (date: string) => request<any[]>(`/api/notes?date=${date}`),
   
   getFavoriteNotes: () => request<any[]>('/api/notes/favorites'),
@@ -159,7 +159,7 @@ export const api = {
     method: 'DELETE',
   }),
 
-  // ==================== Р‘РђР—Рђ Р—РќРђРќРР™ ====================
+  // ==================== БАЗА ЗНАНИЙ ====================
   getChatSessions: (): Promise<any[]> =>
     request<any[]>('/api/knowledge/sessions'),
 
@@ -178,7 +178,7 @@ export const api = {
       body: JSON.stringify({ feedback, comment }),
     }),
 
-  // ==================== РџР РћР¤РР›Р¬ ====================
+  // ==================== ПРОФИЛЬ ====================
   updateProfile: (data: any) => request<any>('/api/auth/profile', {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -196,11 +196,11 @@ export const api = {
   },
 };
 
-// ==================== Р”РћРџРћР›РќРРўР•Р›Р¬РќР«Р• Р¤РЈРќРљР¦РР ====================
+// ==================== ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ====================
 export const getSalesTransactions = (params?: any): Promise<any[]> =>
   request<any[]>('/api/kpi/sales/transactions', { params });
 
-// ==================== РџРћР›Р¬Р—РћР’РђРўР•Р›Р Р Р”Р•Р Р•Р’Рћ Р РћР›Р•Р™ ====================
+// ==================== ПОЛЬЗОВАТЕЛИ И ДЕРЕВО РОЛЕЙ ====================
 
 // ==================== РОЛИ (ДЕРЕВО) ====================
 export const getRoleTree = (): Promise<any[]> =>
@@ -225,7 +225,7 @@ export const getSubtreeUsers = (): Promise<any[]> =>
 export const getUsers = (): Promise<any[]> =>
   request<any[]>('/api/users').catch(() => []);
 
-// ==================== Р”Р•РўРђР›Р Р—РђР”РђР§ ====================
+// ==================== ДЕТАЛИ ЗАДАЧ ====================
 export interface TaskHistoryItem {
   id: number;
   task_id: number;
@@ -308,7 +308,7 @@ export const uploadTaskFile = async (taskId: number, file: File): Promise<TaskFi
 export const deleteTaskFile = (taskId: number, fileId: number): Promise<void> =>
   request<void>(`/api/tasks/${taskId}/files/${fileId}`, { method: 'DELETE' });
 
-// ==================== Р—РђРњР•РўРљР ====================
+// ==================== ЗАМЕТКИ ====================
 export interface Note {
   id: number;
   title: string;

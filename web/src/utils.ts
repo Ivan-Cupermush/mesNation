@@ -1,4 +1,4 @@
-﻿export const SERVER_URL = '';
+export const SERVER_URL = '';
 
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'current_user';

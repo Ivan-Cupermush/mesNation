@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { User, Edit2, Save, X } from 'lucide-react';
 import { api } from '../services/api';

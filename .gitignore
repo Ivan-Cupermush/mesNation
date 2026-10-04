@@ -53,4 +53,10 @@ all-mobile-ui.txt
 mobile/lucide-react-native
 mobile/react
 mobile/react-native-safe-area-context
-utils
+# ВНИМАНИЕ: не добавлять сюда голое `utils` — оно игнорировало mobile/src/utils/
+/utils/
+
+# Ключи подписи и дампы БД — никогда не коммитим
+*.jks
+*.dump
+server/dist/

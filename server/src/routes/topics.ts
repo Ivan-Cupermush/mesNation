@@ -53,7 +53,7 @@ router.get('/chats/:id/topics', async (req: AuthRequest, res: Response) => {
   const { rows } = await pool.query(
     `SELECT t.*,
             (SELECT row_to_json(lm) FROM (
-               SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name,
+               SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type, m.media_kind, m.thumb_url, m.file_url, m.poll_id,
                       COALESCE(u.display_name, u.username) AS sender_name
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.chat_id = $1::text AND m.topic_id = t.id AND m.deleted_for_all IS NOT TRUE

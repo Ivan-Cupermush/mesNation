@@ -12,6 +12,7 @@ export const MESSAGE_SELECT = `
   m.media_group_id, m.media_kind, m.media_width, m.media_height, m.media_duration, m.file_size, m.mime_type,
   (SELECT COALESCE(fu.display_name, fu.username) FROM users fu WHERE fu.id = m.forwarded_from_user_id) AS forwarded_from_name,
   m.note_share_id,
+  (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
   (SELECT json_build_object(
      'id', ns.id, 'title', ns.title, 'preview', LEFT(ns.content, 400),
      'files_count', jsonb_array_length(ns.files), 'sender_id', ns.sender_id,

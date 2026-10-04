@@ -1,591 +1,381 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
-  Platform,
   TextInput,
   ActivityIndicator,
   Alert,
+  Image,
+  ScrollView,
+  Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  ChevronLeft,
-  UserRound,
-  Users,
-  Search,
-  Check,
-  Layers,
-} from 'lucide-react-native';
-import { getToken, SERVER_URL } from '../utils';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { ChevronLeft, Users, Search, Check, Layers, ArrowRight, Camera, X } from 'lucide-react-native';
+import { SERVER_URL } from '../config';
+import { request, upload } from '../services/http';
+import { fuzzyMatch } from '../utils/fuzzySearch';
+import { C, hashColor, initials, plural } from '../components/chat/chatUtils';
 
-const AVATAR_COLORS = [
-  '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
-  '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
-];
+/**
+ * Новый чат как в Telegram:
+ *  1. «Новое сообщение» — список сотрудников; нажатие сразу открывает
+ *     личную переписку (или существующую).
+ *  2. «Создать группу» / «Группа с темами» — выбор участников (чипы сверху),
+ *     затем название, фото и переключатель тем; после создания группа
+ *     сразу открывается.
+ */
 
-const hashColor = (s: string) => {
-  const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
-};
+type Step = 'contacts' | 'members' | 'details';
 
-const initials = (name: string) =>
-  (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+function Avatar({ user, size = 46 }: { user: any; size?: number }) {
+  const name = user.display_name || user.username || '?';
+  return user.avatar_url ? (
+    <Image source={{ uri: SERVER_URL + user.avatar_url }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+  ) : (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: hashColor(name), alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: size * 0.36 }}>{initials(name)}</Text>
+    </View>
+  );
+}
 
-export default function CreateChatScreen({ navigation }: any) {
-  const [type, setType] = useState<'private' | 'group'>('private');
-  const [name, setName] = useState('');
-  const [isSupergroup, setIsSupergroup] = useState(false);
-
+export default function CreateChatScreen({ navigation, route }: any) {
+  const [step, setStep] = useState<Step>(route?.params?.mode === 'group' ? 'members' : 'contacts');
   const [users, setUsers] = useState<any[]>([]);
   const [meId, setMeId] = useState<number | null>(null);
-  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [creating, setCreating] = useState(false);
-
-  const loadData = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const [meRes, usersRes] = await Promise.all([
-        fetch(`${SERVER_URL}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${SERVER_URL}/api/users`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-      if (meRes.ok) {
-        const me = await meRes.json();
-        setMeId(me.id);
-      }
-      if (usersRes.ok) {
-        setUsers(await usersRes.json());
-      }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Не удалось загрузить пользователей');
-    }
-    setLoadingUsers(false);
-  }, []);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [name, setName] = useState('');
+  const [withTopics, setWithTopics] = useState(false);
+  const [photo, setPhoto] = useState<{ uri: string; type?: string; fileName?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    Promise.all([request<any>('/api/auth/me'), request<any[]>('/api/users')])
+      .then(([me, list]) => {
+        setMeId(me.id);
+        setUsers(list);
+      })
+      .catch((e) => Alert.alert('Ошибка', e?.message || 'Не удалось загрузить сотрудников'))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const otherUsers = users.filter((u) => u.id !== meId);
-  const filteredUsers = search.trim()
-    ? otherUsers.filter(
-        (u) =>
-          (u.username || '').toLowerCase().includes(search.trim().toLowerCase()) ||
-          (u.display_name || '').toLowerCase().includes(search.trim().toLowerCase()),
-      )
-    : otherUsers;
+  const others = useMemo(
+    () =>
+      users
+        .filter((u) => u.id !== meId)
+        .sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username, 'ru')),
+    [users, meId],
+  );
+  const filtered = useMemo(() => {
+    if (!search.trim()) return others;
+    return others
+      .map((u) => ({ u, r: fuzzyMatch(`${u.display_name || ''} ${u.username || ''} ${u.role_name || ''}`, search) }))
+      .filter((x) => x.r.match)
+      .sort((a, b) => a.r.rank - b.r.rank)
+      .map((x) => x.u);
+  }, [others, search]);
+  const selectedUsers = selected.map((id) => users.find((u) => u.id === id)).filter(Boolean);
 
-  const toggleUser = (id: number) => {
-    if (type === 'private') {
-      setSelectedIds([id]);
-    } else {
-      setSelectedIds((prev) =>
-        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-      );
+  const openPrivate = async (user: any) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const chat = await request<any>('/api/chats', { method: 'POST', body: { type: 'private', user_ids: [user.id] } });
+      navigation.replace('Chat', { chatId: String(chat.id), chatName: chat.name });
+    } catch (e: any) {
+      Alert.alert('Не удалось открыть чат', e?.message || '');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const canCreate =
-    type === 'private' ? selectedIds.length === 1 : name.trim().length > 0;
+  const toggle = (id: number) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  const handleCreate = async () => {
-    if (!canCreate || creating) return;
-    setCreating(true);
-    const token = await getToken();
-    if (!token) {
-      Alert.alert('Ошибка', 'Нет токена');
-      setCreating(false);
+  const pickPhoto = async () => {
+    const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.9 });
+    const a = res.assets?.[0];
+    if (a?.uri) setPhoto({ uri: a.uri, type: a.type, fileName: a.fileName });
+  };
+
+  const createGroup = async () => {
+    if (!name.trim()) {
+      Alert.alert('Название', 'Введите название группы');
       return;
     }
+    setBusy(true);
     try {
-      const body: any = { type, user_ids: selectedIds };
-      if (type === 'group') {
-        body.name = name.trim();
-        body.is_supergroup = isSupergroup;
-      }
-      const res = await fetch(`${SERVER_URL}/api/chats`, {
+      const chat = await request<any>('/api/chats', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
+        body: { type: 'group', name: name.trim(), user_ids: selected, is_supergroup: withTopics },
       });
-      const data = await res.json();
-      if (res.ok) {
-        Alert.alert('Успех', 'Чат создан');
-        navigation.goBack();
-      } else {
-        Alert.alert('Ошибка', data.error || 'Не удалось создать чат');
+      if (photo) {
+        await upload(`/api/chats/${chat.id}/avatar`, 'avatar', { uri: photo.uri, name: photo.fileName || 'avatar.jpg', type: photo.type || 'image/jpeg' }).catch(
+          () => Alert.alert('Фото не загружено', 'Группа создана, фото можно поставить в её настройках.'),
+        );
       }
-    } catch (e) {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      navigation.replace(withTopics ? 'TopicList' : 'Chat', { chatId: String(chat.id), chatName: chat.name });
+    } catch (e: any) {
+      Alert.alert('Не удалось создать группу', e?.message || '');
     } finally {
-      setCreating(false);
+      setBusy(false);
     }
+  };
+
+  const back = () => {
+    if (step === 'details') setStep('members');
+    else if (step === 'members' && route?.params?.mode !== 'group') {
+      setStep('contacts');
+      setSelected([]);
+    } else navigation.goBack();
+  };
+
+  const title = step === 'contacts' ? 'Новое сообщение' : step === 'members' ? (withTopics ? 'Группа с темами' : 'Новая группа') : 'Название и фото';
+  const subtitle = step === 'members' ? (selected.length ? `${selected.length} ${plural(selected.length, ['участник', 'участника', 'участников'])}` : 'Выберите участников') : '';
+
+  const renderUser = ({ item }: { item: any }) => {
+    const isSel = selected.includes(item.id);
+    return (
+      <TouchableOpacity
+        style={styles.userRow}
+        activeOpacity={0.6}
+        onPress={() => (step === 'contacts' ? openPrivate(item) : toggle(item.id))}
+        disabled={busy}
+      >
+        <View>
+          <Avatar user={item} />
+          {step === 'members' && isSel && (
+            <View style={styles.selBadge}>
+              <Check size={12} color="#FFFFFF" strokeWidth={3.5} />
+            </View>
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.userName} numberOfLines={1}>
+            {item.display_name || item.username}
+          </Text>
+          <Text style={styles.userSub} numberOfLines={1}>
+            {item.role_name || `@${item.username}`}
+          </Text>
+        </View>
+        {step === 'members' && (
+          <View style={[styles.checkbox, isSel && styles.checkboxOn]}>{isSel && <Check size={14} color="#FFFFFF" strokeWidth={3} />}</View>
+        )}
+      </TouchableOpacity>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* ===== HEADER ===== */}
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+        <TouchableOpacity onPress={back} style={styles.iconBtn} accessibilityLabel="Назад">
+          <ChevronLeft size={26} color={C.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>НОВЫЙ ЧАТ</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>{title}</Text>
+          {subtitle ? <Text style={styles.headerSub}>{subtitle}</Text> : null}
+        </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* ===== ТИП ЧАТА ===== */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconWrap}>
-              <Users size={18} color="#1F7A52" strokeWidth={2} />
-            </View>
-            <Text style={styles.cardTitle}>Тип чата</Text>
-          </View>
-
-          <View style={styles.typeRow}>
-            <TouchableOpacity
-              onPress={() => {
-                setType('private');
-                setSelectedIds((prev) => prev.slice(0, 1));
-              }}
-              style={[styles.typeCard, type === 'private' && styles.typeCardActive]}
-              activeOpacity={0.7}
-            >
-              <UserRound
-                size={24}
-                color={type === 'private' ? '#1F7A52' : '#6F6F73'}
-                strokeWidth={2}
+      {step === 'details' ? (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.detailsTop}>
+              <TouchableOpacity onPress={pickPhoto} style={styles.photoBtn} activeOpacity={0.8} accessibilityLabel="Фото группы">
+                {photo ? <Image source={{ uri: photo.uri }} style={styles.photo} /> : <Camera size={28} color="#FFFFFF" />}
+              </TouchableOpacity>
+              <TextInput
+                style={styles.nameInput}
+                value={name}
+                onChangeText={setName}
+                placeholder="Название группы"
+                placeholderTextColor="#A1A1AA"
+                maxLength={255}
+                autoFocus
               />
-              <Text
-                style={[
-                  styles.typeCardText,
-                  type === 'private' && styles.typeCardTextActive,
-                ]}
-              >
-                Личный
-              </Text>
-              <Text style={styles.typeCardHint}>Один собеседник</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setType('group')}
-              style={[styles.typeCard, type === 'group' && styles.typeCardActive]}
-              activeOpacity={0.7}
-            >
-              <Users
-                size={24}
-                color={type === 'group' ? '#1F7A52' : '#6F6F73'}
-                strokeWidth={2}
-              />
-              <Text
-                style={[styles.typeCardText, type === 'group' && styles.typeCardTextActive]}
-              >
-                Группа
-              </Text>
-              <Text style={styles.typeCardHint}>Много участников</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* ===== НАЗВАНИЕ + СУПЕРГРУППА (только для группы) ===== */}
-        {type === 'group' && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardIconWrap}>
-                <Layers size={18} color="#1F7A52" strokeWidth={2} />
-              </View>
-              <Text style={styles.cardTitle}>Параметры группы</Text>
             </View>
-
-            <Text style={styles.fieldLabel}>Название</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Например: Отдел продаж"
-              placeholderTextColor="#BDBDBD"
-              value={name}
-              onChangeText={setName}
-            />
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              onPress={() => setIsSupergroup(!isSupergroup)}
-              style={styles.supergroupRow}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.supergroupTitle}>Супергруппа</Text>
-                <Text style={styles.supergroupHint}>
-                  Топики, администраторы и права
-                </Text>
+            <View style={styles.card}>
+              <View style={styles.settingRow}>
+                <Layers size={20} color={C.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingTitle}>Темы</Text>
+                  <Text style={styles.settingHint}>Разделить переписку на темы (супергруппа). Можно включить и позже.</Text>
+                </View>
+                <Switch value={withTopics} onValueChange={setWithTopics} trackColor={{ false: '#E4E4E7', true: C.accent }} thumbColor="#FFFFFF" />
               </View>
-              <View style={[styles.toggle, isSupergroup && styles.toggleActive]}>
-                <View style={[styles.toggleKnob, isSupergroup && styles.toggleKnobActive]} />
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ===== УЧАСТНИКИ ===== */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconWrap}>
-              <UserRound size={18} color="#1F7A52" strokeWidth={2} />
             </View>
-            <Text style={styles.cardTitle}>
-              {type === 'private' ? 'Собеседник' : 'Участники'}
+            <Text style={styles.sectionLabel}>
+              {selected.length + 1} {plural(selected.length + 1, ['участник', 'участника', 'участников'])} (включая вас)
             </Text>
-            {selectedIds.length > 0 && (
-              <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{selectedIds.length}</Text>
-              </View>
-            )}
-          </View>
-
+            <View style={styles.card}>
+              {selectedUsers.map((u: any) => (
+                <View key={u.id} style={styles.userRow}>
+                  <Avatar user={u} size={40} />
+                  <Text style={[styles.userName, { flex: 1 }]} numberOfLines={1}>
+                    {u.display_name || u.username}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      ) : (
+        <>
+          {step === 'members' && selectedUsers.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={{ flexGrow: 0 }}>
+              {selectedUsers.map((u: any) => (
+                <TouchableOpacity key={u.id} style={styles.chip} onPress={() => toggle(u.id)} activeOpacity={0.7}>
+                  <Avatar user={u} size={26} />
+                  <Text style={styles.chipText} numberOfLines={1}>
+                    {(u.display_name || u.username).split(' ')[0]}
+                  </Text>
+                  <X size={14} color={C.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
           <View style={styles.searchBar}>
-            <Search size={18} color="#6F6F73" strokeWidth={2} />
+            <Search size={18} color={C.textMuted} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Поиск людей..."
-              placeholderTextColor="#BDBDBD"
               value={search}
               onChangeText={setSearch}
+              placeholder="Поиск сотрудников"
+              placeholderTextColor="#A1A1AA"
             />
           </View>
 
-          {loadingUsers ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator size="small" color="#1F7A52" />
-            </View>
-          ) : filteredUsers.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>
-                {search.trim() ? 'Никого не нашли' : 'Нет доступных пользователей'}
-              </Text>
-            </View>
+          {loading ? (
+            <ActivityIndicator style={{ marginTop: 40 }} color={C.accent} />
           ) : (
-            filteredUsers.map((u) => {
-              const selected = selectedIds.includes(u.id);
-              return (
-                <TouchableOpacity
-                  key={u.id}
-                  onPress={() => toggleUser(u.id)}
-                  style={[styles.userRow, selected && styles.userRowSelected]}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.userAvatar, { backgroundColor: hashColor(u.display_name || u.username) }]}>
-                    <Text style={styles.userAvatarText}>
-                      {initials(u.display_name || u.username)}
-                    </Text>
+            <FlatList
+              data={filtered}
+              keyExtractor={(u) => String(u.id)}
+              renderItem={renderUser}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 110 }}
+              extraData={selected}
+              ListHeaderComponent={
+                step === 'contacts' && !search.trim() ? (
+                  <View style={styles.actionsBlock}>
+                    <TouchableOpacity style={styles.actionRow} onPress={() => { setWithTopics(false); setStep('members'); }} activeOpacity={0.6}>
+                      <View style={styles.actionIcon}>
+                        <Users size={22} color={C.accent} />
+                      </View>
+                      <Text style={styles.actionText}>Создать группу</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionRow} onPress={() => { setWithTopics(true); setStep('members'); }} activeOpacity={0.6}>
+                      <View style={styles.actionIcon}>
+                        <Layers size={22} color={C.accent} />
+                      </View>
+                      <View>
+                        <Text style={styles.actionText}>Создать группу с темами</Text>
+                        <Text style={styles.userSub}>Отдельные ветки обсуждений внутри группы</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.sectionLabel}>СОТРУДНИКИ</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.userName}>
-                      {u.display_name || u.username}
-                    </Text>
-                    <Text style={styles.userUsername}>@{u.username}</Text>
-                  </View>
-                  {selected && (
-                    <View style={styles.checkCircle}>
-                      <Check size={14} color="#FFFFFF" strokeWidth={3} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })
+                ) : null
+              }
+              ListEmptyComponent={<Text style={styles.empty}>{search.trim() ? 'Никого не нашли' : 'Других сотрудников пока нет'}</Text>}
+            />
           )}
-        </View>
+        </>
+      )}
 
-        <View style={{ height: 24 }} />
-      </ScrollView>
-
-      {/* ===== КНОПКА СОЗДАНИЯ ===== */}
-      <View style={styles.bottomBar}>
+      {step !== 'contacts' && (
         <TouchableOpacity
-          onPress={handleCreate}
-          disabled={!canCreate || creating}
-          style={[
-            styles.createBtn,
-            { backgroundColor: canCreate && !creating ? '#1F7A52' : '#ECECE8' },
-          ]}
-          activeOpacity={0.85}
+          style={[styles.fab, (step === 'members' ? !selected.length : !name.trim() || busy) && styles.fabDisabled]}
+          onPress={() => (step === 'members' ? selected.length && setStep('details') : createGroup())}
+          disabled={step === 'members' ? !selected.length : busy}
+          accessibilityLabel={step === 'members' ? 'Далее' : 'Создать группу'}
         >
-          {creating ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.createBtnText}>Создать чат</Text>
-          )}
+          {busy ? <ActivityIndicator color="#FFFFFF" /> : step === 'members' ? <ArrowRight size={26} color="#FFFFFF" /> : <Check size={26} color="#FFFFFF" strokeWidth={3} />}
         </TouchableOpacity>
-      </View>
+      )}
+      {busy && step === 'contacts' && (
+        <View style={styles.busyOverlay}>
+          <ActivityIndicator color={C.accent} size="large" />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
-
-  // ===== HEADER =====
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
-    backgroundColor: '#FAFAF8',
-  },
-  headerBackBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-  },
-  headerTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#141414',
-    letterSpacing: 1,
-  },
-
-  // ===== SCROLL =====
-  scrollContent: { padding: 20, gap: 20 },
-
-  // ===== CARD =====
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    elevation: 3,
-    gap: 14,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  cardIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#ECFDF5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#141414',
-    flex: 1,
-  },
-  countBadge: {
-    backgroundColor: '#1F7A52',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  countBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // ===== TYPE =====
-  typeRow: { flexDirection: 'row', gap: 12 },
-  typeCard: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 18,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#ECECE8',
-    backgroundColor: '#FAFAF8',
-  },
-  typeCardActive: {
-    borderColor: '#1F7A52',
-    backgroundColor: '#ECFDF5',
-  },
-  typeCardText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#6F6F73',
-  },
-  typeCardTextActive: { color: '#1F7A52' },
-  typeCardHint: {
-    fontSize: 11,
-    color: '#BDBDBD',
-    fontWeight: '500',
-  },
-
-  // ===== FIELDS =====
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6F6F73',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  textInput: {
-    fontSize: 16,
-    color: '#141414',
-    fontWeight: '500',
-    paddingVertical: 8,
-  },
-  divider: { height: 1, backgroundColor: '#ECECE8' },
-
-  // ===== SUPERGROUP TOGGLE =====
-  supergroupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  supergroupTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#141414',
-  },
-  supergroupHint: {
-    fontSize: 12,
-    color: '#6F6F73',
-    marginTop: 2,
-  },
-  toggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#ECECE8',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  toggleActive: { backgroundColor: '#1F7A52' },
-  toggleKnob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  toggleKnobActive: {
-    alignSelf: 'flex-end',
-  },
-
-  // ===== SEARCH =====
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', height: 58, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: C.text },
+  headerSub: { fontSize: 13, color: C.textMuted },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FAFAF8',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ECECE8',
+    gap: 8,
+    margin: 12,
     paddingHorizontal: 12,
-    height: 44,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#141414',
-    marginLeft: 8,
-    fontWeight: '500',
-    padding: 0,
-  },
-
-  // ===== USERS =====
-  loadingWrap: { paddingVertical: 24, alignItems: 'center' },
-  emptyWrap: { paddingVertical: 24, alignItems: 'center' },
-  emptyText: { fontSize: 13, color: '#BDBDBD', fontWeight: '500' },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 10,
-    borderRadius: 14,
-    backgroundColor: '#FAFAF8',
-    marginBottom: 8,
-  },
-  userRowSelected: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#1F7A52',
-  },
-  userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userAvatarText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  userName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#141414',
-  },
-  userUsername: {
-    fontSize: 12,
-    color: '#6F6F73',
-    marginTop: 1,
-  },
-  checkCircle: {
-    width: 24,
-    height: 24,
+    height: 42,
     borderRadius: 12,
-    backgroundColor: '#1F7A52',
+    backgroundColor: '#F2F3F1',
+  },
+  searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
+  chips: { paddingHorizontal: 12, paddingTop: 10, gap: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 3, paddingRight: 10, height: 32, borderRadius: 16, backgroundColor: C.accentSoft },
+  chipText: { fontSize: 14, color: C.text, maxWidth: 110 },
+  actionsBlock: { paddingTop: 2 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 10 },
+  actionIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  actionText: { fontSize: 16, color: C.accent, fontWeight: '600' },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: C.textMuted, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
+  userRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 8 },
+  userName: { fontSize: 16, fontWeight: '600', color: C.text },
+  userSub: { fontSize: 13, color: C.textMuted, marginTop: 1 },
+  selBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.accent,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // ===== BOTTOM =====
-  bottomBar: {
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
-  },
-  createBtn: {
-    height: 52,
-    borderRadius: 18,
+  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#C4C4C8', alignItems: 'center', justifyContent: 'center' },
+  checkboxOn: { backgroundColor: C.accent, borderColor: C.accent },
+  empty: { textAlign: 'center', color: C.textMuted, marginTop: 40 },
+  detailsTop: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  photoBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photo: { width: 72, height: 72 },
+  nameInput: { flex: 1, fontSize: 18, color: C.text, borderBottomWidth: 2, borderBottomColor: C.accent, paddingVertical: 8 },
+  card: { marginHorizontal: 12, borderRadius: 14, backgroundColor: '#F7F8F6', overflow: 'hidden' },
+  settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  settingTitle: { fontSize: 16, color: C.text, fontWeight: '600' },
+  settingHint: { fontSize: 13, color: C.textMuted, marginTop: 2 },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#1F7A52',
+    elevation: 6,
+    shadowColor: C.accent,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
   },
-  createBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  fabDisabled: { backgroundColor: '#B8C5BE' },
+  busyOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' },
 });

@@ -512,3 +512,19 @@ describe('мессенджер как в Telegram', () => {
     expect(r.body[0]).toHaveProperty('online');
   });
 });
+
+describe('список чатов', () => {
+  it('закреплённые чаты идут первыми, превью знает тип вложения', async () => {
+    const a = await as(c.bk).post('/api/chats', { type: 'group', name: 'Первый', user_ids: [c.acc.id] });
+    const b = await as(c.bk).post('/api/chats', { type: 'group', name: 'Второй', user_ids: [c.acc.id] });
+    await as(c.bk).upload('/api/upload', 'file', Buffer.from('x'), 'doc.txt').field('chatId', String(b.body.id));
+    expect((await as(c.bk).patch(`/api/chats/${a.body.id}/membership`, { pinned: true })).status).toBe(200);
+    const list = (await as(c.bk).get('/api/chats')).body as any[];
+    expect(list[0].id).toBe(a.body.id);
+    const second = list.find((x) => x.id === b.body.id);
+    expect(second.last_message.media_kind).toBe('file');
+    // У собеседника порядок свой.
+    const other = (await as(c.acc).get('/api/chats')).body as any[];
+    expect(other.find((x) => x.id === a.body.id).pinned_at).toBeNull();
+  });
+});

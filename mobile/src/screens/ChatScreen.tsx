@@ -893,6 +893,7 @@ export default function ChatScreen({ navigation }: any) {
         onSwipeReply={(m) => !m.local && setReplyTo(m)}
         onRetry={retryOrDiscard}
         onNoteAccepted={onNoteAccepted}
+        onPressSender={(userId) => navigation.navigate('UserProfile', { userId })}
       />
     );
   };

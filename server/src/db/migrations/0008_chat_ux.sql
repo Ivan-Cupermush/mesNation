@@ -28,3 +28,6 @@ ALTER TABLE polls ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 -- «Удалить чат» в личной переписке скрывает его только у себя; новое
 -- сообщение возвращает чат в список (как в Telegram).
 ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ;
+
+-- Закреплённые чаты в списке (у каждого участника свои).
+ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;

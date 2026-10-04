@@ -52,7 +52,7 @@ export default function TopicInfoScreen({ navigation }: any) {
       const [meRes, topicsRes, chatsRes, statsRes] = await Promise.all([
         fetch(`${SERVER_URL}/api/auth/me`, h),
         fetch(`${SERVER_URL}/api/chats/${chatId}/topics`, h),
-        fetch(`${SERVER_URL}/api/chats`, h),
+        fetch(`${SERVER_URL}/api/chats/${chatId}`, h),
         fetch(`${SERVER_URL}/api/chats/${chatId}/topics/${topicId}/stats`, h),
       ]);
       if (meRes.ok) setMeId((await meRes.json()).id);
@@ -67,10 +67,7 @@ export default function TopicInfoScreen({ navigation }: any) {
           setOpacity(found.icon_opacity ?? DEFAULT_TOPIC_STYLE.opacity);
         }
       }
-      if (chatsRes.ok) {
-        const chats = await chatsRes.json();
-        setChat(chats.find((c: any) => String(c.id) === String(chatId)) || null);
-      }
+      if (chatsRes.ok) setChat(await chatsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
     } catch (e) {
       Alert.alert('Ошибка', 'Не удалось загрузить топик');
@@ -84,7 +81,8 @@ export default function TopicInfoScreen({ navigation }: any) {
     if (topicId) loadTabItems(activeTab);
   }, [activeTab, topicId]);
 
-  const isCreator = chat?.created_by === meId;
+  // Менять и удалять тему могут её автор и админы с правом изменения группы.
+  const isCreator = !!topic && (topic.created_by === meId || !!chat?.my_rights?.can_change_info);
 
   const hasChanges =
     topic &&
@@ -125,7 +123,7 @@ export default function TopicInfoScreen({ navigation }: any) {
   };
 
   const handleDelete = () => {
-    Alert.alert('Удалить топик?', 'Сообщения в топике будут перенесены в общий чат.', [
+    Alert.alert('Удалить тему?', 'Тема исчезнет у всех участников. Сообщения не удаляются — они остаются в архиве группы.', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить', style: 'destructive',

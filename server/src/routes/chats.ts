@@ -126,6 +126,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               WHERE cm2.chat_id = c.id), '[]') AS members,
             (SELECT row_to_json(lm) FROM (
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
+                      m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id,
+                      (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
                       COALESCE(u.display_name, u.username) AS sender_name
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.chat_id = c.id::text AND m.deleted_for_all IS NOT TRUE
@@ -136,12 +138,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
              WHERE m.chat_id = c.id::text AND m.id > cm.last_read_message_id AND m.sender_id <> $1
                AND m.deleted_for_all IS NOT TRUE AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))) AS unread_count,
             cm.last_read_message_id AS my_last_read_id,
+            cm.pinned_at,
             (SELECT COALESCE(MAX(o.last_read_message_id), 0) FROM chat_members o
              WHERE o.chat_id = c.id AND o.user_id <> $1) AS peer_last_read_id
      FROM chats c
      JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = $1
      WHERE c.deleted_at IS NULL AND cm.hidden_at IS NULL
-     ORDER BY COALESCE((SELECT MAX(created_at) FROM messages WHERE chat_id = c.id::text), c.created_at) DESC`,
+     ORDER BY cm.pinned_at DESC NULLS LAST, COALESCE((SELECT MAX(created_at) FROM messages WHERE chat_id = c.id::text), c.created_at) DESC`,
     [me],
   );
   res.json(rows.map((c) => presentChat(c, c.members, me)));
@@ -174,6 +177,25 @@ async function readMarks(chatId: number, userId: number) {
   );
   return rows[0];
 }
+
+const membershipSchema = z.object({ pinned: z.boolean() });
+
+/** Личные настройки чата у участника: закрепить в списке. */
+router.patch('/:id/membership', validate(membershipSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  await assertChatMember(chatId, req.userId!);
+  const { pinned } = req.body as z.infer<typeof membershipSchema>;
+  if (pinned) {
+    const count = await pool.query('SELECT COUNT(*)::int AS n FROM chat_members WHERE user_id = $1 AND pinned_at IS NOT NULL', [req.userId]);
+    if (count.rows[0].n >= 10) throw badRequest('Можно закрепить не больше 10 чатов');
+  }
+  await pool.query('UPDATE chat_members SET pinned_at = CASE WHEN $1 THEN NOW() ELSE NULL END WHERE chat_id = $2 AND user_id = $3', [
+    pinned,
+    chatId,
+    req.userId,
+  ]);
+  res.json({ success: true, pinned });
+});
 
 const readSchema = z.object({ message_id: id });
 

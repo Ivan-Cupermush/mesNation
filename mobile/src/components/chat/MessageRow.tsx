@@ -5,6 +5,7 @@ import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import MediaAlbum from './MediaAlbum';
+import { useTheme } from '../../theme/ThemeContext';
 import { C, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
 
 import { T, themed } from '../../theme/runtime';
@@ -57,6 +58,7 @@ function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: num
 function MessageRow(props: Props) {
   const { row, mine, showName, showAvatar, isGroup, senderName, senderAvatar, replied, repliedName, peerLastReadId, currentUserId } = props;
   const { width: screenW } = useWindowDimensions();
+  const { messageFontSize } = useTheme();
   const msgs = row.type === 'album' ? row.msgs : [row.msg];
   const main = row.type === 'album' ? row.msgs.find((m) => m.text) || row.msgs[0] : row.msg;
   const showSideAvatar = isGroup && !mine;
@@ -216,7 +218,10 @@ function MessageRow(props: Props) {
           )}
 
           {caption && !isPoll ? (
-            <Text style={[styles.text, { color: fg }, isVisual && styles.captionInMedia]} selectable={false}>
+            <Text
+              style={[styles.text, { color: fg, fontSize: messageFontSize, lineHeight: Math.round(messageFontSize * 1.32) }, isVisual && styles.captionInMedia]}
+              selectable={false}
+            >
               {caption}
               <Text style={styles.metaSpacer}>{' '.repeat(mine ? 16 : 11)}</Text>
             </Text>

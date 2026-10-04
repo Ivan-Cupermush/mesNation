@@ -82,7 +82,7 @@ export default function VideoPlayer({ width, height, uri, posterUri, active, chr
   const progress = duration ? Math.min(1, time / duration) : 0;
 
   return (
-    <View style={{ width, height, backgroundColor: T.textPrimary }}>
+    <View style={{ width, height, backgroundColor: 'black' }}>
       <TouchableOpacity activeOpacity={1} onPress={onTap} style={StyleSheet.absoluteFill}>
         {uri ? (
           <Video

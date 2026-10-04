@@ -51,6 +51,8 @@ import NotePickerModal from '../components/chat/NotePickerModal';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
+import { WallpaperView } from '../components/chat/ChatWallpaper';
+import { useChatWallpaper } from '../theme/wallpapers';
 import { C, dayLabel, hashColor, initials, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
@@ -135,6 +137,7 @@ export default function ChatScreen({ navigation }: any) {
   const meRef = useRef<number | null>(null);
   meRef.current = currentUserId;
 
+  const { wallpaper } = useChatWallpaper(chatId);
   const isGroup = chat ? chat.type === 'group' : false;
   const rights = chat?.my_rights || {};
 
@@ -954,6 +957,7 @@ export default function ChatScreen({ navigation }: any) {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         <View style={styles.listWrap}>
+          <WallpaperView wallpaper={wallpaper} />
           {loading ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color={C.accent} />

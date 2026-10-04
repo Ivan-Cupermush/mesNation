@@ -23,7 +23,8 @@ import {
   Shield,
   Settings as SettingsIcon,
   Building2,
-  Pencil
+  Pencil,
+  Palette,
 } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
@@ -252,6 +253,21 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
             </View>
           </>
         )}
+
+        {/* ===== ОФОРМЛЕНИЕ ===== */}
+        <Text style={styles.sectionTitle}>ОФОРМЛЕНИЕ</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
+            <View style={[styles.actionIconWrap, { backgroundColor: T.accentMuted }]}>
+              <Palette size={20} color={T.accent} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionTitle}>Тема и фон чатов</Text>
+              <Text style={styles.actionSub}>Светлая/тёмная тема, цвет, фон, размер текста</Text>
+            </View>
+            <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
 
         {/* ===== ОПАСНАЯ ЗОНА ===== */}
         <Text style={styles.sectionTitle}>АККАУНТ</Text>

@@ -215,7 +215,7 @@ export default function MediaViewer({ visible, items, initialIndex, onClose, onF
 }
 
 const styles = themed(() => ({
-  backdrop: { backgroundColor: T.textPrimary },
+  backdrop: { backgroundColor: 'black' },
   topBar: {
     position: 'absolute',
     top: 0,

@@ -27,7 +27,8 @@ import {
   Crown,
   KeyRound,
   MonitorSmartphone,
-  Building2
+  Building2,
+  Palette,
 } from 'lucide-react-native';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
@@ -372,6 +373,20 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
             </View>
           </View>
         )}
+
+        {/* ===== ОФОРМЛЕНИЕ ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: T.accentMuted }]}>
+              <Palette size={16} color={T.accent} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Оформление</Text>
+              <Text style={styles.infoLabel}>Тёмная тема, цвет, фон чатов, размер текста</Text>
+            </View>
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        </View>
 
         {/* ===== БЕЗОПАСНОСТЬ ===== */}
         <View style={styles.card}>

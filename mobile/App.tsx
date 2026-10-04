@@ -22,6 +22,7 @@ import AddMembersScreen from './src/screens/AddMembersScreen';
 import MediaListScreen from './src/screens/MediaListScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
+import AppearanceScreen from './src/screens/AppearanceScreen';
 
 // ===== Экраны CRM =====
 import TasksScreen from './src/screens/crm/TasksScreen';
@@ -56,7 +57,8 @@ type ChatStackParamList = {
   AddMembers: { chatId: string };
   MediaList: { chatId: string; type: 'files' | 'images' };
   Profile: undefined;
-  UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
+  UserProfile: { userId: number; username?: string; displayName?: string; avatarUrl?: string; role?: string };
+  Appearance: undefined;
 };
 
 type TasksStackParamList = {
@@ -135,6 +137,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
         children={(props) => <ProfileScreen {...props} onLogout={onLogout} />}
       />
       <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
     </ChatStack.Navigator>
   );
 }
@@ -240,6 +243,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
       <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
       <SettingsStack.Screen name="Employees" component={EmployeesScreen} options={{ title: 'Сотрудники', headerShown: false }} />
       <SettingsStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }

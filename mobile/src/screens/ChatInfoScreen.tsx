@@ -37,6 +37,7 @@ import {
   BarChart3,
   UserMinus,
   ShieldOff,
+  Wallpaper as WallpaperIcon,
 } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request, upload } from '../services/http';
@@ -46,6 +47,9 @@ import { C, hashColor, initials, lastSeenLabel, plural } from '../components/cha
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
+import WallpaperPicker from '../components/chat/WallpaperPicker';
+import { WallpaperView } from '../components/chat/ChatWallpaper';
+import { setChatWallpaper, useChatWallpaper } from '../theme/wallpapers';
 /**
  * Информация о чате (как в Telegram).
  * Группа: фото и название (если есть право), темы, медиа, участники с ролями;
@@ -93,6 +97,8 @@ export default function ChatInfoScreen({ navigation }: any) {
   const [memberMenu, setMemberMenu] = useState<any>(null);
   const [adminEditor, setAdminEditor] = useState<{ user: any; perms: string[]; existing: boolean } | null>(null);
   const [topicsDialog, setTopicsDialog] = useState<{ topics: any[]; keep: number | null; merge: boolean } | null>(null);
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
+  const { wallpaper, custom: customWallpaper } = useChatWallpaper(chatId);
 
   const load = useCallback(async () => {
     try {
@@ -393,6 +399,21 @@ export default function ChatInfoScreen({ navigation }: any) {
           ))}
         </View>
 
+        {/* ===== ФОН ЧАТА ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.row} onPress={() => setWallpaperOpen(true)} activeOpacity={0.6}>
+            <View style={[styles.rowIcon, { overflow: 'hidden' }]}>
+              <WallpaperView wallpaper={wallpaper} radius={10} />
+              <WallpaperIcon size={18} color={T.textPrimary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowText}>Фон чата</Text>
+              <Text style={styles.rowHint}>{customWallpaper ? 'Свой фон для этого чата' : 'Как у всех чатов'}</Text>
+            </View>
+            <ChevronRight size={18} color={T.textMuted} />
+          </TouchableOpacity>
+        </View>
+
         {/* ===== ТЕМЫ ===== */}
         {isGroup && rights.can_change_info && (
           <View style={styles.card}>
@@ -484,6 +505,25 @@ export default function ChatInfoScreen({ navigation }: any) {
           )}
         </View>
       </ScrollView>
+
+      {/* ===== Фон чата ===== */}
+      <Modal visible={wallpaperOpen} transparent animationType="slide" onRequestClose={() => setWallpaperOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setWallpaperOpen(false)} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Фон этого чата</Text>
+          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в «Оформлении».</Text>
+          <ScrollView style={{ maxHeight: 420 }}>
+            <WallpaperPicker value={wallpaper} onChange={(wp) => setChatWallpaper(chatId, wp)} />
+          </ScrollView>
+          {customWallpaper && (
+            <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: T.inputBg }]} onPress={() => setChatWallpaper(chatId, null)}>
+              <Text style={[styles.primaryBtnText, { color: T.textPrimary }]}>Как у всех чатов</Text>
+            </TouchableOpacity>
+          )}
+          <SafeBottom />
+        </View>
+      </Modal>
 
       {/* ===== Меню участника ===== */}
       <ActionSheet

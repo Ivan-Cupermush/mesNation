@@ -300,8 +300,7 @@ const styles = themed(() => ({
     fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   bigSubtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: T.textSecondary, marginTop: 4,
+    fontSize: 14, color: T.textSecondary, marginTop: 4, fontWeight: '500',
   },
 
   // ===== CARD =====

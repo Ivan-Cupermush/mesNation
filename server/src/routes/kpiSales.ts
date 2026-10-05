@@ -5,6 +5,7 @@ import { AuthRequest } from '../middleware/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { isSubordinate, isDirector } from '../services/access';
 import { paramId } from '../lib/validate';
+import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
 import xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
@@ -1220,12 +1221,11 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
     ),
     pool.query(
       `SELECT t.id, t.title, t.status_new AS status, t.importance AS priority,
-              COALESCE(t.executor_deadline, t.hard_deadline) AS deadline,
-              (t.status_new IN ('new','in_progress','rejected','overdue')
-                AND COALESCE(t.executor_deadline, t.hard_deadline) < NOW()) AS is_overdue
+              COALESCE(${CURRENT_DEADLINE_SQL}, t.executor_deadline, t.hard_deadline) AS deadline,
+              ${OVERDUE_SQL} AS is_overdue
        FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id
        WHERE ta.user_id = $1 AND t.status_new <> 'archived'
-       ORDER BY COALESCE(t.executor_deadline, t.hard_deadline) ASC NULLS LAST LIMIT 50`,
+       ORDER BY 5 ASC NULLS LAST LIMIT 50`,
       [userId],
     ),
     pool.query(

@@ -148,7 +148,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
         {/* ===== HERO HEADER ===== */}
         <View style={styles.heroSection}>
           <Text style={styles.bigTitle}>НАСТРОЙКИ</Text>
-          <Text style={styles.bigSubtitle}>Управление системой и аккаунтом</Text>
+          {currentUser?.company_name ? <Text style={styles.bigSubtitle}>{currentUser.company_name}</Text> : null}
         </View>
 
         {/* ===== ПРОФИЛЬ (кликабельный с аватаркой) ===== */}
@@ -264,16 +264,16 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
           </>
         )}
 
-        {/* ===== ОФОРМЛЕНИЕ ===== */}
-        <Text style={styles.sectionTitle}>ОФОРМЛЕНИЕ</Text>
+        {/* ===== ВНЕШНИЙ ВИД ===== */}
+        <Text style={styles.sectionTitle}>ВНЕШНИЙ ВИД</Text>
         <View style={styles.card}>
           <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
             <View style={[styles.actionIconWrap, { backgroundColor: T.accentMuted }]}>
               <Palette size={20} color={T.accent} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Тема и фон чатов</Text>
-              <Text style={styles.actionSub}>Светлая/тёмная тема, цвет, фон, размер текста</Text>
+              <Text style={styles.actionTitle}>Настройки внешнего вида</Text>
+              <Text style={styles.actionSub}>Тема, цвет, фон чатов, размер текста</Text>
             </View>
             <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
           </TouchableOpacity>
@@ -372,11 +372,10 @@ const styles = themed(() => ({
     lineHeight: 44,
   },
   bigSubtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 16,
-    fontStyle: 'italic',
+        fontSize: 14,
     color: T.textSecondary,
     marginTop: 4,
+    fontWeight: '500',
   },
 
   // ===== PROFILE CARD =====

@@ -46,7 +46,9 @@ import {
   AlertCircle,
   ChevronRight,
   Plus,
-  Sparkles
+  Sparkles,
+  Monitor,
+  Wrench,
 } from 'lucide-react-native';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -591,10 +593,30 @@ export default function TaskDetailScreen({ navigation }: any) {
             {(isCreator || isAssignee || isWatcher || task.is_supervisor) && (
               <View style={styles.myRolesRow}>
                 <Text style={styles.myRolesLabel}>Вы:</Text>
-                {isCreator && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>💻 создатель</Text></View>}
-                {isAssignee && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>🔧 исполнитель</Text></View>}
-                {isWatcher && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>👁 наблюдатель</Text></View>}
-                {task.is_supervisor && <View style={styles.myRoleChip}><Text style={styles.myRoleText}>руководитель участника</Text></View>}
+                {isCreator && (
+                  <View style={styles.myRoleChip}>
+                    <Monitor size={12} color={T.info} strokeWidth={2.4} />
+                    <Text style={styles.myRoleText}>создатель</Text>
+                  </View>
+                )}
+                {isAssignee && (
+                  <View style={styles.myRoleChip}>
+                    <Wrench size={12} color={T.accent} strokeWidth={2.4} />
+                    <Text style={styles.myRoleText}>исполнитель</Text>
+                  </View>
+                )}
+                {isWatcher && (
+                  <View style={styles.myRoleChip}>
+                    <Eye size={12} color={T.violet} strokeWidth={2.4} />
+                    <Text style={styles.myRoleText}>наблюдатель</Text>
+                  </View>
+                )}
+                {task.is_supervisor && (
+                  <View style={styles.myRoleChip}>
+                    <Users size={12} color={T.warning} strokeWidth={2.4} />
+                    <Text style={styles.myRoleText}>руководитель участника</Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -624,7 +646,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               <View style={styles.infoIconWrap}>
                 <CalendarDays size={18} color={T.accent} strokeWidth={2} />
               </View>
-              <Text style={styles.infoLabel}>Дедлайн</Text>
+              <Text style={styles.infoLabel}>Дедлайн выполнения</Text>
               <Text style={styles.infoValue} numberOfLines={1}>
                 {deadline ? formatDate(deadline, false) : 'Не указан'}
               </Text>
@@ -700,7 +722,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* Дедлайн проверки (если есть) */}
+          {/* Дедлайн проверки — промежуточный срок до общего: к нему работа сдана и проверена. */}
           {task.reviewer_deadline && (
             <View style={styles.reviewDeadlineCard}>
               <Clock size={16} color={T.warning} strokeWidth={2} />
@@ -708,6 +730,9 @@ export default function TaskDetailScreen({ navigation }: any) {
                 <Text style={styles.reviewDeadlineLabel}>Дедлайн проверки</Text>
                 <Text style={styles.reviewDeadlineValue}>
                   {formatDate(task.reviewer_deadline)}
+                </Text>
+                <Text style={styles.reviewDeadlineHint}>
+                  К этому сроку работа сдана и проверена наблюдателями
                 </Text>
               </View>
             </View>
@@ -721,7 +746,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 <StatusTrack status={task.status_new} />
                 <View style={[styles.hintBox, { backgroundColor: statusMeta(task.status_new).soft }]}>
                   <Text style={[styles.hintText, { color: statusMeta(task.status_new).color }]}>
-                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee })}
+                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee, watcher: isWatcher })}
                   </Text>
                 </View>
                 {(task.available_transitions || []).length > 0 ? (
@@ -1309,7 +1334,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       {/* ===== МЕНЮ СОЗДАТЕЛЯ ===== */}
       <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
         <TouchableOpacity activeOpacity={1} onPress={() => setShowMenu(false)} style={assigneeStyles.overlay}>
-          <View style={assigneeStyles.sheet}>
+          <View style={assigneeStyles.sheet} onStartShouldSetResponder={() => true}>
             <View style={assigneeStyles.handle} />
             <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
               <Pencil size={20} color={T.accent} strokeWidth={2} />
@@ -1337,7 +1362,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       />
 
       {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
-      <Modal visible={showRejectModal} transparent animationType="slide">
+      <Modal visible={showRejectModal} transparent animationType="slide" onRequestClose={() => setShowRejectModal(false)} statusBarTranslucent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -1416,7 +1441,7 @@ const styles = themed(() => ({
   overdueText: { fontSize: 12, fontWeight: '700', color: T.danger },
   myRolesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },
   myRolesLabel: { fontSize: 12, color: T.textSecondary, fontWeight: '600' },
-  myRoleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: T.inputBg },
+  myRoleChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: T.inputBg },
   myRoleText: { fontSize: 12, fontWeight: '600', color: T.textPrimary },
   checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: T.card, borderRadius: 14, padding: 12, marginBottom: 8 },
   checkpointBox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
@@ -1644,6 +1669,7 @@ const styles = themed(() => ({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  reviewDeadlineHint: { fontSize: 12, color: T.textSecondary, marginTop: 2 },
   reviewDeadlineValue: {
     fontSize: 13,
     fontWeight: '700',

@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
-import { Animated, Image, PanResponder, StyleSheet, View, ActivityIndicator, GestureResponderEvent } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Image, PanResponder, View, Text, ActivityIndicator, GestureResponderEvent } from 'react-native';
 
-import { T, themed } from '../../theme/runtime';
+import { themed } from '../../theme/runtime';
 /**
  * Картинка с жестами как в галерее Telegram:
  * - щипок — масштаб (до 4×) вокруг точки между пальцами;
@@ -14,8 +14,10 @@ import { T, themed } from '../../theme/runtime';
 interface Props {
   width: number;
   height: number;
-  uri: string;
+  uri: string | null;
   previewUri?: string | null;
+  /** Декодировать в полном разрешении (для текущего фото — чётко при зуме). */
+  hiRes?: boolean;
   headers?: Record<string, string>;
   imageWidth?: number | null;
   imageHeight?: number | null;
@@ -38,8 +40,15 @@ const center = (e: GestureResponderEvent) => {
 };
 
 export default function ZoomableImage(props: Props) {
-  const { width, height, uri, previewUri, headers, imageWidth, imageHeight } = props;
+  const { width, height, uri, previewUri, headers, imageWidth, imageHeight, hiRes } = props;
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // Очень большие снимки (> 24 Мп) целиком не декодируем — Android не нарисует такой bitmap.
+  const canHiRes = !!hiRes && (!imageWidth || !imageHeight || imageWidth * imageHeight <= 24e6);
+  // Смена режима декодирования перезагружает картинку — на это время снова показываем превью.
+  useEffect(() => {
+    setLoaded(false);
+  }, [canHiRes, uri]);
 
   const scale = useRef(new Animated.Value(1)).current;
   const tx = useRef(new Animated.Value(0)).current;
@@ -190,15 +199,33 @@ export default function ZoomableImage(props: Props) {
         ]}
       >
         {previewUri && !loaded ? (
-          <Image source={{ uri: previewUri }} style={{ width: fitW, height: fitH, position: 'absolute' }} resizeMode="contain" blurRadius={1} />
+          // Превью с сервера (до 1280 px) — показываем чётким, пока грузится оригинал.
+          <Image source={{ uri: previewUri }} style={{ width: fitW, height: fitH, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
         ) : null}
-        <Image
-          source={{ uri, headers }}
-          style={{ width: fitW, height: fitH }}
-          resizeMode="contain"
-          onLoad={() => setLoaded(true)}
-        />
-        {!loaded && !previewUri && <ActivityIndicator color={T.onAccent} style={StyleSheet.absoluteFill} />}
+        {uri ? (
+          <Image
+            source={{ uri, headers }}
+            style={{ width: fitW, height: fitH }}
+            resizeMode="contain"
+            resizeMethod={canHiRes ? 'scale' : 'auto'}
+            fadeDuration={0}
+            onLoad={() => {
+              setLoaded(true);
+              setFailed(false);
+            }}
+            onError={() => setFailed(true)}
+          />
+        ) : null}
+        {!loaded && !failed && (
+          <View style={styles.spinner} pointerEvents="none">
+            <ActivityIndicator color="#FFFFFF" />
+          </View>
+        )}
+        {failed && !loaded && (
+          <View style={styles.spinner} pointerEvents="none">
+            <Text style={styles.error}>Не удалось загрузить оригинал</Text>
+          </View>
+        )}
       </Animated.View>
     </View>
   );
@@ -206,4 +233,6 @@ export default function ZoomableImage(props: Props) {
 
 const styles = themed(() => ({
   center: { alignItems: 'center', justifyContent: 'center' },
+  spinner: { position: 'absolute', left: 0, right: 0, bottom: '12%', alignItems: 'center' },
+  error: { color: 'rgba(255,255,255,0.85)', fontSize: 13, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, overflow: 'hidden' },
 }));

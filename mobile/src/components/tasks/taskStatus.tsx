@@ -95,8 +95,10 @@ export function StatusTrack({ status }: { status: string }) {
 }
 
 /** Подсказка «что дальше» с точки зрения текущего пользователя. */
-export function nextStepHint(status: string, roles: { creator: boolean; assignee: boolean }): string {
+export function nextStepHint(status: string, roles: { creator: boolean; assignee: boolean; watcher?: boolean }): string {
   const self = roles.creator && roles.assignee;
+  // Проверяют наблюдатели; у создателя всегда права наблюдателя.
+  const reviewer = roles.creator || !!roles.watcher;
   switch (status) {
     case 'new':
       return roles.assignee ? 'Возьмите задачу в работу, когда начнёте.' : 'Ждём, пока исполнитель возьмёт задачу в работу.';
@@ -104,13 +106,14 @@ export function nextStepHint(status: string, roles: { creator: boolean; assignee
       if (self) return 'Когда закончите — нажмите «Завершить».';
       return roles.assignee ? 'Когда закончите — отправьте на проверку.' : 'Исполнитель работает над задачей.';
     case 'on_review':
-      return roles.creator ? 'Проверьте результат: примите задачу или верните с комментарием.' : 'Результат на проверке у создателя.';
+      return reviewer ? 'Проверьте результат: примите задачу или верните с комментарием.' : 'Результат на проверке у наблюдателей.';
     case 'rejected':
       return roles.assignee ? 'Задачу вернули — посмотрите причину в истории и доработайте.' : 'Задача на доработке у исполнителя.';
     case 'overdue':
-      return roles.assignee ? 'Срок вышел. Завершите работу или договоритесь о новом сроке.' : 'Срок вышел. Можно перенести дедлайн в меню «⋯».';
+      return roles.assignee ? 'Срок вышел. Завершите работу или договоритесь о новом сроке.' : 'Срок вышел. Можно перенести дедлайн в меню «⋯» вверху.';
     case 'done':
-      return roles.creator ? 'Задача принята. Её можно архивировать или вернуть на доработку.' : 'Задача принята.';
+      if (roles.creator) return 'Задача принята. Её можно архивировать или вернуть на доработку.';
+      return reviewer ? 'Задача принята. При необходимости её можно вернуть на доработку.' : 'Задача принята.';
     case 'archived':
       return 'Задача в архиве.';
     default:

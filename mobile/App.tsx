@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from './src/services/api';
-import { View, ActivityIndicator, Text, StyleSheet, StatusBar } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, StatusBar } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme, getFocusedRouteNameFromRoute, NavigationState } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -11,6 +11,7 @@ import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
 import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
 
 // ===== Экраны мессенджера (от Ромы) =====
+import BrandMark from './src/components/ui/BrandMark';
 import AuthScreen from './src/screens/AuthScreen';
 import ChatListScreen from './src/screens/ChatListScreen';
 import ChatScreen from './src/screens/ChatScreen';
@@ -407,9 +408,8 @@ function RootNavigator() {
     return (
       <View style={styles.splash}>
         <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
-        <ActivityIndicator size="large" color={T.accent} />
-        <Text style={styles.splashText}>Offix</Text>
-        <Text style={styles.splashSub}>коммуникационный шлюз Dixit</Text>
+        <BrandMark />
+        <ActivityIndicator size="small" color={T.accent} style={{ marginTop: 32 }} />
       </View>
     );
   }
@@ -445,6 +445,4 @@ export default function App() {
 const styles = themed(() => ({
   tabIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.background },
-  splashText: { marginTop: 16, fontSize: 18, fontWeight: '600', color: T.accent },
-  splashSub: { marginTop: 8, fontSize: 10, fontWeight: '500', color: T.textMuted, letterSpacing: 2 },
 }));

@@ -279,7 +279,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>ДЕРЕВО РОЛЕЙ</Text>
-          <Text style={styles.headerSubtitle}>Иерархия и управление правами</Text>
+          <Text style={styles.headerSubtitle}>Структура компании</Text>
         </View>
       </View>
 
@@ -288,10 +288,10 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         <View style={styles.moveBanner}>
           <View style={{ flex: 1 }}>
             <Text style={styles.moveBannerTitle} numberOfLines={1}>
-              🔀 Перенос: {moveUser.display_name || moveUser.username}
+              Перенос: {moveUser.display_name || moveUser.username}
             </Text>
             <Text style={styles.moveBannerSub}>
-              Нажмите новую роль на дереве · позиция директора недоступна
+              Нажмите новую роль на дереве. Роль директора недоступна
             </Text>
           </View>
           <TouchableOpacity onPress={() => setMoveUser(null)} style={styles.moveCancel} activeOpacity={0.7}>
@@ -301,10 +301,10 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       )}
 
       <View style={styles.hint}>
-        <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
           {moveUser
-            ? '👆 Выберите узел-цель для переноса сотрудника'
-            : <>👆 Узел — редактирование и люди. <Text style={{ color: T.success, fontWeight: '700' }}>⇄</Text> у человека — перенос на дереве. <Text style={{ color: T.success, fontWeight: '700' }}>+</Text> — добавить ребёнка.</>}
+            ? 'Выберите роль, в которую перенести сотрудника'
+            : 'Нажмите на роль — откроются её настройки и сотрудники. «+» под ролью добавляет подчинённую роль.'}
         </Text>
       </View>
 
@@ -542,7 +542,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 style={[styles.deleteBtn, { backgroundColor: T.dangerSoft }]}
               >
                 <Text style={{ color: T.danger, fontWeight: '600' }}>
-                  🗑 Удалить роль
+                  Удалить роль
                 </Text>
               </TouchableOpacity>
             )}
@@ -587,11 +587,10 @@ const styles = themed(() => ({
     lineHeight: 28,
   },
   headerSubtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 13,
-    fontStyle: 'italic',
+        fontSize: 13,
     color: T.textSecondary,
     marginTop: 1,
+    fontWeight: '500',
   },
   // ===== Плашка переноса =====
   moveBanner: {
@@ -621,9 +620,11 @@ const styles = themed(() => ({
     justifyContent: 'center',
   },
   hint: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: T.card,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
   },
   modalOverlay: { flex: 1, backgroundColor: T.overlay, justifyContent: 'flex-end' },
   modalContent: { padding: 24, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' },

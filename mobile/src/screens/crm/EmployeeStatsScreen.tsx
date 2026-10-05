@@ -277,8 +277,7 @@ const styles = themed(() => ({
     fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   subtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 16, fontStyle: 'italic', color: T.textSecondary, marginTop: 2,
+    fontSize: 14, color: T.textSecondary, marginTop: 2, fontWeight: '500',
   },
 
   // ===== PERIODS =====

@@ -512,7 +512,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>Фон этого чата</Text>
-          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в «Оформлении».</Text>
+          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в настройках внешнего вида.</Text>
           <ScrollView style={{ maxHeight: 420 }}>
             <WallpaperPicker value={wallpaper} onChange={(wp) => setChatWallpaper(chatId, wp)} />
           </ScrollView>

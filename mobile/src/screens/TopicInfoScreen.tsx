@@ -442,9 +442,9 @@ export default function TopicInfoScreen({ navigation }: any) {
       </ScrollView>
 
       {/* ===== МОДАЛКА ПЕРЕСЫЛКИ ===== */}
-      <Modal visible={showForwardModal} transparent animationType="slide">
+      <Modal visible={showForwardModal} transparent animationType="slide" onRequestClose={() => setShowForwardModal(false)} statusBarTranslucent>
         <TouchableOpacity activeOpacity={1} onPress={() => setShowForwardModal(false)} style={styles.sheetOverlay}>
-          <View style={styles.sheet}>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>ПЕРЕСЛАТЬ В...</Text>
             <ScrollView style={{ maxHeight: 400 }}>

@@ -69,6 +69,19 @@ const PRIORITY_CONFIG: Record<string, { color: string; label: string }> = {
 };
 
 
+/**
+ * Срок, который важен сейчас: до первой сдачи — «сдать до» (дедлайн проверки),
+ * на проверке — «проверить до», иначе — общий срок задачи.
+ */
+function stageDeadline(task: Task): { label: string; iso: string | null } {
+  const final = task.executor_deadline || task.hard_deadline;
+  const cur = task.current_deadline || null;
+  if (cur && final && new Date(cur).getTime() !== new Date(final).getTime()) {
+    return { label: task.status_new === 'on_review' ? 'проверить до' : 'сдать до', iso: cur };
+  }
+  return { label: '', iso: final };
+}
+
 const fmtDeadline = (iso: string | null) => {
   if (!iso) return 'Без срока';
   try {
@@ -178,7 +191,7 @@ export default function TasksScreen({ navigation }: any) {
 
   const renderTaskCard = (task: Task) => {
     const priority = PRIORITY_CONFIG[task.importance] || PRIORITY_CONFIG.yellow;
-    const deadline = task.executor_deadline || task.hard_deadline;
+    const due = stageDeadline(task);
     const assignees = task.assignees || [];
     return (
       <TouchableOpacity
@@ -200,14 +213,17 @@ export default function TasksScreen({ navigation }: any) {
         </View>
         <Text style={styles.taskTitle} numberOfLines={2}>{task.title}</Text>
         <View style={styles.progressRow}>
-          <StatusSegments status={task.status_new} />
+          <StatusPill status={task.status_new} overdue={task.is_overdue} />
+          <View style={styles.segmentsWrap}>
+            <StatusSegments status={task.status_new} />
+          </View>
         </View>
         {task.description ? (
           <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
         ) : null}
         <View style={styles.taskFooter}>
-          <View style={styles.assigneesRow}>
-            <Users size={14} color={T.textSecondary} strokeWidth={2} />
+          {/* Люди слева: при нехватке места обрезаются, а не налезают на срок. */}
+          <View style={styles.peopleRow}>
             {assignees.length > 0 ? (
               <View style={styles.avatarsStack}>
                 {assignees.slice(0, 3).map((a, index) => (
@@ -230,18 +246,20 @@ export default function TasksScreen({ navigation }: any) {
             ) : (
               <Text style={styles.noAssignees}>Нет исполнителей</Text>
             )}
+            {(task.watchers_count ?? 0) > 0 && (
+              <View style={styles.metaChip} accessibilityLabel={`Наблюдателей: ${task.watchers_count}`}>
+                <Eye size={13} color={T.textSecondary} strokeWidth={2} />
+                <Text style={styles.metaChipText}>{task.watchers_count}</Text>
+              </View>
+            )}
           </View>
-          {(task.watchers_count ?? 0) > 0 && (
-            <View style={styles.deadlineRow}>
-              <Eye size={14} color={T.textSecondary} strokeWidth={2} />
-              <Text style={styles.deadlineText}>{task.watchers_count}</Text>
-            </View>
-          )}
-          <View style={styles.deadlineRow}>
-            <CalendarDays size={14} color={task.is_overdue ? T.danger : T.textSecondary} strokeWidth={2} />
-            <Text style={[styles.deadlineText, task.is_overdue && { color: T.danger, fontWeight: '700' }]}>{fmtDeadline(deadline)}</Text>
+          <View style={[styles.dueChip, task.is_overdue && styles.dueChipLate]}>
+            <CalendarDays size={13} color={task.is_overdue ? T.danger : T.textSecondary} strokeWidth={2} />
+            <Text style={[styles.dueText, task.is_overdue && styles.dueTextLate]} numberOfLines={1}>
+              {due.label ? `${due.label} ` : ''}
+              {fmtDeadline(due.iso)}
+            </Text>
           </View>
-          <StatusPill status={task.status_new} overdue={task.is_overdue} />
         </View>
       </TouchableOpacity>
     );
@@ -372,9 +390,9 @@ export default function TasksScreen({ navigation }: any) {
         <Plus size={24} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
 
-      <Modal visible={showSortModal} transparent animationType="fade">
+      <Modal visible={showSortModal} transparent animationType="fade" onRequestClose={() => setShowSortModal(false)} statusBarTranslucent>
         <TouchableOpacity activeOpacity={1} onPress={() => setShowSortModal(false)} style={sortStyles.overlay}>
-          <View style={sortStyles.sheet}>
+          <View style={sortStyles.sheet} onStartShouldSetResponder={() => true}>
             <View style={sortStyles.handle} />
             <Text style={sortStyles.title}>Сортировка</Text>
             <TouchableOpacity
@@ -414,7 +432,8 @@ export default function TasksScreen({ navigation }: any) {
 }
 
 const styles = themed(() => ({
-  progressRow: { marginTop: 6, marginBottom: 2 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, marginBottom: 10 },
+  segmentsWrap: { flex: 1, alignItems: 'flex-end' },
   overdueTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: T.danger },
   deletedTag: { marginLeft: 6, fontSize: 11, fontWeight: '700', color: T.textSecondary },
   errorBox: { marginHorizontal: 20, marginBottom: 8, padding: 12, borderRadius: 12, backgroundColor: T.dangerSoft },
@@ -462,18 +481,20 @@ const styles = themed(() => ({
   priorityLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   taskTitle: { fontSize: 18, fontWeight: '700', color: T.textPrimary, marginBottom: 8, lineHeight: 24 },
   taskDescription: { fontSize: 14, color: T.textSecondary, lineHeight: 20, marginBottom: 16, fontWeight: '500' },
-  taskFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderTopColor: T.border, gap: 8 },
-  assigneesRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  taskFooter: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: T.border, gap: 10 },
+  peopleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10, overflow: 'hidden' },
+  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  metaChipText: { fontSize: 13, color: T.textSecondary, fontWeight: '600' },
+  dueChip: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0, maxWidth: '62%', paddingHorizontal: 10, height: 28, borderRadius: 14, backgroundColor: T.inputBg },
+  dueChipLate: { backgroundColor: T.dangerSoft },
+  dueText: { fontSize: 12, color: T.textSecondary, fontWeight: '600', flexShrink: 1 },
+  dueTextLate: { color: T.danger, fontWeight: '700' },
   avatarsStack: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: T.card },
   avatarText: { fontSize: 10, fontWeight: '700', color: T.onAccent },
   avatarMore: { backgroundColor: T.surfaceActive },
   avatarMoreText: { fontSize: 10, fontWeight: '600', color: T.textSecondary },
   noAssignees: { fontSize: 12, color: T.textMuted, fontStyle: 'italic' },
-  deadlineRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  deadlineText: { fontSize: 13, color: T.textSecondary, fontWeight: '500' },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  statusText: { fontSize: 12, fontWeight: '600' },
   calendarWrap: { flex: 1, marginTop: 8 },
   fab: { position: 'absolute', right: 24, bottom: 24, width: 56, height: 56, borderRadius: 18, backgroundColor: T.accent, justifyContent: 'center', alignItems: 'center', shadowColor: T.shadow, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 }
 }));

@@ -59,7 +59,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
         display_name: displayName.trim() || username.trim(),
         role_node_id: selectedNode.id,
       });
-      Alert.alert('✅ Создано', `Пользователь "${username}" добавлен с ролью "${selectedNode.name}"`);
+      Alert.alert('Сотрудник добавлен', `«${username}» — роль «${selectedNode.name}»`);
       setShowForm(false);
       navigation.goBack();
     } catch (e: any) {
@@ -98,7 +98,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
 
       <View style={styles.hint}>
         <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-          👆 Нажми на роль в графе, чтобы назначить её новому пользователю
+          Выберите на дереве роль для нового сотрудника
         </Text>
       </View>
 
@@ -109,7 +109,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
       />
 
       {/* Форма создания */}
-      <Modal visible={showForm} transparent animationType="slide">
+      <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)} statusBarTranslucent>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>

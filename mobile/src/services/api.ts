@@ -77,6 +77,8 @@ export interface Task {
   watcher_id: number | null;
   /** Просрочена: не завершена, а дедлайн прошёл (вычисляет сервер). */
   is_overdue?: boolean;
+  /** Срок текущего этапа: сдать на проверку / проверить / общий срок. */
+  current_deadline?: string | null;
   /** Роли текущего пользователя в задаче — для иконок на плашке. */
   is_creator?: boolean;
   is_assignee?: boolean;

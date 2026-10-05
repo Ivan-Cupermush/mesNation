@@ -66,7 +66,7 @@ export default function AssignKpiScreen({ navigation }: any) {
         target_value: target,
         description: description.trim() || undefined,
       });
-      Alert.alert('✅ Успех', `KPI назначен ${selectedUser.display_name}`);
+      Alert.alert('KPI назначен', selectedUser.display_name || selectedUser.username || '');
       navigation.goBack();
     } catch (e: any) {
       Alert.alert('Ошибка', e.message || 'Не удалось назначить KPI');

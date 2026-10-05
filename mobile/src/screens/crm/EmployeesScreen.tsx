@@ -12,6 +12,7 @@ import { ChevronLeft, Search, Users, X, SearchX, TreePine } from 'lucide-react-n
 import { fuzzyMatch, translit } from '../../utils/fuzzySearch';
 
 import { T, themed } from '../../theme/runtime';
+import { plural } from '../../components/chat/chatUtils';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -200,7 +201,9 @@ export default function EmployeesScreen({ navigation }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>СОТРУДНИКИ</Text>
-          <Text style={styles.headerSubtitle}>Все сотрудники компании</Text>
+          <Text style={styles.headerSubtitle}>
+            {employees.length ? `${employees.length - inactiveCount} ${plural(employees.length - inactiveCount, ['активный', 'активных', 'активных'])}${inactiveCount ? ` · ${inactiveCount} неактивн.` : ''}` : ' '}
+          </Text>
         </View>
       </View>
 
@@ -223,9 +226,6 @@ export default function EmployeesScreen({ navigation }: any) {
             </TouchableOpacity>
           )}
         </View>
-        <Text style={styles.searchHint}>
-          💡 Гибкий поиск: регистр, кириллица/латиница, опечатки
-        </Text>
       </View>
 
       <View style={styles.statusChips}>
@@ -279,7 +279,7 @@ export default function EmployeesScreen({ navigation }: any) {
             )}
             {contentMatches.length > 0 && (
               <>
-                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>СОВПАДЕНИЯ В СОДЕРЖИМОМ (РОЛЬ, НИК, EMAIL)</Text>
+                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>СОВПАДЕНИЯ ПО РОЛИ, ЛОГИНУ ИЛИ EMAIL</Text>
                 {contentMatches.map(renderEmployee)}
               </>
             )}
@@ -320,8 +320,7 @@ const styles = themed(() => ({
     fontSize: 24, fontWeight: '900', color: T.textPrimary, letterSpacing: 0.3, lineHeight: 28,
   },
   headerSubtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 13, fontStyle: 'italic', color: T.textSecondary, marginTop: 1,
+    fontSize: 13, color: T.textSecondary, marginTop: 1, fontWeight: '500',
   },
   searchContainer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   searchBox: {
@@ -329,7 +328,6 @@ const styles = themed(() => ({
     paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, borderWidth: 1,
   },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '500', padding: 0 },
-  searchHint: { fontSize: 11, color: T.textMuted, marginTop: 6, fontStyle: 'italic' },
   countBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingBottom: 12 },
   countText: { fontSize: 13, fontWeight: '600' },
   listContent: { paddingHorizontal: 20, gap: 12 },

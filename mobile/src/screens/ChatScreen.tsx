@@ -18,6 +18,7 @@ import {
   LayoutAnimation,
   Vibration,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useRoute, RouteProp } from '@react-navigation/native';
@@ -42,6 +43,8 @@ import {
   Square,
   Image as ImageIcon,
   Download,
+  Search,
+  ChevronUp,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -58,7 +61,7 @@ import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
 import { WallpaperView } from '../components/chat/ChatWallpaper';
 import { useChatWallpaper } from '../theme/wallpapers';
-import { C, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
+import { C, REACTIONS, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
@@ -337,6 +340,10 @@ export default function ChatScreen({ navigation }: any) {
         }
       }),
       subscribe('scheduled_changed', () => loadScheduled()),
+      subscribe('message_reactions', (e: any) => {
+        if (!sameChat(e.chat_id)) return;
+        setMessages((prev) => prev.map((m) => (m.id === e.id ? { ...m, reactions: e.reactions } : m)));
+      }),
       subscribe('message_listened', (e: any) => {
         if (!sameChat(e.chat_id)) return;
         setMessages((prev) =>
@@ -503,18 +510,64 @@ export default function ChatScreen({ navigation }: any) {
 
   const findMessage = useCallback((id: number) => messages.find((m) => m.id === id), [messages]);
 
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  // Сообщение, к которому переходим после подгрузки истории.
+  const [pendingJump, setPendingJump] = useState<number | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const indexOfMessage = useCallback(
+    (id: number) => items.findIndex((it) => it.type === 'row' && (it.row.type === 'album' ? it.row.msgs.some((m) => m.id === id) : it.row.msg.id === id)),
+    [items],
+  );
+
+  /** Подгружает старые страницы, пока не дойдёт до нужного сообщения (как переход по цитате в Telegram). */
+  const loadUntil = async (targetId: number) => {
+    let oldest = messagesRef.current.find((m) => typeof m.id === 'number')?.id;
+    const acc: ChatMessage[] = [];
+    for (let i = 0; i < 40 && oldest && oldest > targetId; i++) {
+      const data = await request<ChatMessage[]>(`/api/messages/${chatId}`, { query: { topic_id: topicId ?? undefined, limit: PAGE, before: oldest } });
+      const enriched = await Promise.all(data.filter((m) => !m.deleted_for_all).map(withPoll));
+      acc.unshift(...enriched);
+      if (data.length < PAGE) {
+        setHasOlder(false);
+        break;
+      }
+      oldest = data[0]?.id;
+    }
+    if (acc.length) setMessages((prev) => [...acc.filter((e) => !prev.some((p) => p.id === e.id)), ...prev]);
+  };
+
   const scrollToMessage = (id: number) => {
-    const idx = items.findIndex(
-      (it) => it.type === 'row' && (it.row.type === 'album' ? it.row.msgs.some((m) => m.id === id) : it.row.msg.id === id),
-    );
+    const idx = indexOfMessage(id);
     if (idx < 0) {
-      Alert.alert('Сообщение', 'Сообщение не загружено — прокрутите вверх, чтобы подгрузить историю.');
+      setPendingJump(id);
+      loadUntil(id).catch(() => {
+        setPendingJump(null);
+        Alert.alert('Сообщение', 'Не удалось загрузить историю — проверьте связь.');
+      });
       return;
     }
     listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
     setHighlightId(id);
-    setTimeout(() => setHighlightId(null), 1600);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 1600);
   };
+
+  // История подгрузилась — переходим к сообщению.
+  useEffect(() => {
+    if (pendingJump === null) return;
+    const idx = indexOfMessage(pendingJump);
+    if (idx >= 0) {
+      const id = pendingJump;
+      setPendingJump(null);
+      setTimeout(() => scrollToMessage(id), 120);
+    } else if (!hasOlder) {
+      setPendingJump(null);
+      Alert.alert('Сообщение', 'Сообщение удалено или недоступно.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, pendingJump, hasOlder]);
 
   useEffect(() => {
     if (!loading && initialMessageId) setTimeout(() => scrollToMessage(initialMessageId), 300);
@@ -1020,6 +1073,85 @@ export default function ChatScreen({ navigation }: any) {
 
   const recorder = useChatRecorder({ onVoice: sendVoice, onVideoNote: sendVideoNote });
 
+  // ===== Реакции =====
+  /** Своя реакция: сразу на экране, потом — как ответил сервер. */
+  const onReact = useCallback((msg: any, emoji: string) => {
+    const me = meRef.current;
+    if (!me || typeof msg.id !== 'number') return;
+    Vibration.vibrate(8);
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msg.id) return m;
+        const list: any[] = (m.reactions || []).map((r: any) => ({ ...r, user_ids: (r.user_ids || []).filter((u: number) => u !== me) }));
+        const had = (m.reactions || []).find((r: any) => (r.user_ids || []).includes(me))?.emoji;
+        if (had !== emoji) {
+          const hit = list.find((r) => r.emoji === emoji);
+          if (hit) hit.user_ids.push(me);
+          else list.push({ emoji, user_ids: [me] });
+        }
+        const next = list.map((r) => ({ ...r, count: r.user_ids.length })).filter((r) => r.count > 0);
+        return { ...m, reactions: next.length ? next : null };
+      }),
+    );
+    request<any>(`/api/messages/${msg.id}/reactions`, { method: 'POST', body: { emoji } })
+      .then((r) => setMessages((prev) => prev.map((m) => (m.id === r.id ? { ...m, reactions: r.reactions } : m))))
+      .catch(() => loadMessages());
+  }, [loadMessages]);
+
+  // ===== Поиск по чату =====
+  const [searching, setSearching] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchHits, setSearchHits] = useState<number[]>([]);
+  const [searchIdx, setSearchIdx] = useState(0);
+  const [searchBusy, setSearchBusy] = useState(false);
+
+  useEffect(() => {
+    if (!searching) return;
+    const q = searchQ.trim();
+    if (!q) {
+      setSearchHits([]);
+      return;
+    }
+    setSearchBusy(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await request<any[]>(`/api/messages/${chatId}/search`, { query: { q, topic_id: topicId ?? undefined } });
+        const ids = res.map((m) => m.id);
+        setSearchHits(ids);
+        setSearchIdx(0);
+        if (ids.length) scrollToMessage(ids[0]);
+      } catch {
+        setSearchHits([]);
+      } finally {
+        setSearchBusy(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQ, searching, chatId, topicId]);
+
+  const searchStep = (dir: 1 | -1) => {
+    const next = searchIdx + dir; // 0 — самое новое; «вверх» — к старым
+    if (next < 0 || next >= searchHits.length) return;
+    setSearchIdx(next);
+    scrollToMessage(searchHits[next]);
+  };
+
+  const closeSearch = () => {
+    setSearching(false);
+    setSearchQ('');
+    setSearchHits([]);
+  };
+
+  useEffect(() => {
+    if (!searching) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeSearch();
+      return true;
+    });
+    return () => sub.remove();
+  }, [searching]);
+
   // ===== Выделение сообщений =====
   const showToast = (msg: string) => {
     setToast(msg);
@@ -1232,6 +1364,7 @@ export default function ChatScreen({ navigation }: any) {
         onPlayVoice={onPlayVoice}
         onSeekVoice={onSeekVoice}
         onVideoNoteStarted={markListened}
+        onReact={onReact}
         onOpenMedia={openMedia}
         onOpenFile={openFile}
         onPressReply={onPressReply}
@@ -1335,7 +1468,20 @@ export default function ChatScreen({ navigation }: any) {
 
         {/* ===== НИЗ: парящие плашки и поле ввода ===== */}
         <View style={styles.dock} onLayout={(e) => setDockH(e.nativeEvent.layout.height)} pointerEvents="box-none">
-          {selecting ? (
+          {searching && !selecting ? (
+            // Поиск: «N из M» и стрелки к старым/новым совпадениям.
+            <View style={styles.selBar}>
+              <Text style={styles.searchCount}>
+                {searchBusy ? 'Ищем…' : !searchQ.trim() ? 'Введите запрос' : searchHits.length ? `${searchIdx + 1} из ${searchHits.length}` : 'Ничего не найдено'}
+              </Text>
+              <TouchableOpacity onPress={() => searchStep(1)} disabled={searchIdx >= searchHits.length - 1} style={styles.pillBtn} accessibilityLabel="Предыдущее совпадение">
+                <ChevronUp size={24} color={searchIdx >= searchHits.length - 1 ? T.textMuted : C.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => searchStep(-1)} disabled={searchIdx <= 0} style={styles.pillBtn} accessibilityLabel="Следующее совпадение">
+                <ChevronDown size={24} color={searchIdx <= 0 ? T.textMuted : C.accent} />
+              </TouchableOpacity>
+            </View>
+          ) : selecting ? (
             // Выделение: «Ответить» и «Переслать» вместо поля ввода (как в Telegram).
             <View style={styles.selBar}>
               {selSingle ? (
@@ -1478,6 +1624,25 @@ export default function ChatScreen({ navigation }: any) {
               )}
             </View>
           </View>
+        ) : searching ? (
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={closeSearch} style={styles.roundGlass} accessibilityLabel="Закрыть поиск">
+              <X size={22} color={C.text} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <View style={[styles.titlePill, styles.searchPill]}>
+              <Search size={18} color={C.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQ}
+                onChangeText={setSearchQ}
+                placeholder="Поиск по сообщениям"
+                placeholderTextColor={T.textMuted}
+                autoFocus
+                returnKeyType="search"
+              />
+              {searchBusy && <ActivityIndicator size="small" color={C.accent} />}
+            </View>
+          </View>
         ) : (
           <View style={styles.headerRow}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.roundGlass} accessibilityLabel="Назад">
@@ -1493,13 +1658,38 @@ export default function ChatScreen({ navigation }: any) {
                 </Text>
               ) : null}
             </TouchableOpacity>
+            <TouchableOpacity onPress={() => setSearching(true)} style={styles.roundGlass} accessibilityLabel="Поиск по сообщениям">
+              <Search size={20} color={C.text} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={openInfo} activeOpacity={0.8} style={styles.avatarRing} accessibilityLabel="Профиль чата">
               {renderHeaderAvatar()}
             </TouchableOpacity>
           </View>
         )}
 
-        {pinnedMessages.length > 0 && (
+        {/* Одно выделенное сообщение — ряд реакций, как в Telegram */}
+        {selecting && selSingle && selSingle.content_type !== 'service' && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.reactPill} contentContainerStyle={styles.reactPillInner}>
+            {REACTIONS.map((e) => {
+              const mineR = (selSingle.reactions || []).some((r: any) => r.emoji === e && (r.user_ids || []).includes(currentUserId));
+              return (
+                <TouchableOpacity
+                  key={e}
+                  onPress={() => {
+                    onReact(selSingle, e);
+                    clearSelection();
+                  }}
+                  style={[styles.reactBtn, mineR && styles.reactBtnOn]}
+                  accessibilityLabel={`Реакция ${e}`}
+                >
+                  <Text style={styles.reactEmoji}>{e}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {pinnedMessages.length > 0 && !searching && (
           <TouchableOpacity
             style={styles.pinnedBar}
             onPress={() => {
@@ -1648,6 +1838,14 @@ const styles = themed(() => ({
   selCount: { fontSize: 18, fontWeight: '800', color: C.text },
   actionsPill: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 22, paddingHorizontal: 4, ...glass() },
   pillBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  searchPill: { flexDirection: 'row', justifyContent: 'flex-start', gap: 8 },
+  searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
+  searchCount: { flex: 1, fontSize: 15, fontWeight: '600', color: C.text, paddingLeft: 16 },
+  reactPill: { flexGrow: 0, alignSelf: 'flex-start', maxWidth: '100%', borderRadius: 24, ...glass(0.95) },
+  reactPillInner: { paddingHorizontal: 6, paddingVertical: 4, gap: 2 },
+  reactBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  reactBtnOn: { backgroundColor: withAlpha(T.accent, 0.18) },
+  reactEmoji: { fontSize: 24 },
 
   pinnedBar: {
     flexDirection: 'row',

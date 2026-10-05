@@ -145,6 +145,67 @@ async function deleteOne(msg: any, scope: 'me' | 'all', userId: number) {
   }
 }
 
+// ---------- Реакции ----------
+
+/** Набор реакций, как быстрые реакции Telegram. */
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🙏', '👎', '🎉', '👏', '💯', '🤝'] as const;
+const reactionSchema = z.object({ emoji: z.enum(REACTIONS) });
+
+/**
+ * Поставить реакцию. Одна реакция от человека: та же — снимается,
+ * другая — заменяет прежнюю (как в Telegram).
+ */
+router.post('/messages/:id/reactions', validate(reactionSchema), async (req: AuthRequest, res: Response) => {
+  const msg = await loadMessage(paramId(req));
+  await assertChatMember(msg.chat_id, req.userId!);
+  if (msg.content_type === 'service') throw badRequest('На служебное сообщение нельзя реагировать');
+  const { emoji } = req.body as z.infer<typeof reactionSchema>;
+  const existing = await pool.query('SELECT emoji FROM message_reactions WHERE message_id = $1 AND user_id = $2', [msg.id, req.userId]);
+  if (existing.rows[0]?.emoji === emoji) {
+    await pool.query('DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2', [msg.id, req.userId]);
+  } else {
+    await pool.query(
+      `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()`,
+      [msg.id, req.userId, emoji],
+    );
+  }
+  const { reactions } = await loadMessage(msg.id);
+  emitToChat(msg.chat_id, 'message_reactions', { id: msg.id, chat_id: Number(msg.chat_id), reactions: reactions ?? null });
+  res.json({ id: msg.id, reactions: reactions ?? null });
+});
+
+// ---------- Поиск по чату ----------
+
+const searchQuery = z.object({
+  q: z.string().trim().min(1, 'Пустой запрос').max(100),
+  topic_id: id.optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
+/** Сообщения чата с текстом, содержащим запрос (новые первыми). */
+router.get('/messages/:chatId/search', async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req, 'chatId');
+  await assertChatMember(chatId, req.userId!);
+  const q = searchQuery.parse(req.query);
+  const pattern = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const params: unknown[] = [String(chatId), req.userId, pattern, q.limit];
+  let where = `m.chat_id = $1 AND m.deleted_for_all IS NOT TRUE AND m.content_type <> 'service'
+    AND NOT ($2::int = ANY(COALESCE(m.deleted_for_user_ids, '{}'))) AND m.text ILIKE $3`;
+  if (q.topic_id) {
+    params.push(q.topic_id);
+    where += ` AND m.topic_id = $${params.length}`;
+  } else {
+    where += ' AND m.topic_id IS NULL';
+  }
+  const { rows } = await pool.query(
+    `SELECT ${MESSAGE_SELECT} FROM messages m LEFT JOIN users u ON u.id = m.sender_id
+     WHERE ${where} ORDER BY m.id DESC LIMIT $4`,
+    params,
+  );
+  res.json(rows.map(serializeMessage));
+});
+
 /**
  * Голосовое или кружочек прослушаны: точка «не прослушано» гаснет
  * у слушателя и у отправителя.

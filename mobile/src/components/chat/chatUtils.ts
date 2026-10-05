@@ -128,6 +128,9 @@ export function fileBadge(name?: string | null): { ext: string; color: string } 
   return { ext: ext && ext.length <= 4 ? ext.toUpperCase() : '', color: '#7A8591' };
 }
 
+/** Реакции (тот же набор, что принимает сервер). */
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🙏', '👎', '🎉', '👏', '💯', '🤝'];
+
 /** Голосовое или кружочек. */
 export const isVoiceLike = (m: any) => m && !m.deleted_for_all && (m.media_kind === 'voice' || m.media_kind === 'video_note');
 

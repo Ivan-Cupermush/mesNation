@@ -15,6 +15,9 @@ export const MESSAGE_SELECT = `
   CASE WHEN m.media_kind IN ('voice', 'video_note') THEN
     COALESCE((SELECT json_agg(ml.user_id) FROM message_listens ml WHERE ml.message_id = m.id), '[]'::json)
   END AS listened_by,
+  (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'user_ids', r.uids) ORDER BY r.first)
+   FROM (SELECT mr.emoji, COUNT(*)::int AS cnt, array_agg(mr.user_id ORDER BY mr.created_at) AS uids, MIN(mr.created_at) AS first
+         FROM message_reactions mr WHERE mr.message_id = m.id GROUP BY mr.emoji) r) AS reactions,
   (SELECT COALESCE(fu.display_name, fu.username) FROM users fu WHERE fu.id = m.forwarded_from_user_id) AS forwarded_from_name,
   m.note_share_id,
   (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
@@ -35,7 +38,7 @@ export const MESSAGE_SELECT = `
 export function serializeMessage(m: any) {
   const { deleted_for_user_ids: _hidden, ...rest } = m;
   if (rest.deleted_for_all) {
-    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, media_kind: null, media_waveform: null };
+    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, media_kind: null, media_waveform: null, reactions: null };
   }
   return rest;
 }

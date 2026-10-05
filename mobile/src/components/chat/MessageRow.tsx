@@ -53,6 +53,35 @@ interface Props {
   onPlayVoice?: (msg: any) => void;
   onSeekVoice?: (msg: any, ratio: number) => void;
   onVideoNoteStarted?: (msg: any) => void;
+  /** Реакция: двойное нажатие — 👍, нажатие на плашку — снять/поставить. */
+  onReact?: (msg: any, emoji: string) => void;
+}
+
+/** Плашки реакций под сообщением (как в Telegram): эмодзи и число, своя — подсвечена. */
+function Reactions({ msg, mine, me, onReact, onMedia }: { msg: any; mine: boolean; me: number; onReact?: (m: any, e: string) => void; onMedia?: boolean }) {
+  const list: { emoji: string; count: number; user_ids: number[] }[] = msg.reactions || [];
+  if (!list.length) return null;
+  return (
+    <View style={[styles.reactions, onMedia && styles.reactionsOnMedia, mine && onMedia && styles.reactionsRight]}>
+      {list.map((r) => {
+        const my = r.user_ids?.includes(me);
+        return (
+          <TouchableOpacity
+            key={r.emoji}
+            onPress={() => onReact?.(msg, r.emoji)}
+            activeOpacity={0.7}
+            style={[styles.reaction, onMedia ? styles.reactionGlass : mine ? styles.reactionOut : styles.reactionIn, my && (mine && !onMedia ? styles.reactionMineOut : styles.reactionMine)]}
+            accessibilityLabel={`Реакция ${r.emoji}: ${r.count}`}
+          >
+            <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+            <Text style={[styles.reactionCount, my ? (mine && !onMedia ? { color: C.bubbleOut } : { color: T.onAccent }) : { color: onMedia ? '#FFFFFF' : mine ? T.myMessageText : C.accent }]}>
+              {r.count}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
 }
 
 function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: number; onMedia?: boolean }) {
@@ -130,6 +159,18 @@ function MessageRow(props: Props) {
 
   const onLong = () => props.onLongPress(row);
   const selecting = !!props.selecting;
+  const lastTap = useRef(0);
+  const onBubblePress = () => {
+    if (main.status === 'failed') return props.onRetry(main);
+    if (main.local || typeof main.id !== 'number') return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      props.onReact?.(main, '👍');
+    } else {
+      lastTap.current = now;
+    }
+  };
 
   const checkSlot = selecting ? (
     <View style={styles.checkSlot} pointerEvents="none">
@@ -147,15 +188,18 @@ function MessageRow(props: Props) {
           style={[styles.row, selecting && styles.flex, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
         >
           {showSideAvatar && <View style={styles.avatarSlot} />}
-          <VideoNoteBubble
-            msg={main}
-            mine={mine}
-            unlistened={unlistened}
-            meta={meta(true)}
-            onStarted={(m) => props.onVideoNoteStarted?.(m)}
-            onLongPress={onLong}
-            onCancel={props.onCancelUpload}
-          />
+          <View style={mine ? styles.colEnd : styles.colStart}>
+            <VideoNoteBubble
+              msg={main}
+              mine={mine}
+              unlistened={unlistened}
+              meta={meta(true)}
+              onStarted={(m) => props.onVideoNoteStarted?.(m)}
+              onLongPress={onLong}
+              onCancel={props.onCancelUpload}
+            />
+            <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} onMedia />
+          </View>
         </Animated.View>
         {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
       </View>
@@ -194,7 +238,7 @@ function MessageRow(props: Props) {
           activeOpacity={0.9}
           onLongPress={onLong}
           delayLongPress={280}
-          onPress={main.status === 'failed' ? () => props.onRetry(main) : undefined}
+          onPress={onBubblePress}
           style={[
             mediaOnly ? styles.mediaOnly : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, corners, { maxWidth: maxBubble }],
             (isVisual && !mediaOnly) && { width: mediaW + 6, padding: 3 },
@@ -288,10 +332,16 @@ function MessageRow(props: Props) {
             </Text>
           ) : null}
 
+          {!mediaOnly && <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} />}
           {!(isVisual && !caption) && <View style={[styles.metaAbs, isVisual && { right: 10, bottom: 6 }]}>{meta()}</View>}
           {main.status === 'failed' && <Text style={styles.failed}>Не отправлено · нажмите, чтобы повторить</Text>}
         </TouchableOpacity>
       </Animated.View>
+      {mediaOnly && (
+        <View style={[styles.mediaReactions, mine ? styles.rowMine : styles.rowOther]}>
+          <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} onMedia />
+        </View>
+      )}
       {/* В режиме выделения вся строка — одна большая кнопка «отметить». */}
       {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
     </View>
@@ -394,6 +444,20 @@ const styles = themed(() => ({
   checkOn: { backgroundColor: T.accent, borderColor: T.accent },
   selectCatcher: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
   metaRoomVoice: { height: 4 },
+  colStart: { alignItems: 'flex-start' },
+  colEnd: { alignItems: 'flex-end' },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5, marginBottom: 2, paddingRight: 52 },
+  reactionsOnMedia: { paddingRight: 0, marginTop: 4 },
+  reactionsRight: { justifyContent: 'flex-end' },
+  mediaReactions: { flexDirection: 'row' },
+  reaction: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 8, borderRadius: 13 },
+  reactionIn: { backgroundColor: withAlpha(T.accent, 0.12) },
+  reactionOut: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  reactionGlass: { backgroundColor: 'rgba(0,0,0,0.32)' },
+  reactionMine: { backgroundColor: C.accent },
+  reactionMineOut: { backgroundColor: T.myMessageText },
+  reactionEmoji: { fontSize: 14 },
+  reactionCount: { fontSize: 13, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 6 },
   rowTight: { marginTop: 2 },
   rowMine: { justifyContent: 'flex-end' },

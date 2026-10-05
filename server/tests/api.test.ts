@@ -626,6 +626,42 @@ describe('мессенджер как в Telegram', () => {
     expect((await as(c.mgr2).post(`/api/messages/${text.body.id}/listened`)).status).toBe(400);
   });
 
+  it('реакции: одна от человека, повтор снимает, другая заменяет', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Реакции', user_ids: [c.mgr2.id] });
+    const msg = await as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text: 'Сдали отчёт' });
+    const r1 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' });
+    expect(r1.body.reactions).toEqual([{ emoji: '👍', count: 1, user_ids: [c.mgr2.id] }]);
+    await as(c.mgr1).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' });
+    const r2 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🔥' });
+    expect(r2.body.reactions).toEqual([
+      { emoji: '👍', count: 1, user_ids: [c.mgr1.id] },
+      { emoji: '🔥', count: 1, user_ids: [c.mgr2.id] },
+    ]);
+    const r3 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🔥' });
+    expect(r3.body.reactions).toEqual([{ emoji: '👍', count: 1, user_ids: [c.mgr1.id] }]);
+    expect((await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🤡' })).status).toBe(400);
+    expect((await as(c.acc).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' })).status).toBe(403);
+    const hist = await as(c.mgr2).get(`/api/messages/${chat.body.id}`);
+    expect(hist.body.find((m: any) => m.id === msg.body.id).reactions).toHaveLength(1);
+  });
+
+  it('поиск по сообщениям чата', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Поиск', user_ids: [c.mgr2.id] });
+    const send = (text: string) => as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text });
+    await send('Договор с поставщиком');
+    await send('Скидка 50% до пятницы');
+    const last = await send('договор подписан');
+    const r = await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=ДОГОВОР`);
+    expect(r.status).toBe(200);
+    expect(r.body.map((m: any) => m.text)).toEqual(['договор подписан', 'Договор с поставщиком']);
+    expect(r.body[0].id).toBe(last.body.id);
+    // % и _ — обычные символы, а не шаблон.
+    const pct = await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=${encodeURIComponent('50%')}`);
+    expect(pct.body).toHaveLength(1);
+    expect((await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=_`)).body).toHaveLength(0);
+    expect((await as(c.acc).get(`/api/messages/${chat.body.id}/search?q=договор`)).status).toBe(403);
+  });
+
   it('удаление выделенных сообщений одним запросом', async () => {
     const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Выделение', user_ids: [c.mgr2.id] });
     const send = (who: Actor, text: string) => as(who).post(`/api/chats/${chat.body.id}/messages`, { text });

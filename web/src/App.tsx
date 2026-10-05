@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ApiError } from './lib/http';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -25,11 +25,12 @@ const EmployeesPage = lazy(() => import('./features/users/EmployeesPage'));
 const CreateUserPage = lazy(() => import('./features/users/CreateUserPage'));
 const RolesPage = lazy(() => import('./features/roles/RolesPage'));
 
+const StatsPage = lazy(() => import('./features/kpi/StatsPage'));
+const EmployeeStatsPage = lazy(() => import('./features/kpi/EmployeeStatsPage'));
+const ImportPage = lazy(() => import('./features/kpi/ImportPage'));
+
 // Разделы старой версии — до переноса на новую основу
-const KpiScreen = lazy(() => import('./screens/KpiScreen'));
 const KnowledgeScreen = lazy(() => import('./screens/KnowledgeScreen'));
-const ImportExcelScreen = lazy(() => import('./screens/ImportExcelScreen'));
-const EmployeeStatsScreen = lazy(() => import('./screens/EmployeeStatsScreen'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,12 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/** Старый адрес карточки сотрудника (/employee/:id) ведёт на новый. */
+function EmployeeRedirect() {
+  const { userId } = useParams();
+  return <Navigate to={`/stats/employee/${userId}`} replace />;
+}
 
 function AppRoutes() {
   const { status } = useAuth();
@@ -63,9 +70,10 @@ function AppRoutes() {
 
           <Route path="tasks/*" element={<TasksRoutes />} />
           <Route path="notes/*" element={<NotesRoutes />} />
-          <Route path="stats" element={<Legacy><KpiScreen /></Legacy>} />
-          <Route path="employee/:userId" element={<Legacy><EmployeeStatsScreen /></Legacy>} />
-          <Route path="import" element={<Legacy><ImportExcelScreen /></Legacy>} />
+          <Route path="stats" element={<StatsPage />} />
+          <Route path="stats/employee/:userId" element={<EmployeeStatsPage />} />
+          <Route path="employee/:userId" element={<EmployeeRedirect />} />
+          <Route path="import" element={<ImportPage />} />
           <Route path="knowledge" element={<Legacy><KnowledgeScreen /></Legacy>} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="settings/appearance" element={<AppearancePage />} />

@@ -6,7 +6,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors';
 import { isSubordinate, isDirector } from '../services/access';
 import { paramId } from '../lib/validate';
 import { logger } from '../lib/logger';
-import { UPLOAD_DIRS } from '../lib/uploads';
+import { UPLOAD_DIRS, fixOriginalName } from '../lib/uploads';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
 import xlsx from 'xlsx';
 import fs from 'fs';
@@ -17,7 +17,19 @@ const router = Router();
 // Файлы импорта лежат в общем корне загрузок (UPLOADS_DIR) и наружу не отдаются.
 const importsDir = UPLOAD_DIRS.imports;
 
-const upload = multer({ dest: importsDir, limits: { fileSize: 20 * 1024 * 1024 } });
+const SHEET_EXT = ['.xlsx', '.xls', '.xlsm', '.csv', '.ods'];
+const SHEET_MIME = /spreadsheet|excel|^text\/csv$/i;
+// Только таблицы: остальное парсер всё равно не прочитает, а место на диске займёт.
+const upload = multer({
+  dest: importsDir,
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    file.originalname = fixOriginalName(file.originalname);
+    // Имя без расширения (бывает у файлов из облачных хранилищ на телефоне) — смотрим тип.
+    if (SHEET_EXT.includes(path.extname(file.originalname).toLowerCase()) || SHEET_MIME.test(file.mimetype)) cb(null, true);
+    else cb(badRequest('Поддерживаются таблицы Excel (.xlsx, .xls) и .csv'));
+  },
+});
 
 
 // ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
@@ -68,6 +80,37 @@ function parseRuNumber(val: any): number {
   else str = str.replace(/,/g, '');
   const num = parseFloat(str.replace(/[^\d.-]/g, ''));
   return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Начало периода для отчётов. Одинаково для своей сводки, команды и карточки
+ * сотрудника: неделя — последние 7 дней, месяц и квартал — календарные.
+ * Раньше карточка сотрудника считала «скользящий» месяц, и суммы в списке
+ * команды и в карточке расходились.
+ */
+function periodSince(period: unknown): string {
+  if (period === 'week') return `CURRENT_DATE - INTERVAL '7 days'`;
+  if (period === 'quarter') return `DATE_TRUNC('quarter', CURRENT_DATE)`;
+  return `DATE_TRUNC('month', CURRENT_DATE)`;
+}
+
+/**
+ * Период цели из запроса: обе даты необязательны (по умолчанию — 30 дней
+ * с сегодня), но если переданы — должны быть настоящими датами, и начало
+ * не позже конца. Раньше мусор в дате ронял запрос с 500.
+ */
+function targetPeriod(body: any): { start: Date; end: Date } | { error: string } {
+  const parse = (v: unknown) => (v === undefined || v === null || v === '' ? null : new Date(String(v)));
+  const start = parse(body?.period_start) ?? new Date();
+  const end = parse(body?.period_end) ?? new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { error: 'Некорректная дата периода' };
+  if (start.getTime() > end.getTime()) return { error: 'Начало периода позже его окончания' };
+  return { start, end };
+}
+
+/** Удаляет временный файл загрузки, если он остался (ошибка разбора и т. п.). */
+function dropUpload(file?: Express.Multer.File) {
+  if (file?.path) fs.promises.unlink(file.path).catch(() => undefined);
 }
 
 /** Число из запроса: undefined/'' → fallback, мусор → NaN (проверяется вызывающим). */
@@ -227,6 +270,8 @@ router.post('/targets', async (req: Request, res: Response) => {
     if (!['quantity', 'amount', 'contracts'].includes(metric_type)) {
       return res.status(400).json({ error: 'Неизвестный тип показателя' });
     }
+    const span = targetPeriod({ period_start, period_end });
+    if ('error' in span) return res.status(400).json({ error: span.error });
     
     const result = await pool.query(
       `INSERT INTO sales_targets 
@@ -236,12 +281,12 @@ router.post('/targets', async (req: Request, res: Response) => {
        RETURNING *`,
       [
         userId, 
-        String(product_name).trim(), 
+        String(product_name).trim().slice(0, 255), 
         metric_type, 
         target,
         current,
-        period_start || new Date(), 
-        period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        span.start,
+        span.end,
         description
       ]
     );
@@ -278,6 +323,8 @@ router.post(
       if (!(num(target_value) > 0)) {
         return res.status(400).json({ error: 'Целевое значение должно быть числом больше 0' });
       }
+      const span = targetPeriod({ period_start, period_end });
+      if ('error' in span) return res.status(400).json({ error: span.error });
       
       // Деактивировать старые планы этого пользователя
       await pool.query(
@@ -300,8 +347,8 @@ router.post(
         [
           user_id,
           num(target_value),
-          period_start || new Date(),
-          period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          span.start,
+          span.end,
           description,
           managerId
         ]
@@ -426,17 +473,15 @@ router.get('/transactions', async (req: Request, res: Response) => {
     const params: any[] = [userId];
     let paramIndex = 2;
     
-    if (target_id) {
+    if (target_id !== undefined) {
+      const tid = Number(target_id);
+      if (!Number.isInteger(tid) || tid <= 0) return res.status(400).json({ error: 'Некорректная цель' });
       query += ` AND target_id = $${paramIndex++}`;
-      params.push(target_id);
+      params.push(tid);
     }
     
-    if (period === 'month') {
-      query += ` AND transaction_date >= DATE_TRUNC('month', CURRENT_DATE)`;
-    } else if (period === 'week') {
-      query += ` AND transaction_date >= CURRENT_DATE - INTERVAL '7 days'`;
-    } else if (period === 'quarter') {
-      query += ` AND transaction_date >= DATE_TRUNC('quarter', CURRENT_DATE)`;
+    if (period === 'week' || period === 'month' || period === 'quarter') {
+      query += ` AND transaction_date >= ${periodSince(period)}`;
     }
     
     query += ' ORDER BY transaction_date DESC, created_at DESC LIMIT 100';
@@ -494,8 +539,8 @@ router.post('/transactions', async (req: Request, res: Response) => {
            (user_id, target_id, product_name, quantity, amount, transaction_date, client_name, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [userId, target_id || null, String(product_name).trim(), qty, sum, 
-         transaction_date || new Date(), client_name, notes]
+        [userId, target_id || null, String(product_name).trim().slice(0, 255), qty, sum, 
+         transaction_date || new Date(), client_name ? String(client_name).trim().slice(0, 255) || null : null, notes || null]
       );
       
       if (target_id) {
@@ -547,7 +592,7 @@ router.post('/import/preview', upload.single('file'), async (req: Request, res: 
     const data = xlsx.utils.sheet_to_json(sheet, { defval: '' });
     
     if (data.length === 0) {
-      fs.unlinkSync(file.path);
+      dropUpload(file);
       return res.status(400).json({ error: 'Файл пустой или не содержит данных' });
     }
     
@@ -590,12 +635,10 @@ router.post('/import/preview', upload.single('file'), async (req: Request, res: 
     const permanentPath = path.join(importsDir, `${importId}.xlsx`);
     fs.renameSync(file.path, permanentPath);
     
+    // Та же разборка чисел, что и при сохранении: «1 234,50» — это 1234.5, а не 123450.
     let totalAmount = 0;
     if (suggestedMapping.amount) {
-      for (const row of data) {
-        const amount = parseFloat(String((row as any)[suggestedMapping.amount!] || '0').replace(/[^\d.-]/g, ''));
-        if (!isNaN(amount)) totalAmount += amount;
-      }
+      for (const row of data) totalAmount += parseRuNumber((row as any)[suggestedMapping.amount!]);
     }
     
     res.json({
@@ -609,6 +652,7 @@ router.post('/import/preview', upload.single('file'), async (req: Request, res: 
       totalAmount,
     });
   } catch (error) {
+    dropUpload(req.file);
     logger.error({ err: error }, 'KPI: Ошибка парсинга');
     res.status(500).json({ error: 'Ошибка чтения файла' });
   }
@@ -624,6 +668,10 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
     }
     if (!mapping || typeof mapping !== 'object' || !mapping.product_name) {
       return res.status(400).json({ error: 'Укажите колонку с названием товара' });
+    }
+    const MAPPING_KEYS = ['product_name', 'quantity', 'amount', 'transaction_date', 'client_name', 'notes'];
+    if (Object.entries(mapping).some(([k, v]) => !MAPPING_KEYS.includes(k) || (v !== null && typeof v !== 'string'))) {
+      return res.status(400).json({ error: 'Некорректное сопоставление колонок' });
     }
     
     const importCheck = await pool.query(
@@ -692,11 +740,11 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
       }
       
       transactions.push({
-        product_name: productName,
+        product_name: productName.slice(0, 255),
         quantity: mapping.quantity ? parseNumber(row[mapping.quantity]) || 1 : 1,
         amount: mapping.amount ? parseNumber(row[mapping.amount]) : 0,
         transaction_date: date,
-        client_name: mapping.client_name ? String(row[mapping.client_name] || '').trim() || null : null,
+        client_name: mapping.client_name ? String(row[mapping.client_name] || '').trim().slice(0, 255) || null : null,
         notes: mapping.notes ? String(row[mapping.notes] || '').trim() || null : null,
       });
     }
@@ -769,14 +817,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const { period = 'month' } = req.query;
     
-    let dateFilter = '';
-    if (period === 'week') {
-      dateFilter = `AND transaction_date >= CURRENT_DATE - INTERVAL '7 days'`;
-    } else if (period === 'month') {
-      dateFilter = `AND transaction_date >= DATE_TRUNC('month', CURRENT_DATE)`;
-    } else if (period === 'quarter') {
-      dateFilter = `AND transaction_date >= DATE_TRUNC('quarter', CURRENT_DATE)`;
-    }
+    const dateFilter = period === 'week' || period === 'month' || period === 'quarter' ? `AND transaction_date >= ${periodSince(period)}` : '';
     
     const factResult = await pool.query(
       `SELECT 
@@ -848,11 +889,7 @@ export default router;
 router.get('/subordinates', async (req: Request, res: Response) => {
   try {
     // Выручка команды за выбранный на экране период (по умолчанию — месяц).
-    const since = req.query.period === 'week'
-      ? `CURRENT_DATE - INTERVAL '7 days'`
-      : req.query.period === 'quarter'
-        ? `DATE_TRUNC('quarter', CURRENT_DATE)`
-        : `DATE_TRUNC('month', CURRENT_DATE)`;
+    const since = periodSince(req.query.period);
     const managerId = (req as any).userId;
     
     // Получить роль руководителя
@@ -955,6 +992,9 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Неизвестный тип показателя' });
     }
     
+    const span = targetPeriod({ period_start, period_end });
+    if ('error' in span) return res.status(400).json({ error: span.error });
+
     // Проверить что user_id — подчинённый менеджера
     const isManager = await isManagerOf(managerId, Number(user_id));
     if (!isManager) {
@@ -969,12 +1009,12 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
        RETURNING *`,
       [
         user_id,
-        String(product_name).trim(),
+        String(product_name).trim().slice(0, 255),
         metric_type,
         num(target_value),
         num(current_value, 0),
-        period_start || new Date(),
-        period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        span.start,
+        span.end,
         description,
         managerId
       ]
@@ -1102,6 +1142,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
     try { fs.unlinkSync(file.path); } catch (e) {}
     res.json({ success: true, results });
   } catch (error) {
+    dropUpload(req.file);
     logger.error({ err: error }, 'KPI: Ошибка импорта отчёта');
     res.status(500).json({ error: 'Ошибка обработки отчёта' });
   }
@@ -1175,8 +1216,9 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
           updated++;
         } else {
           await pool.query(
-            "INSERT INTO sales_targets (user_id, product_name, metric_type, target_value, current_value, period_start, period_end, is_personal_monthly_target) VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', FALSE)",
-            [uid, name, metric, t.target, t.current]
+            // created_by — руководитель, загрузивший план: сотрудник не сможет его удалить или занизить.
+            "INSERT INTO sales_targets (user_id, product_name, metric_type, target_value, current_value, period_start, period_end, is_personal_monthly_target, created_by) VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', FALSE, $6)",
+            [uid, name.slice(0, 255), metric, t.target, t.current, requesterId]
           );
           created++;
         }
@@ -1187,6 +1229,7 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
     try { fs.unlinkSync(file.path); } catch (e) {}
     res.json({ success: true, results });
   } catch (error) {
+    dropUpload(req.file);
     logger.error({ err: error }, 'KPI: Ошибка импорта плана KPI');
     res.status(500).json({ error: 'Ошибка обработки файла плана' });
   }
@@ -1204,9 +1247,9 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
   if (!Number.isInteger(userId) || userId <= 0) throw badRequest('Некорректный ID сотрудника');
   const me = req.userId!;
   if (me !== userId && !(await isSubordinate(me, userId))) throw forbidden('Статистика доступна только по своим подчинённым');
-  const period = req.query.period === 'week' ? '7 days' : req.query.period === 'quarter' ? '3 months' : '1 month';
+  const since = periodSince(req.query.period);
 
-  const [userResult, kpisResult, tasksResult, summaryResult, txResult] = await Promise.all([
+  const [userResult, kpisResult, tasksResult, taskStatsResult, summaryResult, txResult] = await Promise.all([
     pool.query(
       `SELECT u.id, u.username, u.display_name, u.email, u.avatar_url, u.is_active, rt.name AS role_name, rt.id AS role_id
        FROM users u LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
@@ -1225,20 +1268,31 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
               ${OVERDUE_SQL} AS is_overdue
        FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id
        WHERE ta.user_id = $1 AND t.status_new <> 'archived'
-       ORDER BY 5 ASC NULLS LAST LIMIT 50`,
+       ORDER BY (t.status_new = 'done') ASC, 5 ASC NULLS LAST LIMIT 50`,
+      [userId],
+    ),
+    // Счётчики — по всем задачам, а не по первым 50 из списка.
+    // «В работе» — всё незавершённое и не просроченное (как в своей статистике).
+    pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE t.status_new = 'done')::int AS completed,
+              COUNT(*) FILTER (WHERE t.status_new <> 'done' AND COALESCE(${OVERDUE_SQL}, FALSE))::int AS overdue,
+              COUNT(*) FILTER (WHERE t.status_new <> 'done' AND NOT COALESCE(${OVERDUE_SQL}, FALSE))::int AS in_progress
+       FROM tasks t JOIN task_assignees ta ON ta.task_id = t.id
+       WHERE ta.user_id = $1 AND t.status_new <> 'archived'`,
       [userId],
     ),
     pool.query(
       `SELECT COALESCE(SUM(amount), 0) AS total_amount, COALESCE(SUM(quantity), 0) AS total_quantity,
               COUNT(*)::int AS total_transactions
-       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= CURRENT_DATE - $2::interval`,
-      [userId, period],
+       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= ${since}`,
+      [userId],
     ),
     pool.query(
       `SELECT id, product_name, quantity, amount, transaction_date, client_name, notes
-       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= CURRENT_DATE - $2::interval
+       FROM sales_transactions WHERE user_id = $1 AND transaction_date >= ${since}
        ORDER BY transaction_date DESC, id DESC LIMIT 200`,
-      [userId, period],
+      [userId],
     ),
   ]);
   if (!userResult.rows.length) throw notFound('Сотрудник не найден');
@@ -1253,12 +1307,7 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
     kpi: kpis[0] || null,
     kpis,
     tasks,
-    taskStats: {
-      total: tasks.length,
-      completed: tasks.filter((t) => t.status === 'done').length,
-      in_progress: tasks.filter((t) => t.status === 'in_progress').length,
-      overdue: tasks.filter((t) => t.is_overdue).length,
-    },
+    taskStats: taskStatsResult.rows[0],
     summary: summaryResult.rows[0],
     transactions: txResult.rows,
   });

@@ -1272,7 +1272,14 @@ export default function ChatScreen({ navigation }: any) {
       clearSelection();
       try {
         for (let i = 0; i < list.length; i += 100) {
-          await request('/api/messages/bulk-delete', { method: 'POST', body: { ids: list.slice(i, i + 100).map((m) => m.id), scope } });
+          const ids = list.slice(i, i + 100).map((m) => m.id);
+          try {
+            await request('/api/messages/bulk-delete', { method: 'POST', body: { ids, scope } });
+          } catch (e) {
+            // Сервер ещё без удаления пачкой — удаляем по одному.
+            if (!(e instanceof ApiError && e.status === 404)) throw e;
+            for (const mid of ids) await request(`/api/messages/${mid}`, { method: 'DELETE', query: { scope } });
+          }
         }
         const ids = new Set(list.map((m) => m.id));
         setMessages((prev) => prev.filter((m) => !ids.has(m.id)));

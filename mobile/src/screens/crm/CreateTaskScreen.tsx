@@ -291,7 +291,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.userName}>
+                    <Text style={styles.userName} numberOfLines={1}>
                       {item.display_name || item.username}
                       {item.id === meId ? ' (я)' : ''}
                     </Text>

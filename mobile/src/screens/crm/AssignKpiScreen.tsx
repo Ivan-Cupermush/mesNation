@@ -118,7 +118,7 @@ export default function AssignKpiScreen({ navigation }: any) {
                     },
                   ]}
                 >
-                  <Text style={[styles.userName, { color: colors.textPrimary }]}>{user.display_name}</Text>
+                  <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>{user.display_name || user.username}</Text>
                   <Text style={[styles.userKpis, { color: colors.textSecondary }]}>
                     {user.kpis?.length || 0} активных KPI
                   </Text>

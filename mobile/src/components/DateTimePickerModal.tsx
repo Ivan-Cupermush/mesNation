@@ -27,6 +27,10 @@ const WHEEL_PAD = (WHEEL_H - ITEM_H) / 2;
 function Wheel({ items, value, onChange }: { items: number[]; value: number; onChange: (v: number) => void }) {
   const ref = useRef<ScrollView>(null);
   const [center, setCenter] = useState(value);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (settle.current) clearTimeout(settle.current);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -63,7 +67,13 @@ function Wheel({ items, value, onChange }: { items: number[]; value: number; onC
         decelerationRate="fast"
         scrollEventThrottle={16}
         overScrollMode="never"
-        onScroll={(e) => setCenter(idxFrom(e.nativeEvent.contentOffset.y))}
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          setCenter(idxFrom(y));
+          // Страховка: на части устройств конец инерции не приходит — фиксируем после паузы.
+          if (settle.current) clearTimeout(settle.current);
+          settle.current = setTimeout(() => commit(y), 180);
+        }}
         onMomentumScrollEnd={(e) => commit(e.nativeEvent.contentOffset.y)}
         onScrollEndDrag={(e) => {
           // Без инерции onMomentumScrollEnd не придёт — фиксируем значение здесь.

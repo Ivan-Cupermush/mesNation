@@ -114,7 +114,7 @@ export default function AddMembersScreen({ route, navigation }: any) {
                 <Text style={styles.avatarText}>{initials(item.display_name || item.username)}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.userName}>{item.display_name || item.username}</Text>
+                <Text style={styles.userName} numberOfLines={1}>{item.display_name || item.username}</Text>
                 <Text style={styles.userUsername}>@{item.username}</Text>
               </View>
               <TouchableOpacity

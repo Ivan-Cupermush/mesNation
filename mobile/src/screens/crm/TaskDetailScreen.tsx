@@ -710,7 +710,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
               <Text style={styles.infoLabel}>Наблюдатели</Text>
               <View style={styles.infoValueRow}>
-                <Text style={styles.infoValue} numberOfLines={1}>
+                <Text style={[styles.infoValue, { flexShrink: 1 }]} numberOfLines={1}>
                   {task.watchers?.length
                     ? task.watchers.length === 1
                       ? task.watchers[0].display_name || task.watchers[0].username
@@ -1620,6 +1620,8 @@ const styles = themed(() => ({
   infoValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
   },
   infoValueMuted: {
     fontSize: 14,

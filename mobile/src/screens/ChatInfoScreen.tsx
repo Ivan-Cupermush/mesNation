@@ -562,7 +562,7 @@ export default function ChatInfoScreen({ navigation }: any) {
               <View style={styles.sheetUser}>
                 <Avatar name={adminEditor.user.display_name || adminEditor.user.username} url={adminEditor.user.avatar_url} size={44} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.memberName}>{adminEditor.user.display_name || adminEditor.user.username}</Text>
+                  <Text style={styles.memberName} numberOfLines={1}>{adminEditor.user.display_name || adminEditor.user.username}</Text>
                   <Text style={styles.memberSub}>{adminEditor.existing ? 'Администратор' : 'Станет администратором'}</Text>
                 </View>
               </View>

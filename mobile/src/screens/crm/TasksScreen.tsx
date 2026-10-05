@@ -29,6 +29,7 @@ const BASE_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'mine', label: 'Исполняю' },
   { id: 'watching', label: 'Наблюдаю' },
+  { id: 'review', label: 'Проверить' },
   { id: 'created', label: 'Создал' },
   { id: 'overdue', label: 'Просроченные' },
   { id: 'archived', label: 'Архив' },
@@ -36,7 +37,7 @@ const BASE_FILTERS = [
 const TEAM_FILTER = { id: 'team', label: 'Команда' };
 
 /**
- * Иконка роли на плашке задачи: 💻 — создал, 🔧 — исполняю, 👁 — наблюдаю.
+ * Иконки роли на плашке задачи: монитор — создал, ключ — исполняю, глаз — наблюдаю.
  * Если ролей несколько, показываются все (например, создал и исполняю).
  */
 function RoleIcons({ task }: { task: Task }) {
@@ -149,6 +150,10 @@ export default function TasksScreen({ navigation }: any) {
       case 'watching':
         list = list.filter((t) => t.is_watcher && !t.is_creator && t.status_new !== 'archived');
         break;
+      case 'review':
+        // Ждут моей проверки: я наблюдатель или создатель, задача сдана.
+        list = list.filter((t) => t.status_new === 'on_review' && (t.is_watcher || t.creator_id === meId));
+        break;
       case 'created':
         list = list.filter((t) => t.creator_id === meId && t.status_new !== 'archived');
         break;
@@ -168,7 +173,7 @@ export default function TasksScreen({ navigation }: any) {
     }
     const prio: Record<string, number> = { red: 0, yellow: 1, green: 2 };
     const dl = (t: Task) => {
-      const iso = t.executor_deadline || t.hard_deadline;
+      const iso = t.current_deadline || t.executor_deadline || t.hard_deadline;
       return iso ? new Date(iso).getTime() : Infinity;
     };
     // Принятые задачи — в конце: сверху то, с чем ещё нужно работать.

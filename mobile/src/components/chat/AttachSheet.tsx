@@ -35,8 +35,8 @@ import {
   Play,
   FolderOpen,
   Images,
+  ChartNoAxesColumn,
 } from 'lucide-react-native';
-import { PollGlyph } from '../PollBubble';
 import { C, fileBadge, formatDuration, formatSize, plural, requestCameraPermission, requestGalleryPermission } from './chatUtils';
 
 import { T, themed } from '../../theme/runtime';
@@ -321,10 +321,10 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
   };
 
   const tabs = [
-    { key: 'gallery', label: 'Галерея', icon: <ImageIcon size={22} color="#FFFFFF" />, bg: T.info, onPress: () => setMode('gallery') },
-    { key: 'files', label: 'Файл', icon: <FileText size={22} color="#FFFFFF" />, bg: '#3E7BFA', onPress: openFiles },
-    { key: 'poll', label: 'Опрос', icon: <PollGlyph width={20} color="#FFFFFF" />, bg: T.warning, onPress: () => { onClose(); onPoll(); } },
-    { key: 'note', label: 'Заметка', icon: <NotebookPen size={22} color="#FFFFFF" />, bg: C.accent, onPress: () => { onClose(); onNote(); } },
+    { key: 'gallery', label: 'Галерея', Icon: ImageIcon, onPress: () => setMode('gallery') },
+    { key: 'files', label: 'Файл', Icon: FileText, onPress: openFiles },
+    { key: 'poll', label: 'Опрос', Icon: ChartNoAxesColumn, onPress: () => { onClose(); onPoll(); } },
+    { key: 'note', label: 'Заметка', Icon: NotebookPen, onPress: () => { onClose(); onNote(); } },
   ];
 
   if (!visible) return null;
@@ -434,6 +434,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
                 onEndReached={() => hasMore && cursor && loadPage(cursor)}
                 onEndReachedThreshold={0.6}
                 ListEmptyComponent={<Text style={styles.empty}>В галерее пока нет фото и видео</Text>}
+                contentContainerStyle={styles.underFloating}
                 style={{ flex: 1 }}
                 extraData={selected}
               />
@@ -444,7 +445,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
               keyExtractor={(f) => f.uri}
               renderItem={renderFile}
               style={{ flex: 1 }}
-              contentContainerStyle={files.length ? styles.filesList : styles.filesEmpty}
+              contentContainerStyle={[files.length ? styles.filesList : styles.filesEmpty, styles.underFloating]}
               ListEmptyComponent={
                 <View style={styles.filesEmptyInner}>
                   <TouchableOpacity style={styles.bigAction} onPress={pickDocuments} activeOpacity={0.8}>
@@ -485,25 +486,35 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
             />
           )}
 
-          {mode === 'gallery' && !compress && selected.length > 0 && (
-            <Text style={styles.asFileHint}>Будут отправлены как файлы, без сжатия</Text>
-          )}
-
-          {count > 0 ? (
-            composer
-          ) : (
-            <View style={styles.tabs}>
-              {tabs.map((t) => {
-                const active = t.key === mode;
-                return (
-                  <TouchableOpacity key={t.key} style={styles.tab} onPress={t.onPress} activeOpacity={0.75}>
-                    <View style={[styles.tabIcon, { backgroundColor: t.bg }, active && styles.tabIconActive]}>{t.icon}</View>
-                    <Text style={[styles.tabLabel, active && { color: C.text, fontWeight: '700' }]}>{t.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+          {/* Плавающий бар над галереей (как в новом Telegram): вкладки или подпись с отправкой */}
+          <View style={[styles.floating, { bottom: insets.bottom + 10 }]} pointerEvents="box-none">
+            {mode === 'gallery' && !compress && selected.length > 0 && (
+              <Text style={styles.asFileHint}>Будут отправлены как файлы, без сжатия</Text>
+            )}
+            {count > 0 ? (
+              composer
+            ) : (
+              <View style={styles.tabs}>
+                {tabs.map((t) => {
+                  const active = t.key === mode;
+                  const color = active ? C.accent : T.textSecondary;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      style={[styles.tab, active && styles.tabActive]}
+                      onPress={t.onPress}
+                      activeOpacity={0.7}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                    >
+                      <t.Icon size={22} color={color} strokeWidth={active ? 2.2 : 1.8} />
+                      <Text style={[styles.tabLabel, { color }, active && styles.tabLabelActive]}>{t.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -712,34 +723,59 @@ const styles = themed(() => ({
   fileRemove: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: T.inputBg },
   addMore: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 14 },
   addMoreText: { color: C.accent, fontSize: 15, fontWeight: '600' },
-  asFileHint: { fontSize: 12, color: T.textSecondary, textAlign: 'center', paddingTop: 6 },
+  asFileHint: {
+    alignSelf: 'center',
+    fontSize: 12,
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  underFloating: { paddingBottom: 96 },
+  floating: { position: 'absolute', left: 12, right: 12 },
+  // «Стекло»: полупрозрачная плашка с тонкой светлой кромкой и мягкой тенью.
   tabs: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
+    padding: 5,
+    borderRadius: 30,
+    backgroundColor: withAlpha(T.card, 0.94),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withAlpha(T.textPrimary, 0.12),
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
   },
-  tab: { alignItems: 'center', gap: 5, minWidth: 70 },
-  tabIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', opacity: 0.85 },
-  tabIconActive: { opacity: 1, transform: [{ scale: 1.06 }] },
-  tabLabel: { fontSize: 12, color: C.textMuted },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, height: 54, borderRadius: 26 },
+  tabActive: { backgroundColor: withAlpha(T.accent, 0.13) },
+  tabLabel: { fontSize: 11, fontWeight: '500' },
+  tabLabelActive: { fontWeight: '700' },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
+    gap: 8,
+    padding: 6,
+    borderRadius: 28,
+    backgroundColor: withAlpha(T.card, 0.96),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withAlpha(T.textPrimary, 0.12),
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
   },
   captionInput: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 44,
     maxHeight: 110,
-    borderRadius: 21,
-    backgroundColor: T.inputBg,
-    paddingHorizontal: 16,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
     color: C.text,

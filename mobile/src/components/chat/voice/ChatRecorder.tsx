@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Mic, Video, Lock, ChevronUp, Square, SendHorizonal, Trash2, SwitchCamera } from 'lucide-react-native';
 import { T, themed } from '../../../theme/runtime';
 import { withAlpha } from '../../../theme/palettes';
+import { glass } from '../../../theme/glass';
 import { C, formatDuration } from '../chatUtils';
 import { cancelAudio, ensureCameraPermissions, ensureMicPermission, RecordedAudio, startAudio, stopAudio } from './audioRecorder';
 import { encodeWaveform, recordTimer } from './waveform';
@@ -355,8 +356,12 @@ export function RecordButton({ rec }: { rec: ChatRecorder }) {
 // ---------- Слой записи поверх поля ввода ----------
 
 const BIG = 96;
+// Геометрия парящего поля ввода: отступ сбоку и снизу, высота капсулы.
+const SIDE = 8;
+const BOTTOM = 6;
+const ROW = 44;
 
-export function RecordingLayer({ rec, barHeight }: { rec: ChatRecorder; barHeight: number }) {
+export function RecordingLayer({ rec }: { rec: ChatRecorder }) {
   const blink = useRef(new Animated.Value(1)).current;
   const bob = useRef(new Animated.Value(0)).current;
   const appear = useRef(new Animated.Value(0)).current;
@@ -394,17 +399,17 @@ export function RecordingLayer({ rec, barHeight }: { rec: ChatRecorder; barHeigh
   const isVideo = rec.mode === 'video';
 
   // Центр большой кнопки совпадает с центром маленькой (справа в поле ввода).
-  const cx = 6 + 21;
-  const cy = Math.max(28, barHeight / 2);
+  const cx = SIDE + ROW / 2;
+  const cy = BOTTOM + ROW / 2;
   const bigScale = rec.level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
   const haloScale = rec.level.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
   const cancelOpacity = rec.dx.interpolate({ inputRange: [-CANCEL_DX, -20, 0], outputRange: [0, 0.8, 1], extrapolate: 'clamp' });
   const lockShift = rec.dy.interpolate({ inputRange: [-LOCK_DY, 0], outputRange: [-34, 0], extrapolate: 'clamp' });
 
   return (
-    <View style={[styles.layer, { height: barHeight + 170 }]} pointerEvents="box-none">
-      {/* Полоса внизу: таймер и «влево — отмена» / «Отмена» / прослушивание */}
-      <View style={[styles.bar, { height: barHeight }]}>
+    <View style={[styles.layer, { height: BOTTOM + ROW + 170 }]} pointerEvents="box-none">
+      {/* Капсула внизу: таймер и «влево — отмена» / «Отмена» / прослушивание */}
+      <View style={styles.bar}>
         {preview ? (
           <PreviewRow rec={rec} />
         ) : (
@@ -520,14 +525,16 @@ const styles = themed(() => ({
   layer: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   bar: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    left: SIDE,
+    right: SIDE,
+    bottom: BOTTOM,
+    height: ROW,
+    borderRadius: ROW / 2,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 14,
-    paddingRight: 120,
-    backgroundColor: T.card,
+    paddingLeft: 16,
+    paddingRight: 112,
+    ...glass(0.97),
   },
   timerBox: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 92 },
   redDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' },

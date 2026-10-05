@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { X } from 'lucide-react-native';
 import { T, themed } from '../../../theme/runtime';
 import { withAlpha } from '../../../theme/palettes';
+import { glass } from '../../../theme/glass';
 import { C, formatTime } from '../chatUtils';
 import { cycleVoiceSpeed, pauseVoice, resumeVoice, stopVoice } from './voicePlayer';
 import { useVoiceState } from './useVoice';
@@ -46,10 +47,10 @@ const styles = themed(() => ({
     flexDirection: 'row',
     alignItems: 'center',
     height: 46,
-    paddingHorizontal: 6,
-    backgroundColor: withAlpha(T.card, 0.94),
-    borderBottomWidth: 0.5,
-    borderBottomColor: C.border,
+    paddingHorizontal: 4,
+    borderRadius: 23,
+    overflow: 'hidden',
+    ...glass(0.94),
   },
   btn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   body: { flex: 1, paddingHorizontal: 4 },

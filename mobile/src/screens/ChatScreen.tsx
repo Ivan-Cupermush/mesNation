@@ -19,7 +19,7 @@ import {
   Vibration,
   Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useRoute, RouteProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -63,6 +63,7 @@ import { C, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLa
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
 import { useTheme } from '../theme/ThemeContext';
+import { glass } from '../theme/glass';
 import { clearActiveChat, setActiveChat } from '../notifications/state';
 import VoicePlayerBar from '../components/chat/voice/VoicePlayerBar';
 import { RecordButton, RecordingLayer, useChatRecorder, VideoNoteResult, VoiceResult } from '../components/chat/voice/ChatRecorder';
@@ -149,7 +150,10 @@ export default function ChatScreen({ navigation }: any) {
   const [toast, setToast] = useState<string | null>(null);
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [barHeight, setBarHeight] = useState(56);
+  // Высоты парящих шапки и низа — под них заходит лента.
+  const [dockH, setDockH] = useState(64);
+  const [topH, setTopH] = useState(64);
+  const insets = useSafeAreaInsets();
 
   const listRef = useRef<FlatList>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1245,97 +1249,14 @@ export default function ChatScreen({ navigation }: any) {
   const showRecord = !canSend && !editingMessage;
   const recordingVideo = recorder.mode === 'video' && (recorder.phase === 'recording' || recorder.phase === 'locked');
 
+  // Лента уходит под парящие шапку и поле ввода (стекло, как в iOS / новом Telegram).
+  const listPadTop = dockH + 6; // перевёрнутый список: это низ экрана
+  const listPadBottom = topH + 6;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* ===== ШАПКА ===== */}
-      {selecting ? (
-        <View style={styles.header}>
-          <TouchableOpacity onPress={clearSelection} style={styles.headerBtn} accessibilityLabel="Снять выделение">
-            <X size={24} color={C.text} strokeWidth={2} />
-          </TouchableOpacity>
-          <Text style={styles.selCount}>{selMsgs.length}</Text>
-          <View style={styles.flex1} />
-          {selCanEdit && (
-            <TouchableOpacity onPress={selEdit} style={styles.headerBtn} accessibilityLabel="Изменить">
-              <Pencil size={21} color={C.text} />
-            </TouchableOpacity>
-          )}
-          {selCanCopy && (
-            <TouchableOpacity onPress={selCopy} style={styles.headerBtn} accessibilityLabel="Копировать">
-              <Copy size={21} color={C.text} />
-            </TouchableOpacity>
-          )}
-          {selCanForward && (
-            <TouchableOpacity onPress={selForward} style={styles.headerBtn} accessibilityLabel="Переслать">
-              <Forward size={22} color={C.text} />
-            </TouchableOpacity>
-          )}
-          {selCanSave && (
-            <TouchableOpacity onPress={selSave} style={styles.headerBtn} accessibilityLabel="Сохранить">
-              <Download size={21} color={C.text} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={selDelete} style={styles.headerBtn} accessibilityLabel="Удалить">
-            <Trash2 size={21} color={C.danger} />
-          </TouchableOpacity>
-          {selMore.length > 0 && (
-            <TouchableOpacity onPress={() => setMoreOpen(true)} style={styles.headerBtn} accessibilityLabel="Ещё">
-              <MoreVertical size={21} color={C.text} />
-            </TouchableOpacity>
-          )}
-        </View>
-      ) : (
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityLabel="Назад">
-          <ChevronLeft size={26} color={C.text} strokeWidth={2} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.headerMain} activeOpacity={0.7} onPress={openInfo}>
-          {renderHeaderAvatar()}
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {topicMeta?.title || chatName}
-            </Text>
-            {subtitle ? (
-              <Text style={[styles.headerSubtitle, subtitleActive && { color: C.accent }]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={openInfo} style={styles.headerBtn} accessibilityLabel="Информация о чате">
-          <MoreVertical size={22} color={C.text} strokeWidth={2} />
-        </TouchableOpacity>
-      </View>
-      )}
-
-      {/* ===== ЗАКРЕП ===== */}
-      {pinnedMessages.length > 0 && (
-        <TouchableOpacity
-          style={styles.pinnedBar}
-          onPress={() => {
-            const msg = pinnedMessages[currentPinnedIndex];
-            if (msg) scrollToMessage(msg.id);
-            setCurrentPinnedIndex((i) => (i + 1) % pinnedMessages.length);
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.pinnedLine} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.pinnedLabel}>
-              Закреплённое сообщение{pinnedMessages.length > 1 ? ` #${currentPinnedIndex + 1}` : ''}
-            </Text>
-            <Text style={styles.pinnedText} numberOfLines={1}>
-              {messagePreview(pinnedMessages[currentPinnedIndex]) || 'Вложение'}
-            </Text>
-          </View>
-          <Pin size={18} color={C.textMuted} />
-        </TouchableOpacity>
-      )}
-
-      <VoicePlayerBar nameOf={(m) => (m.sender_id === currentUserId ? 'Вы' : senderNameOf(m))} onOpen={(m) => typeof m.id === 'number' && scrollToMessage(m.id)} />
-
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
-        <View style={styles.listWrap}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <KeyboardAvoidingView style={styles.flex1} behavior="padding" keyboardVerticalOffset={0}>
+        <View style={[styles.listWrap, { marginBottom: -dockH }]}>
           <WallpaperView wallpaper={wallpaper} />
           {loading ? (
             <View style={styles.center}>
@@ -1352,7 +1273,7 @@ export default function ChatScreen({ navigation }: any) {
             <View style={styles.center}>
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>Сообщений пока нет</Text>
-                <Text style={styles.emptyText}>Напишите что-нибудь или отправьте фото через скрепку.</Text>
+                <Text style={styles.emptyText}>Напишите что-нибудь, запишите голосовое или отправьте фото через скрепку.</Text>
               </View>
             </View>
           ) : (
@@ -1362,7 +1283,7 @@ export default function ChatScreen({ navigation }: any) {
               data={items}
               keyExtractor={(it) => it.key}
               renderItem={renderItem}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={{ paddingTop: listPadTop, paddingBottom: listPadBottom }}
               onEndReached={loadOlder}
               onEndReachedThreshold={0.4}
               ListFooterComponent={loadingOlder ? <ActivityIndicator color={C.accent} style={{ marginVertical: 12 }} /> : null}
@@ -1382,16 +1303,16 @@ export default function ChatScreen({ navigation }: any) {
             />
           )}
 
-          {showScrollDown && (
+          {showScrollDown && !selecting && (
             <TouchableOpacity
-              style={styles.scrollDown}
+              style={[styles.scrollDown, { bottom: dockH + 12 }]}
               onPress={() => {
                 listRef.current?.scrollToOffset({ offset: 0, animated: true });
                 setNewWhileAway(0);
               }}
               accessibilityLabel="Вниз"
             >
-              <ChevronDown size={24} color={C.textMuted} />
+              <ChevronDown size={24} color={C.text} />
               {newWhileAway > 0 && (
                 <View style={styles.scrollBadge}>
                   <Text style={styles.scrollBadgeText}>{newWhileAway}</Text>
@@ -1403,109 +1324,204 @@ export default function ChatScreen({ navigation }: any) {
           {recordingVideo && <VideoNoteCamera rec={recorder} />}
 
           {toast && (
-            <Animated.View pointerEvents="none" style={[styles.toast, { opacity: toastAnim, transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }]}>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.toast, { bottom: dockH + 16, opacity: toastAnim, transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }]}
+            >
               <Text style={styles.toastText}>{toast}</Text>
             </Animated.View>
           )}
         </View>
 
-        {/* ===== ВЫДЕЛЕНИЕ: «Ответить» и «Переслать» вместо поля ввода ===== */}
+        {/* ===== НИЗ: парящие плашки и поле ввода ===== */}
+        <View style={styles.dock} onLayout={(e) => setDockH(e.nativeEvent.layout.height)} pointerEvents="box-none">
+          {selecting ? (
+            // Выделение: «Ответить» и «Переслать» вместо поля ввода (как в Telegram).
+            <View style={styles.selBar}>
+              {selSingle ? (
+                <TouchableOpacity onPress={selReply} style={styles.selBtn} activeOpacity={0.7}>
+                  <CornerUpLeft size={22} color={C.accent} />
+                  <Text style={styles.selBtnText}>Ответить</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.flex1} />
+              )}
+              {selCanForward && (
+                <TouchableOpacity onPress={selForward} style={[styles.selBtn, styles.selBtnRight]} activeOpacity={0.7}>
+                  <Text style={styles.selBtnText}>Переслать</Text>
+                  <Forward size={22} color={C.accent} />
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <>
+              {(replyTo || editingMessage) && (
+                <View style={styles.plate}>
+                  {replyTo ? <CornerUpLeft size={20} color={C.accent} /> : <Pencil size={20} color={C.accent} />}
+                  <TouchableOpacity style={styles.plateBody} onPress={() => replyTo && scrollToMessage(replyTo.id)} activeOpacity={0.7}>
+                    <Text style={styles.plateLabel} numberOfLines={1}>
+                      {replyTo ? `Ответ ${replyTo.sender_id === currentUserId ? 'себе' : senderNameOf(replyTo)}` : 'Редактирование'}
+                    </Text>
+                    <Text style={styles.plateText} numberOfLines={1}>
+                      {messagePreview(replyTo || editingMessage)}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (editingMessage) setText('');
+                      setReplyTo(null);
+                      setEditingMessage(null);
+                    }}
+                    style={styles.plateClose}
+                    accessibilityLabel="Отменить"
+                  >
+                    <X size={20} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {scheduled.length > 0 && !editingMessage && (
+                <TouchableOpacity style={styles.plate} onPress={() => setShowScheduledList(true)} activeOpacity={0.7}>
+                  <CalendarClock size={20} color={C.accent} />
+                  <View style={styles.plateBody}>
+                    <Text style={styles.plateLabel}>Запланировано: {scheduled.length}</Text>
+                    <Text style={styles.plateText}>Нажмите, чтобы посмотреть или отменить</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              {/* Скрепка, капсула ввода, микрофон/отправка — отдельные парящие элементы */}
+              <View style={styles.inputBar}>
+                <TouchableOpacity
+                  onPress={() => setShowAttach(true)}
+                  style={[styles.roundGlass, editingMessage && styles.disabled]}
+                  accessibilityLabel="Вложения"
+                  disabled={!!editingMessage}
+                >
+                  <Paperclip size={22} color={C.text} strokeWidth={2} />
+                </TouchableOpacity>
+                <View style={styles.inputCapsule}>
+                  <TextInput
+                    style={styles.input}
+                    value={text}
+                    onChangeText={onChangeText}
+                    placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
+                    placeholderTextColor={T.textMuted}
+                    multiline
+                    maxLength={4000}
+                    // «Отправка по Enter» (Внешний вид → Чаты): Enter отправляет вместо новой строки.
+                    submitBehavior={sendByEnter ? 'submit' : 'newline'}
+                    returnKeyType={sendByEnter ? 'send' : 'default'}
+                    onSubmitEditing={sendByEnter ? handleSend : undefined}
+                  />
+                </View>
+                {showRecord || recorder.phase !== 'idle' ? (
+                  <View style={styles.roundGlass}>
+                    <RecordButton rec={recorder} />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleSend}
+                    onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
+                    delayLongPress={350}
+                    style={styles.sendBtn}
+                    accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
+                  >
+                    {editingMessage ? <Pencil size={18} color={T.onAccent} strokeWidth={2.5} /> : <SendHorizonal size={19} color={T.onAccent} strokeWidth={2.4} />}
+                  </TouchableOpacity>
+                )}
+              </View>
+              <RecordingLayer rec={recorder} />
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* ===== ВЕРХ: парящие шапка, закреп и плеер ===== */}
+      <View style={[styles.topLayer, { paddingTop: insets.top + 6 }]} onLayout={(e) => setTopH(e.nativeEvent.layout.height)} pointerEvents="box-none">
         {selecting ? (
-          <View style={[styles.selBar, { minHeight: barHeight }]}>
-            {selSingle ? (
-              <TouchableOpacity onPress={selReply} style={styles.selBtn} activeOpacity={0.7}>
-                <CornerUpLeft size={22} color={C.accent} />
-                <Text style={styles.selBtnText}>Ответить</Text>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={clearSelection} style={styles.roundGlass} accessibilityLabel="Снять выделение">
+              <X size={22} color={C.text} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <View style={styles.selCountPill}>
+              <Text style={styles.selCount}>{selMsgs.length}</Text>
+            </View>
+            <View style={styles.flex1} />
+            <View style={styles.actionsPill}>
+              {selCanEdit && (
+                <TouchableOpacity onPress={selEdit} style={styles.pillBtn} accessibilityLabel="Изменить">
+                  <Pencil size={20} color={C.text} />
+                </TouchableOpacity>
+              )}
+              {selCanCopy && (
+                <TouchableOpacity onPress={selCopy} style={styles.pillBtn} accessibilityLabel="Копировать">
+                  <Copy size={20} color={C.text} />
+                </TouchableOpacity>
+              )}
+              {selCanForward && (
+                <TouchableOpacity onPress={selForward} style={styles.pillBtn} accessibilityLabel="Переслать">
+                  <Forward size={21} color={C.text} />
+                </TouchableOpacity>
+              )}
+              {selCanSave && (
+                <TouchableOpacity onPress={selSave} style={styles.pillBtn} accessibilityLabel="Сохранить">
+                  <Download size={20} color={C.text} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={selDelete} style={styles.pillBtn} accessibilityLabel="Удалить">
+                <Trash2 size={20} color={C.danger} />
               </TouchableOpacity>
-            ) : (
-              <View style={styles.flex1} />
-            )}
-            {selCanForward && (
-              <TouchableOpacity onPress={selForward} style={[styles.selBtn, styles.selBtnRight]} activeOpacity={0.7}>
-                <Text style={styles.selBtnText}>Переслать</Text>
-                <Forward size={22} color={C.accent} />
-              </TouchableOpacity>
-            )}
+              {selMore.length > 0 && (
+                <TouchableOpacity onPress={() => setMoreOpen(true)} style={styles.pillBtn} accessibilityLabel="Ещё">
+                  <MoreVertical size={20} color={C.text} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         ) : (
-        <>
-        {/* ===== ПЛАШКИ НАД ВВОДОМ ===== */}
-        {(replyTo || editingMessage) && (
-          <View style={styles.plate}>
-            {replyTo ? <CornerUpLeft size={20} color={C.accent} /> : <Pencil size={20} color={C.accent} />}
-            <TouchableOpacity style={styles.plateBody} onPress={() => replyTo && scrollToMessage(replyTo.id)} activeOpacity={0.7}>
-              <Text style={styles.plateLabel} numberOfLines={1}>
-                {replyTo ? `Ответ ${replyTo.sender_id === currentUserId ? 'себе' : senderNameOf(replyTo)}` : 'Редактирование'}
-              </Text>
-              <Text style={styles.plateText} numberOfLines={1}>
-                {messagePreview(replyTo || editingMessage)}
-              </Text>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.roundGlass} accessibilityLabel="Назад">
+              <ChevronLeft size={26} color={C.text} strokeWidth={2.2} />
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                if (editingMessage) setText('');
-                setReplyTo(null);
-                setEditingMessage(null);
-              }}
-              style={styles.plateClose}
-              accessibilityLabel="Отменить"
-            >
-              <X size={20} color={C.textMuted} />
+            <TouchableOpacity style={styles.titlePill} activeOpacity={0.75} onPress={openInfo} accessibilityLabel="Информация о чате">
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {topicMeta?.title || chatName}
+              </Text>
+              {subtitle ? (
+                <Text style={[styles.headerSubtitle, subtitleActive && { color: C.accent }]} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={openInfo} activeOpacity={0.8} style={styles.avatarRing} accessibilityLabel="Профиль чата">
+              {renderHeaderAvatar()}
             </TouchableOpacity>
           </View>
         )}
-        {scheduled.length > 0 && !editingMessage && (
-          <TouchableOpacity style={styles.plate} onPress={() => setShowScheduledList(true)} activeOpacity={0.7}>
-            <CalendarClock size={20} color={C.accent} />
-            <View style={styles.plateBody}>
-              <Text style={styles.plateLabel}>
-                Запланировано: {scheduled.length}
+
+        {pinnedMessages.length > 0 && (
+          <TouchableOpacity
+            style={styles.pinnedBar}
+            onPress={() => {
+              const msg = pinnedMessages[currentPinnedIndex];
+              if (msg) scrollToMessage(msg.id);
+              setCurrentPinnedIndex((i) => (i + 1) % pinnedMessages.length);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.pinnedLine} />
+            <View style={styles.flex1}>
+              <Text style={styles.pinnedLabel}>Закреплённое сообщение{pinnedMessages.length > 1 ? ` #${currentPinnedIndex + 1}` : ''}</Text>
+              <Text style={styles.pinnedText} numberOfLines={1}>
+                {messagePreview(pinnedMessages[currentPinnedIndex]) || 'Вложение'}
               </Text>
-              <Text style={styles.plateText}>Нажмите, чтобы посмотреть или отменить</Text>
             </View>
+            <Pin size={18} color={C.textMuted} />
           </TouchableOpacity>
         )}
 
-        {/* ===== ВВОД ===== */}
-        <View style={styles.inputBar} onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
-          <TouchableOpacity onPress={() => setShowAttach(true)} style={styles.attachBtn} accessibilityLabel="Вложения" disabled={!!editingMessage}>
-            <Paperclip size={24} color={editingMessage ? T.textMuted : C.textMuted} strokeWidth={2} />
-          </TouchableOpacity>
-          <TextInput
-            style={styles.input}
-            value={text}
-            onChangeText={onChangeText}
-            placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
-            placeholderTextColor={T.textMuted}
-            multiline
-            maxLength={4000}
-            // «Отправка по Enter» (Внешний вид → Чаты): Enter отправляет вместо новой строки.
-            submitBehavior={sendByEnter ? 'submit' : 'newline'}
-            returnKeyType={sendByEnter ? 'send' : 'default'}
-            onSubmitEditing={sendByEnter ? handleSend : undefined}
-          />
-          {showRecord || recorder.phase !== 'idle' ? (
-            <RecordButton rec={recorder} />
-          ) : (
-            <TouchableOpacity
-              onPress={handleSend}
-              onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
-              delayLongPress={350}
-              style={[styles.sendBtn, { backgroundColor: C.accent }]}
-              accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
-            >
-              {editingMessage ? (
-                <Pencil size={18} color={T.onAccent} strokeWidth={2.5} />
-              ) : (
-                <SendHorizonal size={19} color={T.onAccent} strokeWidth={2.4} />
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
-        <RecordingLayer rec={recorder} barHeight={barHeight} />
-        </>
-        )}
-      </KeyboardAvoidingView>
+        <VoicePlayerBar nameOf={(m) => (m.sender_id === currentUserId ? 'Вы' : senderNameOf(m))} onOpen={(m) => typeof m.id === 'number' && scrollToMessage(m.id)} />
+      </View>
 
       {/* ===== МОДАЛКИ ===== */}
       <AttachSheet
@@ -1603,20 +1619,17 @@ export default function ChatScreen({ navigation }: any) {
 }
 
 const styles = themed(() => ({
-  container: { flex: 1, backgroundColor: T.card },
+  container: { flex: 1, backgroundColor: C.bg },
+  flex1: { flex: 1 },
+  disabled: { opacity: 0.45 },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    height: 58,
-    backgroundColor: T.card,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-  },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  // ----- Верх: парящие элементы над лентой -----
+  topLayer: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: 8, paddingBottom: 4, gap: 6 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  roundGlass: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', ...glass() },
+  titlePill: { flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, ...glass() },
+  avatarRing: { width: 44, height: 44, borderRadius: 22, ...glass(), padding: 0, alignItems: 'center', justifyContent: 'center' },
+  headerAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   headerAvatarText: { color: T.onAccent, fontSize: 15, fontWeight: '700' },
   onlineDot: {
     position: 'absolute',
@@ -1629,51 +1642,30 @@ const styles = themed(() => ({
     borderWidth: 2,
     borderColor: T.card,
   },
-  headerCenter: { flex: 1 },
-  flex1: { flex: 1 },
-  selCount: { fontSize: 19, fontWeight: '700', color: C.text, marginLeft: 6 },
-  selBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    backgroundColor: T.card,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
-  },
-  selBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, height: 48 },
-  selBtnRight: { justifyContent: 'flex-end' },
-  selBtnText: { fontSize: 15, fontWeight: '700', color: C.accent, textTransform: 'uppercase', letterSpacing: 0.3 },
-  toast: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: 'rgba(20,24,22,0.9)',
-  },
-  toastText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
-  headerSubtitle: { fontSize: 13, color: C.textMuted, marginTop: 1 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: C.text, textAlign: 'center' },
+  headerSubtitle: { fontSize: 12, color: C.textMuted, marginTop: 1, textAlign: 'center' },
+  selCountPill: { height: 44, minWidth: 44, borderRadius: 22, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', ...glass() },
+  selCount: { fontSize: 18, fontWeight: '800', color: C.text },
+  actionsPill: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 22, paddingHorizontal: 4, ...glass() },
+  pillBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
   pinnedBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: T.card,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    ...glass(),
   },
   pinnedLine: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.accent },
   pinnedLabel: { fontSize: 13, fontWeight: '700', color: C.accent },
   pinnedText: { fontSize: 14, color: C.text },
 
+  // ----- Лента -----
   listWrap: { flex: 1, backgroundColor: C.bg },
-  listContent: { paddingVertical: 8 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyCard: { backgroundColor: withAlpha(T.card, 0.92), borderRadius: 18, padding: 20, alignItems: 'center', maxWidth: 280 },
+  emptyCard: { borderRadius: 20, padding: 20, alignItems: 'center', maxWidth: 290, ...glass(0.9) },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 4 },
   emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center' },
   retryBtn: { marginTop: 12, paddingHorizontal: 18, height: 40, borderRadius: 12, backgroundColor: C.accent, justifyContent: 'center' },
@@ -1683,19 +1675,13 @@ const styles = themed(() => ({
 
   scrollDown: {
     position: 'absolute',
-    right: 12,
-    bottom: 12,
+    right: 10,
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: T.shadow,
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    ...glass(0.92),
   },
   scrollBadge: {
     position: 'absolute',
@@ -1709,47 +1695,50 @@ const styles = themed(() => ({
     justifyContent: 'center',
   },
   scrollBadgeText: { color: T.onAccent, fontSize: 11, fontWeight: '800' },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(20,24,22,0.9)',
+  },
+  toastText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
 
+  // ----- Низ: парящие плашки и ввод -----
+  dock: { paddingHorizontal: 8, paddingBottom: 6, paddingTop: 4, gap: 6 },
   plate: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingLeft: 16,
+    paddingLeft: 14,
     paddingRight: 4,
-    paddingVertical: 6,
-    backgroundColor: T.card,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
+    paddingVertical: 5,
+    borderRadius: 18,
+    ...glass(0.92),
   },
   plateBody: { flex: 1, borderLeftWidth: 2, borderLeftColor: C.accent, paddingLeft: 8 },
   plateLabel: { fontSize: 13, fontWeight: '700', color: C.accent },
   plateText: { fontSize: 14, color: C.text },
   plateClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 6,
-    paddingVertical: 6,
-    gap: 4,
-    backgroundColor: T.card,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
-  },
-  attachBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
+  inputCapsule: { flex: 1, minHeight: 44, borderRadius: 22, justifyContent: 'center', ...glass(0.92) },
   input: {
-    flex: 1,
-    minHeight: 42,
+    minHeight: 44,
     maxHeight: 140,
-    paddingHorizontal: 14,
-    paddingTop: Platform.OS === 'ios' ? 11 : 9,
-    paddingBottom: Platform.OS === 'ios' ? 11 : 9,
-    borderRadius: 21,
-    backgroundColor: T.inputBg,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 10,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 10,
     fontSize: 16,
     color: C.text,
   },
-  sendBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', marginLeft: 2, marginBottom: 1 },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: C.accent },
+
+  selBar: { flexDirection: 'row', alignItems: 'center', height: 50, borderRadius: 25, paddingHorizontal: 4, ...glass(0.94) },
+  selBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, height: 48 },
+  selBtnRight: { justifyContent: 'flex-end' },
+  selBtnText: { fontSize: 15, fontWeight: '700', color: C.accent, textTransform: 'uppercase', letterSpacing: 0.3 },
 
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
   sheet: {

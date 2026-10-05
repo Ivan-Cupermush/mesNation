@@ -24,6 +24,7 @@ export default function VideoNoteCamera({ rec }: { rec: ChatRecorder }) {
   const recorder = useRef<Recorder | null>(null);
   const startedAt = useRef(0);
   const cancelled = useRef(false);
+  const stopping = useRef(false);
   const finish = useRef<((r: { uri: string; durationMs: number } | null) => void) | null>(null);
   const recRef = useRef(rec);
   recRef.current = rec;
@@ -57,6 +58,7 @@ export default function VideoNoteCamera({ rec }: { rec: ChatRecorder }) {
         new Promise((resolve) => {
           const r = recorder.current;
           if (!r || !startedAt.current) return resolve(null);
+          stopping.current = true;
           finish.current = resolve;
           r.stopRecording().catch(() => resolve(null));
           setTimeout(() => resolve(null), 4000);
@@ -73,7 +75,7 @@ export default function VideoNoteCamera({ rec }: { rec: ChatRecorder }) {
   // Уход с экрана посреди записи — запись не сохраняем.
   useEffect(
     () => () => {
-      if (recorder.current?.isRecording) {
+      if (recorder.current?.isRecording && !stopping.current) {
         cancelled.current = true;
         recorder.current.cancelRecording().catch(() => undefined);
       }

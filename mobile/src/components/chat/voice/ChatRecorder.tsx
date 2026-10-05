@@ -189,6 +189,14 @@ export function useChatRecorder({
   const send = useCallback(async () => {
     const p = S.current.phase;
     if (p === 'idle') return;
+    if (S.current.mode === 'video' && p !== 'preview') {
+      // Камера должна дописать файл, прежде чем закроется.
+      S.current.phase = 'idle';
+      await finishVideo(true);
+      setPhase('idle');
+      resetGesture();
+      return;
+    }
     setPhase('idle');
     resetGesture();
     if (p === 'preview') {
@@ -201,8 +209,7 @@ export function useChatRecorder({
       });
       return;
     }
-    if (S.current.mode === 'voice') await finishVoice(true);
-    else await finishVideo(true);
+    await finishVoice(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

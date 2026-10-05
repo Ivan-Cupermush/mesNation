@@ -132,6 +132,8 @@ function finished() {
 
 export async function pauseVoice() {
   if (!state.msg) return;
+  // Ещё грузится — отменяем запуск совсем, иначе заиграет после «паузы».
+  if (state.loading) return stopVoice();
   set({ playing: false, loading: false });
   await getSound().pausePlayer().catch(() => undefined);
 }

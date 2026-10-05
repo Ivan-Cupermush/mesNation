@@ -6,7 +6,6 @@ import { useMedia } from '../../lib/useMedia';
 import { EmptyState } from '../../ui/EmptyState';
 import { PageLoader } from '../../ui/Spinner';
 import { ErrorBoundary } from '../../ui/ErrorBoundary';
-import { useTasksRealtime } from './queries';
 import { SplitContext } from './layout';
 import TaskList, { type ListState } from './TaskList';
 import s from './TasksRoutes.module.css';
@@ -37,7 +36,6 @@ export default function TasksRoutes() {
 }
 
 function TasksLayout() {
-  useTasksRealtime();
   const location = useLocation();
   const navigate = useNavigate();
   const wide = useMedia('(min-width: 1180px)');

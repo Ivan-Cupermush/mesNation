@@ -17,16 +17,19 @@ const ChatsRoutes = lazy(() => import('./features/chats/ChatsRoutes'));
 const UserProfile = lazy(() => import('./features/users/UserProfile'));
 const TasksRoutes = lazy(() => import('./features/tasks/TasksRoutes'));
 const NotesRoutes = lazy(() => import('./features/notes/NotesRoutes'));
+const ProfilePage = lazy(() => import('./features/account/ProfilePage'));
+const SettingsPage = lazy(() => import('./features/account/SettingsPage'));
+const AppearancePage = lazy(() => import('./features/account/AppearancePage'));
+const NotificationsPage = lazy(() => import('./features/account/NotificationsPage'));
+const EmployeesPage = lazy(() => import('./features/users/EmployeesPage'));
+const CreateUserPage = lazy(() => import('./features/users/CreateUserPage'));
+const RolesPage = lazy(() => import('./features/roles/RolesPage'));
 
 // Разделы старой версии — до переноса на новую основу
 const KpiScreen = lazy(() => import('./screens/KpiScreen'));
 const KnowledgeScreen = lazy(() => import('./screens/KnowledgeScreen'));
-const ProfileScreen = lazy(() => import('./screens/ProfileScreen'));
-const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 const ImportExcelScreen = lazy(() => import('./screens/ImportExcelScreen'));
 const EmployeeStatsScreen = lazy(() => import('./screens/EmployeeStatsScreen'));
-const RoleTreeScreen = lazy(() => import('./screens/RoleTreeScreen'));
-const CreateUserScreen = lazy(() => import('./screens/CreateUserScreen'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,10 +67,13 @@ function AppRoutes() {
           <Route path="employee/:userId" element={<Legacy><EmployeeStatsScreen /></Legacy>} />
           <Route path="import" element={<Legacy><ImportExcelScreen /></Legacy>} />
           <Route path="knowledge" element={<Legacy><KnowledgeScreen /></Legacy>} />
-          <Route path="settings" element={<Legacy><SettingsScreen /></Legacy>} />
-          <Route path="profile" element={<Legacy><ProfileScreen /></Legacy>} />
-          <Route path="roles" element={<Legacy><RoleTreeScreen /></Legacy>} />
-          <Route path="create-user" element={<Legacy><CreateUserScreen /></Legacy>} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/appearance" element={<AppearancePage />} />
+          <Route path="settings/notifications" element={<NotificationsPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="employees" element={<EmployeesPage />} />
+          <Route path="roles" element={<RolesPage />} />
+          <Route path="create-user" element={<CreateUserPage />} />
 
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Route>

@@ -1,0 +1,226 @@
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.treePane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 12px 60px;
+}
+
+.split .treePane {
+  flex: 0 0 min(460px, 45%);
+  border-right: 1px solid var(--c-border);
+}
+
+.detailPane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px 24px 60px;
+}
+
+.readOnly {
+  margin: 0 8px 10px;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.detail {
+  max-width: 640px;
+}
+
+.detailHead {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.bigIcon {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.detailTitles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detailTitles h2 {
+  font-size: 21px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.detailTitles p {
+  font-size: 14px;
+  color: var(--c-text-secondary);
+}
+
+.parent {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--c-accent);
+  font-weight: 600;
+}
+
+.parentRoot {
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.usersHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 0 10px;
+  color: var(--c-text-secondary);
+}
+
+.usersHead b {
+  color: var(--c-text-primary);
+}
+
+.usersCount {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.center {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.empty {
+  color: var(--c-text-muted);
+  font-size: 14px;
+}
+
+.users {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: 12px;
+  background: var(--c-card);
+}
+
+.userFocus {
+  box-shadow: 0 0 0 2px var(--c-accent);
+}
+
+.userInactive {
+  opacity: 0.6;
+}
+
+.userMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.userMain:hover b {
+  color: var(--c-accent);
+}
+
+.userBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.userBody b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userBody small {
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+}
+
+/* ---------- Окна ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.label {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--c-text-secondary);
+}
+
+.icons {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+
+.iconPick {
+  height: 40px;
+  border-radius: 10px;
+  background: var(--c-input-bg);
+  font-size: 19px;
+}
+
+.iconPickOn {
+  box-shadow: 0 0 0 2px var(--c-accent);
+  background: var(--c-accent-muted);
+}
+
+.colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.dialogHint {
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  color: var(--c-text-secondary);
+}

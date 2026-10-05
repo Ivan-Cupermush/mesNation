@@ -1,0 +1,235 @@
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 0 22px;
+  text-align: center;
+}
+
+.avatarWrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.camera {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  box-shadow: 0 0 0 3px var(--c-background);
+}
+
+.name {
+  font-size: 24px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profileCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--c-card);
+  text-align: left;
+}
+
+.profileCard:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.profileBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.profileBody b {
+  font-size: 17px;
+}
+
+.profileBody small {
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.muted {
+  color: var(--c-text-muted);
+}
+
+.footer {
+  padding: 8px 0 24px;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--c-text-muted);
+}
+
+/* ---------- Оформление ---------- */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 18px 14px;
+  border-radius: 18px;
+  background: var(--c-chat-bg);
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 8px 12px;
+  line-height: 1.38;
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.08);
+}
+
+.bubbleIn {
+  align-self: flex-start;
+  background: var(--c-other-message-bubble);
+  color: var(--c-other-message-text);
+}
+
+.bubbleOut {
+  align-self: flex-end;
+  background: var(--c-my-message-bubble);
+  color: var(--c-my-message-text);
+}
+
+.bubbleTime {
+  margin-left: 10px;
+  font-size: 11px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+
+.mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 6px;
+  border-radius: 14px;
+  border: 1.5px solid var(--c-border);
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--c-text-secondary);
+}
+
+.mode:hover {
+  background: var(--c-input-bg);
+}
+
+.modeOn,
+.modeOn:hover {
+  border-color: var(--c-accent);
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+}
+
+.palettes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border-radius: 14px;
+  border: 1.5px solid transparent;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.palette:hover {
+  background: var(--c-input-bg);
+}
+
+.paletteOn {
+  background: var(--c-input-bg);
+}
+
+.swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--c-text-secondary);
+}
+
+.slider input {
+  flex: 1;
+  accent-color: var(--c-accent);
+}
+
+.slider b {
+  min-width: 24px;
+  text-align: right;
+  color: var(--c-text-primary);
+}
+
+.cornerSharp,
+.cornerRound {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+}
+
+.cornerSharp {
+  border-radius: 3px;
+}
+
+.cornerRound {
+  border-radius: 9px;
+}

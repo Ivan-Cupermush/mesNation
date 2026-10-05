@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,16 @@ import {
   Platform,
   ActivityIndicator,
   StatusBar,
-  Alert
+  Alert,
+  Animated,
+  LayoutChangeEvent,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Star, Plus, FileText, BookOpen, UserRound, Paperclip, Copy, CopyPlus, Trash2 } from 'lucide-react-native';
 import ActionSheet from '../../components/chat/ActionSheet';
-import { CalendarView } from '../../components/CalendarView';
+import NotesCalendar, { CAL_COLLAPSE, CAL_FULL_H } from '../../components/NotesCalendar';
 import { api, Note, DayWithNotes } from '../../services/api';
 
 import { T, themed } from '../../theme/runtime';
@@ -24,6 +26,8 @@ const formatLocalDate = (date: Date): string => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+const NoteSeparator = () => <View style={styles.separator} />;
 
 export default function NotesScreen({ navigation }: any) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -36,15 +40,66 @@ export default function NotesScreen({ navigation }: any) {
   // и «Отмена» пропадала.
   const [menuNote, setMenuNote] = useState<Note | null>(null);
 
+  // Точки в календаре: соседние месяцы тоже видны (края сетки и свёрнутая неделя).
   const loadDaysWithNotes = useCallback(async () => {
     try {
-      const month = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
-      const data = await api.getDaysWithNotes(month);
-      setDaysWithNotes(data);
+      const months = [-1, 0, 1].map((k) => {
+        const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + k, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      });
+      const parts = await Promise.all(months.map((m) => api.getDaysWithNotes(m).catch(() => [] as DayWithNotes[])));
+      setDaysWithNotes(parts.flat());
     } catch (e) {
       console.error('Ошибка загрузки дней с заметками:', e);
     }
   }, [currentMonth]);
+
+  const marked = useMemo(
+    () => new Set(daysWithNotes.filter((d) => Number(d.note_count) > 0).map((d) => String(d.note_date).substring(0, 10))),
+    [daysWithNotes],
+  );
+
+  // ---------- Сворачивание календаря прокруткой ----------
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const offset = useRef(0);
+  const listRef = useRef<FlatList<Note>>(null);
+  const [viewportH, setViewportH] = useState(0);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStart = useRef(0);
+
+  const onScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        listener: (e: any) => {
+          offset.current = e.nativeEvent.contentOffset.y;
+        },
+      }),
+    [scrollY],
+  );
+
+  const scrollTo = (y: number, animated = true) => listRef.current?.scrollToOffset({ offset: Math.max(0, y), animated });
+
+  // Календарь не останавливается на полпути: доводим до ближайшего состояния.
+  const snap = (y: number) => {
+    if (y <= 0 || y >= CAL_COLLAPSE) return;
+    scrollTo(y > CAL_COLLAPSE / 2 ? CAL_COLLAPSE : 0);
+  };
+
+  const isCollapsed = () => offset.current >= CAL_COLLAPSE - 4;
+
+  const onCalendarDrag = (phase: 'start' | 'move' | 'end', dy: number, vy: number) => {
+    if (phase === 'start') {
+      dragStart.current = offset.current;
+    } else if (phase === 'move') {
+      scrollTo(dragStart.current - dy, false);
+    } else if (dy > 0 || vy > 0.3) {
+      // Потянули вниз — полный календарь и начало списка.
+      scrollTo(0);
+    } else if (offset.current < CAL_COLLAPSE) {
+      scrollTo(CAL_COLLAPSE);
+    }
+  };
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -72,6 +127,16 @@ export default function NotesScreen({ navigation }: any) {
 
   const handleDateSelect = (date: Date) => {
     setSelectedDate(date);
+    setFilter('all');
+    if (date.getMonth() !== currentMonth.getMonth() || date.getFullYear() !== currentMonth.getFullYear()) {
+      setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
+  };
+
+  const handleToday = () => {
+    const now = new Date();
+    setSelectedDate(now);
+    setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
     setFilter('all');
   };
 
@@ -204,70 +269,87 @@ export default function NotesScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Calendar */}
-      <View style={styles.calendarContainer}>
-        <CalendarView
-          currentMonth={currentMonth}
-          selectedDate={selectedDate}
-          daysWithNotes={daysWithNotes}
-          onDateSelect={handleDateSelect}
-          onMonthChange={handleMonthChange}
+      {/* Список под календарём: календарь лежит поверх и сворачивается прокруткой */}
+      <View style={styles.listArea} onLayout={(e: LayoutChangeEvent) => setViewportH(e.nativeEvent.layout.height)}>
+        <Animated.FlatList
+          ref={listRef as any}
+          data={notes}
+          keyExtractor={(item: Note) => item.id.toString()}
+          renderItem={renderNoteCard}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onScrollBeginDrag={() => snapTimer.current && clearTimeout(snapTimer.current)}
+          onScrollEndDrag={(e: any) => {
+            const y = e.nativeEvent.contentOffset.y;
+            snapTimer.current = setTimeout(() => snap(y), 120);
+          }}
+          onMomentumScrollBegin={() => snapTimer.current && clearTimeout(snapTimer.current)}
+          onMomentumScrollEnd={(e: any) => snap(e.nativeEvent.contentOffset.y)}
+          ListHeaderComponent={
+            <>
+              <View style={{ height: CAL_FULL_H }} />
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>
+                  {filter === 'favorite' ? 'Избранные заметки' : 'Записи за день'}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => setFilter(filter === 'all' ? 'favorite' : 'all')}
+                    activeOpacity={0.85}
+                    style={[styles.filterBtn, filter === 'favorite' && styles.filterBtnActive]}
+                    accessibilityLabel="Избранные заметки"
+                  >
+                    <Star
+                      size={18}
+                      color={filter === 'favorite' ? T.onAccent : T.warning}
+                      fill={filter === 'favorite' ? T.onAccent : T.warning}
+                      strokeWidth={2.2}
+                    />
+                  </TouchableOpacity>
+                  <View style={styles.listCountBadge}>
+                    <Text style={styles.listCountText}>{notes.length}</Text>
+                  </View>
+                </View>
+              </View>
+            </>
+          }
+          ListEmptyComponent={
+            loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={T.accent} />
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconWrap}>
+                  <FileText size={32} color={T.textMuted} strokeWidth={1.8} />
+                </View>
+                <Text style={styles.emptyTitle}>Нет заметок</Text>
+                <Text style={styles.emptySubtitle}>
+                  {filter === 'favorite'
+                    ? 'Добавьте заметки в избранное, нажав на звёздочку'
+                    : 'Создайте первую заметку для этой даты'}
+                </Text>
+              </View>
+            )
+          }
+          ItemSeparatorComponent={NoteSeparator}
+          // Свернуть календарь можно всегда, даже когда заметок мало.
+          contentContainerStyle={[styles.listContent, viewportH > 0 && { minHeight: viewportH + CAL_COLLAPSE }]}
+          showsVerticalScrollIndicator={false}
         />
-      </View>
-
-      {/* Notes List */}
-      <View style={styles.listContainer}>
-        <View style={styles.listHeader}>
-          <Text style={styles.listTitle}>
-            {filter === 'favorite' ? 'Избранные заметки' : `Записи за день`}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity
-              onPress={() => setFilter(filter === 'all' ? 'favorite' : 'all')}
-              activeOpacity={0.85}
-              style={[
-                styles.filterBtn,
-                filter === 'favorite' && styles.filterBtnActive,
-              ]}
-            >
-              <Star
-                size={18}
-                color={filter === 'favorite' ? T.onAccent : T.warning}
-                fill={filter === 'favorite' ? T.onAccent : T.warning}
-                strokeWidth={2.2}
-              />
-            </TouchableOpacity>
-            <View style={styles.listCountBadge}>
-              <Text style={styles.listCountText}>{notes.length}</Text>
-            </View>
-          </View>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={T.accent} />
-          </View>
-        ) : notes.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconWrap}>
-              <FileText size={32} color={T.textMuted} strokeWidth={1.8} />
-            </View>
-            <Text style={styles.emptyTitle}>Нет заметок</Text>
-            <Text style={styles.emptySubtitle}>
-              {filter === 'favorite'
-                ? 'Добавьте заметки в избранное, нажав на звёздочку'
-                : 'Создайте первую заметку для этой даты'}
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={notes}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderNoteCard}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
+        <View style={styles.calendarOverlay} pointerEvents="box-none">
+          <NotesCalendar
+            month={currentMonth}
+            selected={selectedDate}
+            marked={marked}
+            scrollY={scrollY}
+            isCollapsed={isCollapsed}
+            onSelect={handleDateSelect}
+            onMonthChange={handleMonthChange}
+            onToday={handleToday}
+            onVerticalDrag={onCalendarDrag}
           />
-        )}
+        </View>
       </View>
 
       {/* FAB */}
@@ -300,7 +382,7 @@ const styles = themed(() => ({
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingTop: 8,
-    paddingBottom: 24,
+    paddingBottom: 10,
   },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
@@ -330,20 +412,16 @@ const styles = themed(() => ({
     elevation: 2,
   },
 
-  // ===== CALENDAR =====
-  calendarContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 20,
-  },
-
-  // ===== LIST =====
-  listContainer: { flex: 1 },
+  // ===== СПИСОК И КАЛЕНДАРЬ =====
+  listArea: { flex: 1 },
+  separator: { height: 14 },
+  calendarOverlay: { position: 'absolute', left: 0, right: 0, top: 0 },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    marginBottom: 16,
+    paddingTop: 8,
+    marginBottom: 14,
   },
   listTitle: {
     fontSize: 20,
@@ -381,10 +459,10 @@ const styles = themed(() => ({
   },
 
   // ===== STATES =====
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingContainer: { paddingTop: 48, justifyContent: 'center', alignItems: 'center' },
   emptyState: {
-    flex: 1, justifyContent: 'center', alignItems: 'center',
-    paddingHorizontal: 48,
+    justifyContent: 'center', alignItems: 'center',
+    paddingHorizontal: 24, paddingTop: 36,
   },
   emptyIconWrap: {
     width: 72, height: 72, borderRadius: 20, backgroundColor: T.inputBg,
@@ -401,9 +479,8 @@ const styles = themed(() => ({
 
   // ===== NOTE CARDS =====
   listContent: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingBottom: 120,
-    gap: 16,
   },
   noteCard: {
     backgroundColor: T.card,

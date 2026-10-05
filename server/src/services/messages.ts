@@ -2,6 +2,7 @@ import pool from '../db/pool';
 import { badRequest } from '../lib/errors';
 import { assertChatMember } from './access';
 import { emitToChat, emitToUser } from '../realtime/socket';
+import { fireAndForget, notifyNewMessage } from './push';
 
 /** Поля сообщения + данные отправителя. Используется во всех выборках. */
 export const MESSAGE_SELECT = `
@@ -149,6 +150,8 @@ export async function createMessage(input: NewMessage) {
   // даже если чат у них сейчас не открыт.
   const members = await pool.query('SELECT user_id FROM chat_members WHERE chat_id = $1', [input.chatId]);
   for (const r of members.rows) emitToUser(r.user_id, 'chat_activity', { chat_id: input.chatId, message_id: message.id });
+  // Push на телефоны (когда приложение свёрнуто или закрыто).
+  fireAndForget(notifyNewMessage(message), 'новое сообщение');
   return message;
 }
 

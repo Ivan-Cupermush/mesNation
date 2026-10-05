@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Цвет значка и акцента уведомлений Offix. -->
+    <color name="notification_accent">#1F7A52</color>
+</resources>

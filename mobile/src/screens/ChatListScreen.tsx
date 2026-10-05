@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Search, Plus, Pin, PinOff, MessageCircle, UserRound, Users, Check, CheckCheck, X, Trash2, LogOut, MailOpen } from 'lucide-react-native';
+import { Search, Plus, Pin, PinOff, MessageCircle, UserRound, Users, Check, CheckCheck, X, Trash2, LogOut, MailOpen, BellOff, Bell } from 'lucide-react-native';
+import { MUTE_OPTIONS, isMuted, setChatMute } from '../notifications/mute';
 import { SERVER_URL } from '../config';
 import { request } from '../services/http';
 import { subscribe } from '../services/socket';
@@ -173,6 +174,17 @@ export default function ChatListScreen({ navigation }: any) {
     }
   };
 
+  const [muteChat, setMuteChat] = useState<any>(null);
+
+  const applyMute = async (chat: any, ms: number | null | 0) => {
+    try {
+      await setChatMute(chat.id, ms);
+      loadChats();
+    } catch (e: any) {
+      Alert.alert('Не удалось', e?.message || '');
+    }
+  };
+
   const markRead = async (chat: any) => {
     if (!chat.last_message) return;
     try {
@@ -217,6 +229,9 @@ export default function ChatListScreen({ navigation }: any) {
     ...(chat.unread_count > 0
       ? [{ key: 'read', label: 'Отметить прочитанным', icon: <MailOpen size={20} color={C.text} />, onPress: () => markRead(chat) }]
       : []),
+    isMuted(chat.muted_until)
+      ? { key: 'unmute', label: 'Включить уведомления', icon: <Bell size={20} color={C.text} />, onPress: () => applyMute(chat, 0) }
+      : { key: 'mute', label: 'Без звука…', icon: <BellOff size={20} color={C.text} />, onPress: () => setMuteChat(chat) },
     {
       key: 'remove',
       label: chat.type === 'private' ? 'Удалить чат' : chat.created_by === meId ? 'Удалить или покинуть' : 'Покинуть группу',
@@ -261,6 +276,7 @@ export default function ChatListScreen({ navigation }: any) {
             <Text style={styles.name} numberOfLines={1}>
               {item.name || 'Чат'}
             </Text>
+            {isMuted(item.muted_until) && <BellOff size={14} color={C.textMuted} strokeWidth={2.2} />}
             {mineLast && (read ? <CheckCheck size={16} color={C.accent} /> : <Check size={15} color={C.accent} />)}
             <Text style={[styles.time, item.unread_count > 0 && { color: C.accent }]}>{formatTime(lm?.created_at || item.created_at)}</Text>
           </View>
@@ -270,7 +286,7 @@ export default function ChatListScreen({ navigation }: any) {
               {text}
             </Text>
             {item.unread_count > 0 ? (
-              <View style={styles.badge}>
+              <View style={[styles.badge, isMuted(item.muted_until) && { backgroundColor: T.disabled }]}>
                 <Text style={styles.badgeText}>{item.unread_count > 99 ? '99+' : item.unread_count}</Text>
               </View>
             ) : item.pinned_at ? (
@@ -404,6 +420,17 @@ export default function ChatListScreen({ navigation }: any) {
         title={menuChat?.name}
         actions={menuChat ? menuActions(menuChat) : []}
         onClose={() => setMenuChat(null)}
+      />
+      <ActionSheet
+        visible={!!muteChat}
+        title={muteChat ? `Уведомления: ${muteChat.name}` : undefined}
+        actions={MUTE_OPTIONS.map((o) => ({
+          key: o.key,
+          label: o.label,
+          icon: <BellOff size={20} color={C.text} />,
+          onPress: () => muteChat && applyMute(muteChat, o.ms),
+        }))}
+        onClose={() => setMuteChat(null)}
       />
     </SafeAreaView>
   );

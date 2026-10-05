@@ -37,11 +37,14 @@ import {
   UserMinus,
   ShieldOff,
   Wallpaper as WallpaperIcon,
+  Bell,
+  BellOff,
 } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request, upload } from '../services/http';
 import { subscribe } from '../services/socket';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
+import { MUTE_OPTIONS, isMuted, muteLabel, setChatMute } from '../notifications/mute';
 import { C, hashColor, initials, lastSeenLabel, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
@@ -84,6 +87,16 @@ export default function ChatInfoScreen({ navigation }: any) {
   const chatId = route.params.chatId;
 
   const [chat, setChat] = useState<any>(null);
+  const [muteOpen, setMuteOpen] = useState(false);
+
+  const changeMute = async (ms: number | null | 0) => {
+    try {
+      const until = await setChatMute(chatId, ms);
+      setChat((c: any) => (c ? { ...c, muted_until: until } : c));
+    } catch (e: any) {
+      Alert.alert('Не удалось', e?.message || '');
+    }
+  };
   const [admins, setAdmins] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [meId, setMeId] = useState<number | null>(null);
@@ -398,7 +411,24 @@ export default function ChatInfoScreen({ navigation }: any) {
           ))}
         </View>
 
-        {/* ===== ФОН ЧАТА ===== */}
+        {/* ===== УВЕДОМЛЕНИЯ И ФОН ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => (isMuted(chat?.muted_until) ? changeMute(0) : setMuteOpen(true))}
+            activeOpacity={0.6}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: isMuted(chat?.muted_until) ? T.inputBg : C.accentSoft }]}>
+              {isMuted(chat?.muted_until) ? <BellOff size={19} color={T.textSecondary} /> : <Bell size={19} color={C.accent} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowText}>Уведомления</Text>
+              <Text style={styles.rowHint}>{muteLabel(chat?.muted_until)}</Text>
+            </View>
+            <Text style={[styles.rowCount, { color: C.accent }]}>{isMuted(chat?.muted_until) ? 'Включить' : ''}</Text>
+            {!isMuted(chat?.muted_until) && <ChevronRight size={18} color={T.textMuted} />}
+          </TouchableOpacity>
+        </View>
         <View style={styles.card}>
           <TouchableOpacity style={styles.row} onPress={() => setWallpaperOpen(true)} activeOpacity={0.6}>
             <View style={[styles.rowIcon, { overflow: 'hidden' }]}>
@@ -525,6 +555,12 @@ export default function ChatInfoScreen({ navigation }: any) {
       </Modal>
 
       {/* ===== Меню участника ===== */}
+      <ActionSheet
+        visible={muteOpen}
+        title="Уведомления этого чата"
+        actions={MUTE_OPTIONS.map((o) => ({ key: o.key, label: o.label, icon: <BellOff size={20} color={C.text} />, onPress: () => changeMute(o.ms) }))}
+        onClose={() => setMuteOpen(false)}
+      />
       <ActionSheet
         visible={!!memberMenu}
         title={memberMenu ? memberMenu.display_name || memberMenu.username : ''}

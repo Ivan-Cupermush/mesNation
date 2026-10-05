@@ -29,6 +29,7 @@ import {
   MonitorSmartphone,
   Building2,
   Palette,
+  Bell,
 } from 'lucide-react-native';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
@@ -383,6 +384,20 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
             <View style={{ flex: 1 }}>
               <Text style={styles.infoValue}>Настройки внешнего вида</Text>
               <Text style={styles.infoLabel}>Тема, цвет, фон чатов, размер текста</Text>
+            </View>
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ===== УВЕДОМЛЕНИЯ ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate('NotificationSettings')} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: T.dangerSoft }]}>
+              <Bell size={16} color={T.danger} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Уведомления</Text>
+              <Text style={styles.infoLabel}>Сообщения, задачи, звук, проверка</Text>
             </View>
             <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>

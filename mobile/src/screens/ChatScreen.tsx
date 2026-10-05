@@ -41,23 +41,25 @@ import {
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
 import { api } from '../services/api';
-import { request, signedFileUrl, upload } from '../services/http';
+import { ApiError, request, signedFileUrl, uploadWithProgress, UploadCancelled } from '../services/http';
 import { emitEvent, joinChat, makeClientId, sendMessage, subscribe } from '../services/socket';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import ShareToChatModal from '../components/ShareToChatModal';
-import AttachSheet, { PickedMedia } from '../components/chat/AttachSheet';
-import PollComposer, { PollDraft } from '../components/chat/PollComposer';
+import AttachSheet, { MediaSendOptions, PickedFile, PickedMedia } from '../components/chat/AttachSheet';
+import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/PollComposer';
 import NotePickerModal from '../components/chat/NotePickerModal';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
 import { WallpaperView } from '../components/chat/ChatWallpaper';
 import { useChatWallpaper } from '../theme/wallpapers';
-import { C, dayLabel, hashColor, initials, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
-import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
+import { C, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { useTheme } from '../theme/ThemeContext';
+import { clearActiveChat, setActiveChat } from '../notifications/state';
+import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
@@ -92,6 +94,7 @@ export default function ChatScreen({ navigation }: any) {
   const topicId = route.params.topicId ?? null;
   const initialMessageId = route.params.messageId;
   const isFocused = useIsFocused();
+  const { sendByEnter } = useTheme();
 
   const [chat, setChat] = useState<any>(null);
   const chatName = chat?.name || route.params.chatName || 'Чат';
@@ -361,6 +364,16 @@ export default function ChatScreen({ navigation }: any) {
     return () => clearInterval(t);
   }, [typing]);
 
+  // ===== Уведомления =====
+  // Открытый чат не присылает уведомлений о своих сообщениях; при открытии
+  // его уведомление из шторки убирается (как в Telegram).
+  useEffect(() => {
+    if (!isFocused) return;
+    setActiveChat(chatId, topicId);
+    clearChatNotification(chatId).catch(() => undefined);
+    return () => clearActiveChat(chatId, topicId);
+  }, [isFocused, chatId, topicId]);
+
   // ===== Прочитано =====
   useEffect(() => {
     if (!isFocused || loading) return;
@@ -404,9 +417,12 @@ export default function ChatScreen({ navigation }: any) {
         continue;
       }
       const last = rows[rows.length - 1];
-      if (m.media_group_id && isVisualMedia(m) && last && last.type !== 'service') {
+      const groupable = isVisualMedia(m) || isDocument(m);
+      if (m.media_group_id && groupable && last && last.type !== 'service') {
         const lastMsg = last.type === 'album' ? last.msgs[0] : last.msg;
-        if (lastMsg.media_group_id === m.media_group_id && lastMsg.sender_id === m.sender_id) {
+        // Альбом — только однородный: фото/видео отдельно, документы отдельно.
+        const sameKind = isDocument(m) === isDocument(lastMsg);
+        if (lastMsg.media_group_id === m.media_group_id && lastMsg.sender_id === m.sender_id && sameKind) {
           const msgs = last.type === 'album' ? [...last.msgs, m] : [last.msg, m];
           rows[rows.length - 1] = { type: 'album', key: `a-${m.media_group_id}`, msgs };
           continue;
@@ -477,12 +493,35 @@ export default function ChatScreen({ navigation }: any) {
 
   // ===== Отправка =====
 
+  // Идущие загрузки: client_id → отмена (крестик на сообщении).
+  const uploads = useRef(new Map<string, () => void>());
+  // Отменённые ещё до начала загрузки (стояли в очереди альбома).
+  const cancelled = useRef(new Set<string>());
+
+  const setProgress = (clientId: string, progress: number) =>
+    setMessages((prev) => prev.map((m) => (m.client_id === clientId && m.status === 'sending' ? { ...m, progress } : m)));
+
+  /** Отменить отправку файла/фото: остановить загрузку и убрать сообщение. */
+  const cancelUpload = useCallback((msg: any) => {
+    cancelled.current.add(msg.client_id);
+    uploads.current.get(msg.client_id)?.();
+    uploads.current.delete(msg.client_id);
+    setMessages((prev) => prev.filter((m) => m.client_id !== msg.client_id));
+  }, []);
+
   /** Отправляет (или повторяет отправку) локального сообщения. */
   const deliver = async (local: ChatMessage) => {
-    setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'sending' } : m)));
+    if (cancelled.current.has(local.client_id)) return;
+    setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'sending', progress: 0 } : m)));
     try {
-      const saved = local.local_file
-        ? await upload<any>('/api/upload', 'file', local.local_file, {
+      let saved: any;
+      if (local.local_file) {
+        let last = 0;
+        const task = uploadWithProgress<any>(
+          '/api/upload',
+          'file',
+          local.local_file,
+          {
             chatId,
             topicId: topicId ?? undefined,
             client_id: local.client_id,
@@ -490,17 +529,35 @@ export default function ChatScreen({ navigation }: any) {
             media_group_id: local.media_group_id || undefined,
             as_file: local.as_file ? 'true' : undefined,
             reply_to_message_id: local.reply_to_message_id || undefined,
-          })
-        : await sendMessage({
+          },
+          (p) => {
+            // Не перерисовываем ленту на каждый байт — шаг 4%.
+            if (p - last >= 0.04 || p >= 1) {
+              last = p;
+              setProgress(local.client_id, p);
+            }
+          },
+        );
+        uploads.current.set(local.client_id, task.abort);
+        try {
+          saved = await task.promise;
+        } finally {
+          uploads.current.delete(local.client_id);
+        }
+      } else {
+        saved = await sendMessage({
             chatId,
             text: local.text,
             reply_to_message_id: local.reply_to_message_id ?? null,
             topic_id: topicId,
             client_id: local.client_id,
           });
+      }
       setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...saved, status: 'sent' } : m)));
-    } catch {
+    } catch (e) {
+      if (e instanceof UploadCancelled) return; // сообщение уже убрано
       setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'failed' } : m)));
+      if (e instanceof ApiError && e.status === 413) Alert.alert('Файл слишком большой', 'Максимальный размер — 200 МБ');
     }
   };
 
@@ -543,25 +600,11 @@ export default function ChatScreen({ navigation }: any) {
     deliver(local);
   };
 
-  /** Фото/видео из галереи: несколько штук уходят одним альбомом. */
-  const sendMedia = async (picked: PickedMedia[], caption: string, asFile: boolean) => {
-    const groupId = picked.length > 1 && !asFile ? `g${Date.now()}${Math.random().toString(36).slice(2, 8)}` : null;
-    const locals: ChatMessage[] = picked.map((p, i) => ({
-      ...baseLocal(),
-      client_id: makeClientId(),
-      text: i === 0 ? caption || null : null,
-      reply_to_message_id: i === 0 ? replyTo?.id ?? null : null,
-      media_kind: asFile ? 'file' : p.isVideo ? 'video' : 'photo',
-      media_group_id: groupId,
-      media_width: p.width,
-      media_height: p.height,
-      media_duration: p.duration,
-      local_uri: asFile ? null : p.uri,
-      file_url: asFile ? 'local' : null,
-      file_name: p.name,
-      as_file: asFile,
-      local_file: { uri: p.uri, name: p.name, type: p.type },
-    }));
+  /** Новая группа сообщений (альбом). */
+  const newGroupId = () => `g${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+
+  /** Ставит локальные сообщения в ленту и отправляет их по порядку. */
+  const enqueue = async (locals: ChatMessage[]) => {
     setMessages((prev) => [...prev, ...locals]);
     setReplyTo(null);
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -569,31 +612,73 @@ export default function ChatScreen({ navigation }: any) {
     for (const l of locals) await deliver(l);
   };
 
-  const pickFiles = async () => {
-    try {
-      const files = await pick({ type: [types.allFiles], allowMultiSelection: true });
-      const locals: ChatMessage[] = files
-        .filter((f) => f.uri)
-        .map((f) => ({
-          ...baseLocal(),
-          client_id: makeClientId(),
-          media_kind: 'file',
-          file_url: 'local',
-          file_name: f.name || 'Файл',
-          file_size: f.size,
-          as_file: true,
-          local_file: { uri: f.uri, name: f.name || 'file', type: f.type },
-        }));
-      setMessages((prev) => [...prev, ...locals]);
-      for (const l of locals) await deliver(l);
-    } catch (err: any) {
-      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
-      Alert.alert('Не удалось выбрать файл', err?.message || '');
-    }
+  /**
+   * Фото и видео из галереи (как в Telegram): по умолчанию альбомами по 10,
+   * подпись — у первого; «Без сжатия» — отправка файлами.
+   */
+  const sendMedia = async (picked: PickedMedia[], caption: string, opts: MediaSendOptions) => {
+    const reply = replyTo?.id ?? null;
+    const locals: ChatMessage[] = [];
+    let groupId: string | null = null;
+    picked.forEach((p, i) => {
+      if (opts.group && picked.length > 1 && i % 10 === 0) groupId = newGroupId();
+      locals.push({
+        ...baseLocal(),
+        client_id: makeClientId(),
+        text: i === 0 ? caption || null : null,
+        reply_to_message_id: i === 0 ? reply : null,
+        media_kind: opts.asFile ? 'file' : p.isVideo ? 'video' : 'photo',
+        media_group_id: opts.group && picked.length > 1 ? groupId : null,
+        media_width: p.width,
+        media_height: p.height,
+        media_duration: p.duration,
+        local_uri: opts.asFile ? null : p.uri,
+        file_url: opts.asFile ? 'local' : null,
+        file_name: p.name,
+        as_file: opts.asFile,
+        local_file: { uri: p.uri, name: p.name, type: p.type },
+      });
+    });
+    await enqueue(locals);
   };
 
-  const createPoll = async (p: PollDraft) => {
-    await request('/api/polls', { method: 'POST', body: { ...p, chat_id: Number(chatId), topic_id: topicId } });
+  /**
+   * Документы: список выбранного с подписью; вместе — одной группой
+   * (по 10), подпись — под последним файлом, как в Telegram.
+   */
+  const sendFiles = async (files: PickedFile[], caption: string, opts: { group: boolean }) => {
+    const reply = replyTo?.id ?? null;
+    let groupId: string | null = null;
+    const locals: ChatMessage[] = files.map((f, i) => {
+      if (opts.group && files.length > 1 && i % 10 === 0) groupId = newGroupId();
+      return {
+        ...baseLocal(),
+        client_id: makeClientId(),
+        text: i === files.length - 1 ? caption || null : null,
+        reply_to_message_id: i === 0 ? reply : null,
+        media_kind: 'file',
+        media_group_id: opts.group && files.length > 1 ? groupId : null,
+        file_url: 'local',
+        file_name: f.name || 'Файл',
+        file_size: f.size,
+        as_file: true,
+        local_file: { uri: f.uri, name: f.name || 'file', type: f.type },
+      };
+    });
+    await enqueue(locals);
+  };
+
+  const createPoll = async (p: PollDraft, media: PollMediaDraft | null) => {
+    const body = { ...p, chat_id: Number(chatId), topic_id: topicId };
+    if (media) {
+      // Опрос с вложением: вопрос и файл одним запросом.
+      await uploadWithProgress('/api/polls/with-media', 'file', media, {
+        payload: JSON.stringify(body),
+        as_file: media.kind === 'file' ? 'true' : undefined,
+      }).promise;
+    } else {
+      await request('/api/polls', { method: 'POST', body });
+    }
     // Сам опрос придёт всем участникам по сокету.
   };
 
@@ -898,6 +983,7 @@ export default function ChatScreen({ navigation }: any) {
         onPressReply={onPressReply}
         onSwipeReply={(m) => !m.local && setReplyTo(m)}
         onRetry={retryOrDiscard}
+        onCancelUpload={cancelUpload}
         onNoteAccepted={onNoteAccepted}
         onPressSender={(userId) => navigation.navigate('UserProfile', { userId })}
       />
@@ -1073,6 +1159,10 @@ export default function ChatScreen({ navigation }: any) {
             placeholderTextColor={T.textMuted}
             multiline
             maxLength={4000}
+            // «Отправка по Enter» (Внешний вид → Чаты): Enter отправляет вместо новой строки.
+            submitBehavior={sendByEnter ? 'submit' : 'newline'}
+            returnKeyType={sendByEnter ? 'send' : 'default'}
+            onSubmitEditing={sendByEnter ? handleSend : undefined}
           />
           <TouchableOpacity
             onPress={handleSend}
@@ -1096,7 +1186,7 @@ export default function ChatScreen({ navigation }: any) {
         visible={showAttach}
         onClose={() => setShowAttach(false)}
         onSendMedia={sendMedia}
-        onPickFiles={pickFiles}
+        onSendFiles={sendFiles}
         onPoll={() => setShowPoll(true)}
         onNote={() => setShowNotes(true)}
       />

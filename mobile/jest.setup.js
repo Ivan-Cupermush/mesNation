@@ -49,3 +49,35 @@ jest.mock('react-native-video', () => {
   const Video = React.forwardRef((props, _ref) => React.createElement(View, props));
   return { __esModule: true, default: Video, Video };
 });
+jest.mock('@notifee/react-native', () => {
+  const api = {
+    createChannel: jest.fn(async () => 'id'),
+    requestPermission: jest.fn(async () => ({})),
+    displayNotification: jest.fn(async () => 'id'),
+    cancelNotification: jest.fn(async () => undefined),
+    cancelAllNotifications: jest.fn(async () => undefined),
+    getDisplayedNotifications: jest.fn(async () => []),
+    getInitialNotification: jest.fn(async () => null),
+    onForegroundEvent: jest.fn(() => () => undefined),
+    onBackgroundEvent: jest.fn(),
+  };
+  return {
+    __esModule: true,
+    default: api,
+    EventType: { PRESS: 1, ACTION_PRESS: 2 },
+    AndroidImportance: { HIGH: 4 },
+    AndroidStyle: { BIGTEXT: 0, MESSAGING: 2 },
+    AndroidCategory: { MESSAGE: 'msg', REMINDER: 'reminder' },
+    AndroidVisibility: { PRIVATE: 0 },
+    AndroidGroupAlertBehavior: { CHILDREN: 2 },
+  };
+});
+jest.mock('@react-native-firebase/app', () => ({ getApps: () => [] }));
+jest.mock('@react-native-firebase/messaging', () => ({
+  getMessaging: jest.fn(),
+  getToken: jest.fn(),
+  deleteToken: jest.fn(),
+  onMessage: jest.fn(() => () => undefined),
+  onTokenRefresh: jest.fn(() => () => undefined),
+  setBackgroundMessageHandler: jest.fn(),
+}));

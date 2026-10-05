@@ -9,6 +9,7 @@ import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/upl
 import { assertCanAssign, assertCanViewTask, getTaskRoles, getUserNode, getSubtreeNodeIds, isDirector } from '../services/access';
 import { checkOverdueTasks } from '../services/deadlineChecker';
 import { emitToUser } from '../realtime/socket';
+import { fireAndForget, notifyTask } from '../services/push';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL, REVIEW_AFTER_FINAL_MESSAGE, reviewWithinFinal } from '../services/taskDeadlines';
 
 /**
@@ -190,6 +191,24 @@ async function notifyParticipants(taskId: number, event = 'task_updated') {
   for (const r of rows) emitToUser(r.uid, event, { task_id: taskId });
 }
 
+/** Push по смене статуса: на проверку — проверяющим, итог проверки — исполнителям. */
+async function notifyTransition(taskId: number, from: string, to: string, actorId: number, comment: string | null) {
+  const people = (
+    await pool.query(
+      `SELECT t.creator_id,
+              ARRAY(SELECT user_id FROM task_assignees WHERE task_id = t.id) AS assignees,
+              ARRAY(SELECT user_id FROM task_watchers WHERE task_id = t.id) AS watchers
+       FROM tasks t WHERE t.id = $1`,
+      [taskId],
+    )
+  ).rows[0];
+  if (!people) return;
+  if (to === 'on_review') return notifyTask('review', taskId, [people.creator_id, ...people.watchers], actorId, comment);
+  if (to === 'rejected') return notifyTask('rejected', taskId, people.assignees, actorId, comment);
+  if (to === 'done') return notifyTask('done', taskId, people.assignees, actorId, comment);
+  if (from === 'done' && to === 'in_progress') return notifyTask('returned', taskId, people.assignees, actorId, comment);
+}
+
 const isoDate = z.coerce.date({ error: 'Некорректная дата' });
 
 const checkpointInput = z.object({
@@ -259,6 +278,7 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
     return task.id;
   });
   await notifyParticipants(taskId, 'task_created');
+  fireAndForget(notifyTask('assigned', taskId, assignees, me), 'новая задача');
   res.status(201).json(await loadTask(taskId, me));
 });
 
@@ -327,6 +347,9 @@ async function updateTask(req: AuthRequest, res: Response) {
   if (body.executor_comment !== undefined) set('executor_comment', body.executor_comment);
   if (body.watcher_comment !== undefined) set('watcher_comment', body.watcher_comment);
 
+  const prevAssignees: number[] = body.assignee_ids
+    ? (await pool.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId])).rows.map((r) => r.user_id)
+    : [];
   await withTransaction(async (client) => {
     if (sets.length) {
       values.push(taskId);
@@ -343,6 +366,11 @@ async function updateTask(req: AuthRequest, res: Response) {
     }
   });
   await notifyParticipants(taskId);
+  if (body.assignee_ids) {
+    // Новым исполнителям — уведомление «вам назначена задача».
+    const added = Array.from(new Set(body.assignee_ids)).filter((u) => !prevAssignees.includes(u));
+    if (added.length) fireAndForget(notifyTask('assigned', taskId, added, me), 'назначение исполнителя');
+  }
   res.json(await loadTask(taskId, me));
 }
 
@@ -447,6 +475,7 @@ router.post('/:id/transition', validate(transitionSchema), async (req: AuthReque
     return { from: task.status_new, action: t.action };
   });
   await notifyParticipants(taskId);
+  fireAndForget(notifyTransition(taskId, result.from, to_status, me, comment || null), 'смена статуса задачи');
   res.json({
     ...(await loadTask(taskId, me)),
     transition: { from: result.from, to: to_status, action: result.action, changed_by: me, comment: comment || null },

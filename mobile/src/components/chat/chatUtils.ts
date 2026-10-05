@@ -108,6 +108,26 @@ export const dayLabel = (d: Date) => {
   return d.toLocaleDateString('ru-RU', sameYear ? { day: 'numeric', month: 'long' } : { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+/** Документ (не фото/видео) — для группировки файлов в один пузырь. */
+export const isDocument = (m: any) => m && !m.deleted_for_all && !m.poll_id && !!m.file_url && m.media_kind === 'file';
+
+/**
+ * Значок файла как в Telegram: цвет и подпись по расширению
+ * (PDF — красный, Word — синий, Excel — зелёный…).
+ */
+export function fileBadge(name?: string | null): { ext: string; color: string } {
+  const ext = (String(name || '').split('.').pop() || '').toLowerCase();
+  const pick = (color: string) => ({ ext: ext.slice(0, 4).toUpperCase(), color });
+  if (ext === 'pdf') return pick('#E5484D');
+  if (['doc', 'docx', 'rtf', 'odt', 'txt', 'md'].includes(ext)) return pick('#3E7BFA');
+  if (['xls', 'xlsx', 'csv', 'ods'].includes(ext)) return pick('#2FA36B');
+  if (['ppt', 'pptx', 'key', 'odp'].includes(ext)) return pick('#F08C2E');
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return pick('#8E6CEF');
+  if (['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext)) return pick('#E0559B');
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'mp4', 'mov', 'avi', 'mkv'].includes(ext)) return pick('#1FA3B3');
+  return { ext: ext && ext.length <= 4 ? ext.toUpperCase() : '', color: '#7A8591' };
+}
+
 export const isVisualMedia = (m: any) => m && !m.deleted_for_all && (m.media_kind === 'photo' || m.media_kind === 'video' || (!m.media_kind && !!m.thumb_url));
 
 /** Короткое описание сообщения для цитат, закрепа и списка чатов. */

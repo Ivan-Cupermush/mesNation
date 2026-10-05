@@ -1,3 +1,4 @@
+import { refreshPushRegistration } from '../notifications';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -39,7 +40,11 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
     setSaving(true);
     try {
       const r = await api.changePassword(current, next);
-      if (r.token) await setToken(r.token);
+      if (r.token) {
+        await setToken(r.token);
+        // Сервер отвязал все телефоны от push — этот привязываем снова.
+        refreshPushRegistration();
+      }
       onClose();
       Alert.alert('Пароль изменён', 'На других устройствах нужно будет войти заново.');
     } catch (e: any) {

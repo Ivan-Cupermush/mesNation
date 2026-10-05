@@ -78,6 +78,23 @@ jobs:
             echo "KEYSTORE_BASE64 не задан — подпись ключом из репозитория"
           fi
 
+      - name: Firebase config for push notifications
+        working-directory: mobile/android/app
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          # Секрет — содержимое google-services.json (как есть или в base64).
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            if echo "$GOOGLE_SERVICES_JSON" | head -c 1 | grep -q '{'; then
+              printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+            else
+              echo "$GOOGLE_SERVICES_JSON" | base64 -d > google-services.json
+            fi
+            echo "Firebase подключён: push будут приходить и при закрытом приложении"
+          else
+            echo "GOOGLE_SERVICES_JSON не задан — сборка без Firebase (уведомления, пока приложение запущено)"
+          fi
+
       - name: Prepare signing properties
         working-directory: mobile/android
         env:

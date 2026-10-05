@@ -531,6 +531,55 @@ describe('мессенджер как в Telegram', () => {
     expect(asFile.body).toMatchObject({ media_kind: 'file', thumb_url: null, media_group_id: null });
   });
 
+  it('файлы, отправленные вместе, группируются; подпись сохраняется', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Документы', user_ids: [c.mgr2.id] });
+    const up = (name: string, caption?: string) => {
+      const r = as(c.mgr1).upload('/api/upload', 'file', Buffer.from(name), name).field('chatId', String(chat.body.id)).field('media_group_id', 'docs-1');
+      return caption ? r.field('caption', caption) : r;
+    };
+    const a = await up('a.pdf');
+    const b = await up('b.pdf', 'Договор и приложение');
+    expect(a.body).toMatchObject({ media_kind: 'file', media_group_id: 'docs-1' });
+    expect(b.body).toMatchObject({ media_group_id: 'docs-1', text: 'Договор и приложение' });
+  });
+
+  it('опрос с фото: медиа хранится в сообщении опроса', async () => {
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#2563EB' } }).png().toBuffer();
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Опрос с фото', user_ids: [c.mgr2.id] });
+    const payload = JSON.stringify({ chat_id: chat.body.id, question: 'Какой макет?', options: ['Первый', 'Второй'] });
+    const r = await as(c.mgr1).upload('/api/polls/with-media', 'file', png, 'mock.png').field('payload', payload);
+    expect(r.status).toBe(201);
+    expect(r.body.message).toMatchObject({ content_type: 'poll', media_kind: 'photo', media_width: 300 });
+    expect(r.body.message.thumb_url).toMatch(/^\/uploads\/thumbs\//);
+    const bad = await as(c.mgr1).upload('/api/polls/with-media', 'file', png, 'mock.png').field('payload', '{"chat_id":1}');
+    expect(bad.status).toBe(400);
+  });
+
+  it('push: регистрация устройства, без звука для чата, отправка по HTTP', async () => {
+    const token = 'fcm-token-' + 'x'.repeat(40);
+    expect((await as(c.mgr1).post('/api/push/token', { token })).status).toBe(200);
+    // Тот же телефон — другой вход: токен переходит к новому пользователю.
+    expect((await as(c.mgr2).post('/api/push/token', { token })).status).toBe(200);
+    const owner = await pool.query('SELECT user_id FROM push_tokens WHERE token = $1', [token]);
+    expect(owner.rows[0].user_id).toBe(c.mgr2.id);
+    expect((await as(c.mgr2).delete('/api/push/token').send({ token })).status).toBe(200);
+    expect((await as(c.mgr1).get('/api/push/status')).body).toEqual({ enabled: false });
+
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Тихий', user_ids: [c.mgr2.id] });
+    const until = new Date(Date.now() + 3600_000).toISOString();
+    expect((await as(c.mgr2).patch(`/api/chats/${chat.body.id}/membership`, { muted_until: until })).status).toBe(200);
+    const list = (await as(c.mgr2).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === chat.body.id).muted_until).toBeTruthy();
+    await as(c.mgr2).patch(`/api/chats/${chat.body.id}/membership`, { muted_until: null });
+    expect((await as(c.mgr2).get(`/api/chats/${chat.body.id}`)).body.muted_until).toBeNull();
+
+    const sent = await as(c.mgr2).post(`/api/chats/${chat.body.id}/messages`, { text: 'Ответ из уведомления', client_id: 'n-1' });
+    expect(sent.status).toBe(201);
+    expect(sent.body).toMatchObject({ text: 'Ответ из уведомления', sender_id: c.mgr2.id });
+    expect((await as(c.acc).post(`/api/chats/${chat.body.id}/messages`, { text: 'чужой' })).status).toBe(403);
+  });
+
   it('викторина с пояснением, остановка опроса', async () => {
     const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Квиз', user_ids: [c.mgr2.id] });
     const p = await as(c.mgr1).post('/api/polls', {

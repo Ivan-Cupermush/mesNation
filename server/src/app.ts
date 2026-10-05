@@ -1,9 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import pinoHttp from 'pino-http';
 import crypto from 'crypto';
-import { corsOrigins } from './config/env';
+import { corsOrigins, trustProxySetting } from './config/env';
 import { logger } from './lib/logger';
 import { errorHandler, notFoundHandler } from './lib/errors';
 import { AuthRequest, authenticate, requireDirector } from './middleware/auth';
@@ -27,10 +28,45 @@ import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
 import { filesApiRouter, uploadsRouter } from './routes/files';
+import { createWebRouter, resolveWebDist } from './web';
 
-export function createApp() {
+export interface AppOptions {
+  /** Папка собранной веб-версии; null — не раздавать сайт (тесты, отдельный фронтенд). */
+  webDistDir?: string | null;
+}
+
+/**
+ * Политика безопасности контента для веб-версии и всех ответов сервера.
+ * Скрипты — только свои (XSS не сможет подгрузить чужой код и унести токен),
+ * картинки и видео — свои, data: и blob: (превью выбранных файлов),
+ * сеть — только свой адрес (в том числе WebSocket), встраивание в чужие сайты запрещено.
+ * upgrade-insecure-requests выключен: иначе сайт, открытый по http://IP:порт
+ * в локальной сети, пытался бы грузить скрипты по https и показывал белый экран.
+ */
+const CSP_DIRECTIVES = {
+  'default-src': ["'self'"],
+  'base-uri': ["'self'"],
+  'script-src': ["'self'"],
+  'script-src-attr': ["'none'"],
+  'style-src': ["'self'", "'unsafe-inline'"],
+  'img-src': ["'self'", 'data:', 'blob:'],
+  'media-src': ["'self'", 'blob:'],
+  'font-src': ["'self'", 'data:'],
+  'connect-src': ["'self'"],
+  'worker-src': ["'self'", 'blob:'],
+  'manifest-src': ["'self'"],
+  'object-src': ["'none'"],
+  'frame-src': ["'self'"],
+  'frame-ancestors': ["'self'"],
+  'form-action': ["'self'"],
+  'upgrade-insecure-requests': null,
+};
+
+export function createApp(options: AppOptions = {}) {
   const app = express();
-  app.set('trust proxy', 1); // сервер стоит за туннелем/прокси: нужен реальный IP для лимитов
+  // Реальный IP клиента берётся из X-Forwarded-For только от доверенного прокси
+  // (по умолчанию — cloudflared/Caddy на этой же машине), иначе лимиты входа обходятся подделкой заголовка.
+  app.set('trust proxy', trustProxySetting());
   app.disable('x-powered-by');
 
   app.use(
@@ -42,10 +78,18 @@ export function createApp() {
         return id;
       },
       customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
-      autoLogging: { ignore: (req) => req.url === '/api/health' },
+      // Проверки здоровья и файлы сайта не засоряют лог (ошибки по ним всё равно видны по статусу у прокси).
+      autoLogging: { ignore: (req) => req.url === '/api/health' || (req.url || '').startsWith('/assets/') },
     }),
   );
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: { useDefaults: false, directives: CSP_DIRECTIVES },
+    }),
+  );
+  // Сжатие JSON и файлов сайта: на медленном или «зажатом» канале страница грузится в разы быстрее.
+  app.use(compression());
   app.use(cors({ origin: corsOrigins.length ? corsOrigins : false }));
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ limit: '2mb', extended: true }));
@@ -92,6 +136,10 @@ export function createApp() {
   app.use('/api/notes', notesRouter);
   app.use('/api/kpi/sales', kpiSalesRouter);
   app.use('/api/knowledge', knowledgeRouter);
+
+  const webDir = options.webDistDir === undefined ? resolveWebDist() : options.webDistDir;
+  const web = webDir ? createWebRouter(webDir) : null;
+  if (web) app.use(web);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

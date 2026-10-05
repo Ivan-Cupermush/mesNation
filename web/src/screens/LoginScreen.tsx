@@ -26,7 +26,8 @@ const LoginScreen: React.FC = () => {
     try {
       const response = await api.login(username, password);
       setToken(response.token);
-      setCurrentUser(response.user);
+      // В ответе входа нет роли — профиль с ролью и признаком директора берём из /me.
+      setCurrentUser(await api.getCurrentUser().catch(() => response.user));
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Неверный логин или пароль');

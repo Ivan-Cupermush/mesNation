@@ -1,10 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { AppError, forbidden } from '../lib/errors';
-import { hasSubordinateNodes } from '../services/access';
-import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
+import { AppError, badRequest, forbidden, notFound } from '../lib/errors';
+import { paramId, validate } from '../lib/validate';
+import rateLimit from 'express-rate-limit';
+import { hasSubordinateNodes } from '../services/access';
+import { z } from 'zod';
 import pool from '../db/pool';
+import { logger } from '../lib/logger';
+import { UPLOAD_DIRS, makeUploader, removeFile } from '../lib/uploads';
 import { processDocument } from '../services/knowledge/documentProcessor';
 import { getEmbedding, generateResponse, checkOllamaHealth } from '../services/knowledge/embeddingService';
 import { guessMimeType } from '../services/knowledge/documentParser';
@@ -12,42 +15,24 @@ import { guessMimeType } from '../services/knowledge/documentParser';
 const router = Router();
 
 // Папка для загруженных файлов
-const UPLOADS_DIR = path.join(__dirname, '../../uploads/knowledge');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-
-// Настройка multer
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2)}_${file.originalname}`;
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter: (req, file, cb) => {
-    const allowed = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
-      'text/plain',
-      'text/markdown',
-    ];
-    const ext = file.originalname.toLowerCase().split('.').pop();
-    if (allowed.includes(file.mimetype) || ['pdf', 'docx', 'doc', 'txt', 'md'].includes(ext || '')) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Неподдерживаемый формат: ${file.mimetype || ext}`));
-    }
-  },
-});
-
-// Разрешённые MIME для админской загрузки
 const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'doc', 'txt', 'md'];
+
+// Имя файла на диске — случайное (makeUploader). Раньше в него подставлялось
+// имя от клиента как есть, и «../../» в имени позволял записать файл в любую
+// папку сервера.
+const upload = makeUploader({
+  dir: UPLOAD_DIRS.knowledge,
+  maxSizeMb: 20,
+  allowedExt: ALLOWED_EXTENSIONS.map((e) => `.${e}`),
+  prefix: 'kb_',
+});
+
+const documentsQuery = z.object({
+  status: z.enum(['pending', 'processing', 'completed', 'failed']).optional(),
+  tag: z.string().trim().max(100).optional(),
+});
+
+const tagsSchema = z.array(z.string().trim().min(1).max(50)).max(20);
 
 // ============================================================
 // GET /api/knowledge/health — проверка доступности AI
@@ -89,125 +74,67 @@ async function requireAdmin(req: Request, _res: Response, next: NextFunction) {
 
 // POST /api/knowledge/documents — загрузить документ
 router.post('/documents', requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
+  const userId = (req as any).userId;
+  const file = req.file;
+  if (!file) throw badRequest('Файл не получен');
   try {
-    const userId = (req as any).userId;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({ error: 'Файл не получен' });
-    }
-
-    const ext = file.originalname.toLowerCase().split('.').pop() || '';
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      fs.unlinkSync(file.path);
-      return res.status(400).json({ 
-        error: `Неподдерживаемый формат: .${ext}. Разрешены: ${ALLOWED_EXTENSIONS.join(', ')}` 
-      });
-    }
-
-    const mimeType = file.mimetype !== 'application/octet-stream' 
-      ? file.mimetype 
-      : guessMimeType(file.originalname);
-
+    const mimeType = file.mimetype && file.mimetype !== 'application/octet-stream' ? file.mimetype : guessMimeType(file.originalname);
     let tags: string[] = [];
-    try {
-      tags = req.body.tags ? JSON.parse(req.body.tags) : [];
-    } catch {
-      tags = [];
+    if (req.body.tags) {
+      try {
+        tags = tagsSchema.parse(JSON.parse(req.body.tags));
+      } catch {
+        throw badRequest('Теги: список строк до 50 символов, не больше 20');
+      }
     }
-
-    // Создаём запись в БД
-    const result = await pool.query(
-      `INSERT INTO knowledge_documents 
+    const description = typeof req.body.description === 'string' ? req.body.description.trim().slice(0, 2000) || null : null;
+    const { rows } = await pool.query(
+      `INSERT INTO knowledge_documents
          (filename, original_name, file_size, mime_type, tags, description, uploaded_by, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
        RETURNING *`,
-      [
-        file.filename,
-        file.originalname,
-        file.size,
-        mimeType,
-        tags,
-        req.body.description || null,
-        userId,
-      ]
+      [file.filename, file.originalname.slice(0, 255), file.size, mimeType, tags, description, userId],
     );
-
-    const doc = result.rows[0];
-
-    // Запускаем асинхронную обработку (не ждём!)
-    processDocument(doc.id).catch(err => {
-      console.error(`Ошибка фоновой обработки документа ${doc.id}:`, err);
-    });
-
-    res.status(201).json({
-      ...doc,
-      message: 'Документ принят и поставлен в очередь на обработку',
-    });
-  } catch (error: any) {
-    console.error('Ошибка загрузки документа:', error);
-    throw error;
+    const doc = rows[0];
+    // Обработка (парсинг, эмбеддинги) идёт в фоне — ответ не ждёт нейросеть.
+    processDocument(doc.id).catch((err) => logger.error({ err, documentId: doc.id }, 'Ошибка фоновой обработки документа'));
+    res.status(201).json({ ...doc, message: 'Документ принят и поставлен в очередь на обработку' });
+  } catch (err) {
+    removeFile(file.path);
+    throw err;
   }
 });
 
 // GET /api/knowledge/documents — список документов
 router.get('/documents', async (req: Request, res: Response) => {
-  try {
-    const { status, tag } = req.query;
-    let query = `
-      SELECT d.*, u.display_name AS uploaded_by_name
-      FROM knowledge_documents d
-      LEFT JOIN users u ON u.id = d.uploaded_by
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-
-    if (status) {
-      params.push(status);
-      query += ` AND d.status = $${params.length}`;
-    }
-    if (tag) {
-      params.push(tag);
-      query += ` AND $${params.length} = ANY(d.tags)`;
-    }
-
-    query += ' ORDER BY d.created_at DESC';
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error: any) {
-    throw error;
+  const { status, tag } = documentsQuery.parse(req.query);
+  const params: unknown[] = [];
+  let query = `
+    SELECT d.*, u.display_name AS uploaded_by_name
+    FROM knowledge_documents d
+    LEFT JOIN users u ON u.id = d.uploaded_by
+    WHERE 1=1`;
+  if (status) {
+    params.push(status);
+    query += ` AND d.status = $${params.length}`;
   }
+  if (tag) {
+    params.push(tag);
+    query += ` AND $${params.length} = ANY(d.tags)`;
+  }
+  query += ' ORDER BY d.created_at DESC';
+  const { rows } = await pool.query(query, params);
+  res.json(rows);
 });
 
 // DELETE /api/knowledge/documents/:id — удалить документ
 router.delete('/documents/:id', requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const docId = Number(req.params.id);
-
-    // Получаем имя файла для удаления с диска
-    const docRes = await pool.query(
-      'SELECT filename FROM knowledge_documents WHERE id = $1',
-      [docId]
-    );
-
-    if (docRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Документ не найден' });
-    }
-
-    // Удаляем из БД (чанки удалятся каскадно)
-    await pool.query('DELETE FROM knowledge_documents WHERE id = $1', [docId]);
-
-    // Удаляем файл с диска
-    const filePath = path.join(UPLOADS_DIR, docRes.rows[0].filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-
-    res.json({ success: true, message: 'Документ удалён' });
-  } catch (error: any) {
-    throw error;
-  }
+  const docId = paramId(req);
+  const { rows } = await pool.query('DELETE FROM knowledge_documents WHERE id = $1 RETURNING filename', [docId]);
+  if (!rows.length) throw notFound('Документ не найден');
+  // Чанки удаляются каскадно. Имя из базы обрезаем до имени файла — за пределы папки не выйти.
+  removeFile(path.join(UPLOAD_DIRS.knowledge, path.basename(rows[0].filename)));
+  res.json({ success: true, message: 'Документ удалён' });
 });
 
 // ============================================================
@@ -215,14 +142,26 @@ router.delete('/documents/:id', requireAdmin, async (req: Request, res: Response
 // ============================================================
 
 // POST /api/knowledge/chat — отправить вопрос и получить ответ
-router.post('/chat', async (req: Request, res: Response) => {
+const chatSchema = z.object({
+  session_id: z.coerce.number().int().positive().nullish(),
+  message: z.string({ error: 'Сообщение не может быть пустым' }).trim().min(1, 'Сообщение не может быть пустым').max(4000, 'Вопрос длиннее 4000 символов'),
+});
+
+// Генерация ответа нагружает нейросеть на сервере: ограничиваем частоту на сотрудника,
+// чтобы один клиент (или зависшая вкладка) не занял её для всех.
+const chatLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: (req) => `kb:${(req as any).userId}`,
+  message: { error: 'Слишком много вопросов подряд. Подождите минуту.' },
+});
+
+router.post('/chat', chatLimiter, validate(chatSchema), async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const { session_id, message } = req.body;
-
-    if (!message || message.trim().length === 0) {
-      return res.status(400).json({ error: 'Сообщение не может быть пустым' });
-    }
+    const { session_id, message } = req.body as z.infer<typeof chatSchema>;
 
     // 1. Найти или создать сессию
     let sessionId = session_id;
@@ -364,7 +303,7 @@ ${context}
     if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|model .* not found/i.test(msg)) {
       throw new AppError(503, 'AI-ассистент сейчас недоступен. Попробуйте позже.');
     }
-    console.error('Ошибка чата:', error);
+    logger.error({ err: error }, 'Ошибка чата базы знаний');
     throw error;
   }
 });

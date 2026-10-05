@@ -97,7 +97,7 @@ const SettingsScreen: React.FC = () => {
             <ProfileRow>
               <ProfileAvatar bgColor={currentUser.avatar_url ? '#ECECE8' : hashColor(name)}>
                 {currentUser.avatar_url ? (
-                  <ProfileAvatarImg src={`https://offixcrm.ru${currentUser.avatar_url}`} alt={name} />
+                  <ProfileAvatarImg src={currentUser.avatar_url} alt={name} />
                 ) : (
                   <ProfileAvatarText>{initials(name)}</ProfileAvatarText>
                 )}

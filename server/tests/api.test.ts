@@ -15,7 +15,7 @@ let c: Awaited<ReturnType<typeof seedCompany>>;
 
 beforeAll(async () => {
   await resetDatabase();
-  app = createApp();
+  app = createApp({ webDistDir: null });
   server = createServer(app);
   initSocket(server);
   await new Promise<void>((r) => server.listen(0, r));

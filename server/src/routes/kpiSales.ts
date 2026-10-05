@@ -5,6 +5,8 @@ import { AuthRequest } from '../middleware/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { isSubordinate, isDirector } from '../services/access';
 import { paramId } from '../lib/validate';
+import { logger } from '../lib/logger';
+import { UPLOAD_DIRS } from '../lib/uploads';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
 import xlsx from 'xlsx';
 import fs from 'fs';
@@ -12,10 +14,8 @@ import path from 'path';
 
 const router = Router();
 
-const importsDir = path.join(__dirname, '../../uploads/imports');
-if (!fs.existsSync(importsDir)) {
-  fs.mkdirSync(importsDir, { recursive: true });
-}
+// Файлы импорта лежат в общем корне загрузок (UPLOADS_DIR) и наружу не отдаются.
+const importsDir = UPLOAD_DIRS.imports;
 
 const upload = multer({ dest: importsDir, limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -115,7 +115,7 @@ router.get('/targets', async (req: Request, res: Response) => {
     
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения целей:', error);
+    logger.error({ err: error }, 'KPI: Ошибка получения целей');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -140,7 +140,7 @@ router.get('/targets/my-monthly', async (req: Request, res: Response) => {
     
     res.json(result.rows[0] || null);
   } catch (error) {
-    console.error('Ошибка получения плана:', error);
+    logger.error({ err: error }, 'KPI: Ошибка получения плана');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -194,7 +194,7 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
     
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения целей подчинённых:', error);
+    logger.error({ err: error }, 'KPI: Ошибка получения целей подчинённых');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -248,7 +248,7 @@ router.post('/targets', async (req: Request, res: Response) => {
     
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Ошибка создания цели:', error);
+    logger.error({ err: error }, 'KPI: Ошибка создания цели');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -309,7 +309,7 @@ router.post(
       
       res.status(201).json(result.rows[0]);
     } catch (error) {
-      console.error('Ошибка назначения плана:', error);
+      logger.error({ err: error }, 'KPI: Ошибка назначения плана');
       res.status(500).json({ error: 'Ошибка сервера' });
     }
   }
@@ -375,7 +375,7 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     res.json(result.rows[0]);
   } catch (error: any) {
     if (error?.name === 'ZodError') return res.status(400).json({ error: 'Некорректный идентификатор' });
-    console.error('Ошибка обновления цели:', error);
+    logger.error({ err: error }, 'KPI: Ошибка обновления цели');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -409,7 +409,7 @@ router.delete('/targets/:id', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error: any) {
     if (error?.name === 'ZodError') return res.status(400).json({ error: 'Некорректный идентификатор' });
-    console.error('Ошибка удаления:', error);
+    logger.error({ err: error }, 'KPI: Ошибка удаления');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -444,7 +444,7 @@ router.get('/transactions', async (req: Request, res: Response) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения транзакций:', error);
+    logger.error({ err: error }, 'KPI: Ошибка получения транзакций');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -524,7 +524,7 @@ router.post('/transactions', async (req: Request, res: Response) => {
       client.release();
     }
   } catch (error) {
-    console.error('Ошибка добавления транзакции:', error);
+    logger.error({ err: error }, 'KPI: Ошибка добавления транзакции');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -609,7 +609,7 @@ router.post('/import/preview', upload.single('file'), async (req: Request, res: 
       totalAmount,
     });
   } catch (error) {
-    console.error('Ошибка парсинга:', error);
+    logger.error({ err: error }, 'KPI: Ошибка парсинга');
     res.status(500).json({ error: 'Ошибка чтения файла' });
   }
 });
@@ -741,7 +741,7 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
       client.release();
     }
   } catch (error) {
-    console.error('Ошибка импорта:', error);
+    logger.error({ err: error }, 'KPI: Ошибка импорта');
     res.status(500).json({ error: 'Ошибка импорта' });
   }
 });
@@ -756,7 +756,7 @@ router.get('/import/history', async (req: Request, res: Response) => {
     );
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка:', error);
+    logger.error({ err: error }, 'KPI: Ошибка');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -835,7 +835,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       period,
     });
   } catch (error) {
-    console.error('Ошибка:', error);
+    logger.error({ err: error }, 'KPI: Ошибка');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -919,7 +919,7 @@ router.get('/subordinates', async (req: Request, res: Response) => {
     
     res.json(result.rows);
   } catch (error) {
-    console.error('Ошибка получения подчинённых:', error);
+    logger.error({ err: error }, 'KPI: Ошибка получения подчинённых');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -982,7 +982,7 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
     
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Ошибка назначения KPI:', error);
+    logger.error({ err: error }, 'KPI: Ошибка назначения KPI');
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -1102,7 +1102,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
     try { fs.unlinkSync(file.path); } catch (e) {}
     res.json({ success: true, results });
   } catch (error) {
-    console.error('Ошибка импорта отчёта:', error);
+    logger.error({ err: error }, 'KPI: Ошибка импорта отчёта');
     res.status(500).json({ error: 'Ошибка обработки отчёта' });
   }
 });
@@ -1187,7 +1187,7 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
     try { fs.unlinkSync(file.path); } catch (e) {}
     res.json({ success: true, results });
   } catch (error) {
-    console.error('Ошибка импорта плана KPI:', error);
+    logger.error({ err: error }, 'KPI: Ошибка импорта плана KPI');
     res.status(500).json({ error: 'Ошибка обработки файла плана' });
   }
 });

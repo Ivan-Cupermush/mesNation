@@ -10,6 +10,22 @@ import { getEmbeddings } from './embeddingService';
 const UPLOADS_DIR = UPLOAD_DIRS.knowledge;
 
 /**
+ * Причина ошибки — понятная руководителю, без «fetch failed»: чаще всего
+ * на сервере не запущена нейросеть или не установлен pgvector.
+ */
+export function readableProcessingError(error: any): string {
+  const msg = `${error?.message || ''} ${error?.cause?.code || ''}`;
+  if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET/i.test(msg)) {
+    return 'Нейросеть на сервере недоступна — документ не обработан. Нажмите «Обработать снова», когда она заработает.';
+  }
+  if (/model .*not found/i.test(msg)) return 'На сервере не установлена модель для поиска по документам (nomic-embed-text).';
+  if (/type "vector" does not exist|column "embedding"/i.test(msg)) {
+    return 'Поиск по документам не настроен: на сервере нет расширения pgvector.';
+  }
+  return error?.message || 'Неизвестная ошибка';
+}
+
+/**
  * Главный процессор: парсит документ, разбивает на чанки,
  * создаёт эмбеддинги и сохраняет всё в БД.
  */
@@ -69,6 +85,8 @@ export async function processDocument(documentId: number): Promise<void> {
     await client.query('BEGIN');
     
     try {
+      // Повторная обработка: прежние фрагменты заменяются новыми.
+      await client.query('DELETE FROM knowledge_chunks WHERE document_id = $1', [documentId]);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const embedding = embeddings[i];
@@ -94,6 +112,7 @@ export async function processDocument(documentId: number): Promise<void> {
         `UPDATE knowledge_documents 
          SET status = 'completed',
              chunks_count = $1,
+             error_message = NULL,
              processed_at = NOW()
          WHERE id = $2`,
         [chunks.length, documentId]
@@ -115,7 +134,7 @@ export async function processDocument(documentId: number): Promise<void> {
        SET status = 'failed', 
            error_message = $1 
        WHERE id = $2`,
-      [error.message || 'Неизвестная ошибка', documentId]
+      [readableProcessingError(error), documentId]
     ).catch((e) => logger.error({ err: e, documentId }, 'База знаний: не удалось сохранить ошибку обработки'));
     
   } finally {

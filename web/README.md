@@ -1,32 +1,41 @@
-# React + TypeScript + Vite
+# Offix — веб-версия
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Сайт повторяет мобильное приложение (как Telegram Web повторяет Telegram):
+те же разделы, те же данные и права, раскладка для компьютера и для телефона.
+Раздаётся тем же сервером Node, что и API, с того же адреса — отдельный
+хостинг не нужен (см. `server/src/web.ts` и `docs/DEPLOY.md`).
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev        # http://localhost:5173, API проксируется на http://localhost:5000
+OFFIX_API=http://192.168.1.10:5000 npm run dev   # если сервер на другой машине
+npm run lint       # oxlint
+npm run build      # проверка типов + сборка в dist/ (её и раздаёт сервер)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Устройство
+
+| Папка | Что там |
+|---|---|
+| `src/lib` | `http.ts` — запросы к API (токен, таймауты, понятные ошибки, загрузка файлов с прогрессом); `socket.ts` — Socket.IO с переподключением; `format.ts` — даты, размеры, склонения |
+| `src/theme` | Палитры приложения (светлая/тёмная, 7 цветов) → CSS-переменные `--c-*` |
+| `src/ui` | Общие компоненты: `Page`, `Modal`, `ActionMenu` (меню у курсора на компьютере, шторка на телефоне), поля, кнопки, `feedback` (тосты, подтверждения, ввод текста вместо `alert/confirm`) |
+| `src/app` | Каркас: боковое меню на компьютере, нижние вкладки на телефоне |
+| `src/features/*` | Разделы: `chats`, `tasks`, `notes`, `kpi` (статистика и импорт из Excel), `knowledge` (база знаний), `account` (настройки, профиль, оформление, уведомления), `roles`, `users`, `auth` |
+
+Соглашения:
+
+- Данные — через `@tanstack/react-query`; обновления в реальном времени приходят по сокету и
+  обновляют кэш (чаты, задачи, присутствие).
+- Стили — CSS-модули рядом с компонентом; цвета только через `var(--c-…)`, чтобы работали
+  тёмная тема и смена цвета.
+- Права в интерфейсе повторяют проверки сервера (сервер всё равно проверяет сам).
+- Широкий экран — список и карточка рядом (чаты, задачи, заметки, база знаний);
+  узкий — отдельные экраны, как в приложении.
+
+## Перед отправкой изменений
+
+`npm run lint && npm run build` (то же проверяет CI), затем пройти изменённый раздел
+в браузере на ширине компьютера и телефона (390 px), в светлой и тёмной теме.

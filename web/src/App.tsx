@@ -10,7 +10,6 @@ import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import AuthPage from './features/auth/AuthPage';
 import OfflinePage from './features/auth/OfflinePage';
 import AppShell from './app/AppShell';
-import { Legacy } from './app/Legacy';
 
 // Новые разделы
 const ChatsRoutes = lazy(() => import('./features/chats/ChatsRoutes'));
@@ -28,9 +27,7 @@ const RolesPage = lazy(() => import('./features/roles/RolesPage'));
 const StatsPage = lazy(() => import('./features/kpi/StatsPage'));
 const EmployeeStatsPage = lazy(() => import('./features/kpi/EmployeeStatsPage'));
 const ImportPage = lazy(() => import('./features/kpi/ImportPage'));
-
-// Разделы старой версии — до переноса на новую основу
-const KnowledgeScreen = lazy(() => import('./screens/KnowledgeScreen'));
+const KnowledgeRoutes = lazy(() => import('./features/knowledge/KnowledgeRoutes'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,7 +71,7 @@ function AppRoutes() {
           <Route path="stats/employee/:userId" element={<EmployeeStatsPage />} />
           <Route path="employee/:userId" element={<EmployeeRedirect />} />
           <Route path="import" element={<ImportPage />} />
-          <Route path="knowledge" element={<Legacy><KnowledgeScreen /></Legacy>} />
+          <Route path="knowledge/*" element={<KnowledgeRoutes />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="settings/appearance" element={<AppearancePage />} />
           <Route path="settings/notifications" element={<NotificationsPage />} />

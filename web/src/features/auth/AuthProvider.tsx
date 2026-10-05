@@ -42,8 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const me = await request<Profile>('/api/auth/me', { timeoutMs: 15_000 });
       setUser(me);
-      // Старые экраны сайта читают профиль из localStorage (до их замены).
-      storage.setJSON('current_user', me);
+      // Кэш профиля для старых экранов больше не нужен — убираем у тех, у кого остался.
+      storage.remove('current_user');
       setStatus('authenticated');
     } catch (e) {
       if (e instanceof ApiError && e.isNetwork) setStatus('offline');

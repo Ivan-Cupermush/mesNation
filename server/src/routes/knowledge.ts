@@ -137,6 +137,24 @@ router.delete('/documents/:id', requireAdmin, async (req: Request, res: Response
   res.json({ success: true, message: 'Документ удалён' });
 });
 
+// POST /api/knowledge/documents/:id/reprocess — обработать заново (например,
+// когда при загрузке нейросеть была недоступна). Файл уже на сервере.
+router.post('/documents/:id/reprocess', requireAdmin, async (req: Request, res: Response) => {
+  const docId = paramId(req);
+  const { rows } = await pool.query(
+    `UPDATE knowledge_documents SET status = 'pending', error_message = NULL
+     WHERE id = $1 AND status IN ('failed', 'completed') RETURNING *`,
+    [docId],
+  );
+  if (!rows.length) {
+    const exists = await pool.query('SELECT 1 FROM knowledge_documents WHERE id = $1', [docId]);
+    if (!exists.rows.length) throw notFound('Документ не найден');
+    throw new AppError(409, 'Документ уже обрабатывается');
+  }
+  processDocument(docId).catch((err) => logger.error({ err, documentId: docId }, 'Ошибка повторной обработки документа'));
+  res.json(rows[0]);
+});
+
 // ============================================================
 // RAG ЧАТ
 // ============================================================
@@ -159,12 +177,18 @@ const chatLimiter = rateLimit({
 });
 
 router.post('/chat', chatLimiter, validate(chatSchema), async (req: Request, res: Response) => {
+  // Если ответ не получится, вопрос без ответа не остаётся в истории
+  // (и пустой новый диалог тоже) — человек просто задаст его ещё раз.
+  let createdSession = false;
+  let activeSessionId: number | null | undefined = null;
+  let userMessageId: number | null = null;
   try {
     const userId = (req as any).userId;
     const { session_id, message } = req.body as z.infer<typeof chatSchema>;
 
     // 1. Найти или создать сессию
     let sessionId = session_id;
+    createdSession = !sessionId;
     
     if (!sessionId) {
       // Создаём новую сессию, заголовок — первые 50 символов вопроса
@@ -174,6 +198,7 @@ router.post('/chat', chatLimiter, validate(chatSchema), async (req: Request, res
         [userId, title]
       );
       sessionId = sessionRes.rows[0].id;
+      activeSessionId = sessionId;
     } else {
       // Проверяем, что сессия принадлежит пользователю
       const checkRes = await pool.query(
@@ -181,9 +206,10 @@ router.post('/chat', chatLimiter, validate(chatSchema), async (req: Request, res
         [sessionId]
       );
       if (checkRes.rows.length === 0 || checkRes.rows[0].user_id !== userId) {
-        return res.status(403).json({ error: 'Сессия не найдена' });
+        return res.status(404).json({ error: 'Сессия не найдена' });
       }
     }
+    activeSessionId = sessionId;
 
     // 2. Сохраняем сообщение пользователя
     const userMsgRes = await pool.query(
@@ -191,6 +217,7 @@ router.post('/chat', chatLimiter, validate(chatSchema), async (req: Request, res
        VALUES ($1, 'user', $2) RETURNING *`,
       [sessionId, message]
     );
+    userMessageId = userMsgRes.rows[0].id;
 
     // 3. Проверяем, есть ли знания в базе
     const chunksCountRes = await pool.query(
@@ -299,6 +326,7 @@ ${context}
     });
 
   } catch (error: any) {
+    await rollbackQuestion(createdSession ? activeSessionId : null, userMessageId);
     const msg = String(error?.message || '') + String(error?.cause?.code || '');
     if (/ECONNREFUSED|fetch failed|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|model .* not found/i.test(msg)) {
       throw new AppError(503, 'AI-ассистент сейчас недоступен. Попробуйте позже.');
@@ -307,6 +335,16 @@ ${context}
     throw error;
   }
 });
+
+/** Убирает вопрос, на который не удалось ответить, и созданный под него пустой диалог. */
+async function rollbackQuestion(newSessionId: number | null | undefined, messageId: number | null) {
+  try {
+    if (newSessionId) await pool.query('DELETE FROM chat_sessions WHERE id = $1', [newSessionId]);
+    else if (messageId) await pool.query('DELETE FROM chat_messages WHERE id = $1', [messageId]);
+  } catch (err) {
+    logger.warn({ err }, 'Не удалось убрать вопрос без ответа');
+  }
+}
 
 // GET /api/knowledge/sessions — список сессий пользователя
 router.get('/sessions', async (req: Request, res: Response) => {
@@ -339,7 +377,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const sessionId = Number(req.params.id);
+    const sessionId = paramId(req);
 
     // Проверяем доступ
     const checkRes = await pool.query(
@@ -348,13 +386,26 @@ router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
     );
 
     if (checkRes.rows.length === 0 || checkRes.rows[0].user_id !== userId) {
-      return res.status(403).json({ error: 'Сессия не найдена' });
+      return res.status(404).json({ error: 'Сессия не найдена' });
     }
 
+    // Источники ответа — как в ответе /chat, чтобы они не пропадали после перезагрузки.
+    // Удалённые документы просто выпадают из списка.
     const result = await pool.query(
-      `SELECT * FROM chat_messages 
-       WHERE session_id = $1 
-       ORDER BY created_at ASC`,
+      `SELECT m.*,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                         'chunk_id', kc.id,
+                         'document_id', kc.document_id,
+                         'document_name', kd.original_name,
+                         'content', LEFT(kc.content, 300)
+                       ) ORDER BY array_position(m.source_chunk_ids, kc.id))
+                FROM knowledge_chunks kc JOIN knowledge_documents kd ON kd.id = kc.document_id
+                WHERE kc.id = ANY(m.source_chunk_ids)
+              ), '[]') AS source_chunks
+       FROM chat_messages m
+       WHERE m.session_id = $1
+       ORDER BY m.created_at ASC, m.id ASC`,
       [sessionId]
     );
 
@@ -368,7 +419,7 @@ router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const sessionId = Number(req.params.id);
+    const sessionId = paramId(req);
 
     const result = await pool.query(
       'DELETE FROM chat_sessions WHERE id = $1 AND user_id = $2 RETURNING id',
@@ -389,18 +440,21 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
 router.post('/messages/:id/feedback', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const messageId = Number(req.params.id);
+    const messageId = paramId(req);
     const { feedback, comment } = req.body;
 
     if (!['positive', 'negative'].includes(feedback)) {
-      return res.status(400).json({ error: 'feedback должен быть positive или negative' });
+      return res.status(400).json({ error: 'Отзыв: «полезно» или «бесполезно»' });
+    }
+    if (comment != null && (typeof comment !== 'string' || comment.length > 1000)) {
+      return res.status(400).json({ error: 'Комментарий к отзыву — текст до 1000 символов' });
     }
 
     // Проверяем, что сообщение принадлежит пользователю
     const checkRes = await pool.query(
       `SELECT cm.id FROM chat_messages cm
        JOIN chat_sessions cs ON cs.id = cm.session_id
-       WHERE cm.id = $1 AND cs.user_id = $2`,
+       WHERE cm.id = $1 AND cs.user_id = $2 AND cm.role = 'assistant'`,
       [messageId, userId]
     );
 
@@ -412,7 +466,7 @@ router.post('/messages/:id/feedback', async (req: Request, res: Response) => {
       `UPDATE chat_messages 
        SET feedback = $1, feedback_comment = $2 
        WHERE id = $3`,
-      [feedback, comment || null, messageId]
+      [feedback, typeof comment === 'string' ? comment.trim() || null : null, messageId]
     );
 
     res.json({ success: true });

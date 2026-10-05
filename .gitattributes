@@ -2,6 +2,8 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
+# PowerShell 5.1 на Windows: CRLF и UTF-8 с BOM (иначе кириллица читается как ANSI)
+*.ps1 text eol=crlf
 *.jar binary
 *.png binary
 *.jpg binary

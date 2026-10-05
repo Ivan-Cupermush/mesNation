@@ -1,0 +1,23 @@
+# Конфигурация туннеля Cloudflare для Offix (вариант Б в docs/DEPLOY.md).
+# Положите как C:\cloudflared\config.yml, подставьте UUID туннеля и путь к ключу.
+#
+# Главное отличие от прежней схемы: ОБА адреса ведут на один сервер Node (порт 5000),
+# он сам отдаёт и сайт, и API, и сокеты. Порт 5173 (Vite) больше не используется.
+
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: C:\cloudflared\creds\00000000-0000-0000-0000-000000000000.json
+
+# http2 работает поверх TCP 443 — проходит там, где UDP (QUIC) режется провайдером.
+protocol: http2
+
+originRequest:
+  # Сервер Node держит соединения 65 с — туннелю не нужно открывать новое на каждый запрос.
+  keepAliveTimeout: 60s
+  connectTimeout: 10s
+
+ingress:
+  - hostname: offixcrm.ru
+    service: http://127.0.0.1:5000
+  - hostname: web.offixcrm.ru
+    service: http://127.0.0.1:5000
+  - service: http_status:404

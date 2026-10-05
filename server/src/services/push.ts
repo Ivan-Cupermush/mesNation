@@ -131,9 +131,55 @@ export function pushPreview(m: any): string {
   return clip(text || label || 'Сообщение', 300);
 }
 
+const plural = (n: number, forms: [string, string, string]) => {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5) return forms[1];
+  if (b === 1) return forms[0];
+  return forms[2];
+};
+
+/** Текст для альбома/группы файлов: «Альбом: 3 фото, 1 видео», «5 файлов», + подпись. */
+export function groupPreview(list: any[]): string {
+  const photos = list.filter((m) => m.media_kind === 'photo').length;
+  const videos = list.filter((m) => m.media_kind === 'video').length;
+  const files = list.length - photos - videos;
+  const parts = [photos ? `${photos} фото` : '', videos ? `${videos} видео` : '', files ? `${files} ${plural(files, ['файл', 'файла', 'файлов'])}` : '']
+    .filter(Boolean)
+    .join(', ');
+  const caption = (list.find((m) => m.text)?.text || '').trim();
+  const label = photos || videos ? `Альбом: ${parts}` : parts;
+  return clip(caption ? `${label}, ${caption}` : label, 300);
+}
+
+/**
+ * Альбом приходит по одному сообщению — копим сообщения группы несколько
+ * секунд и отправляем одно уведомление, как Telegram.
+ */
+const pendingGroups = new Map<string, { timer: ReturnType<typeof setTimeout>; messages: any[] }>();
+const GROUP_WAIT_MS = 4000;
+
 /** Новое сообщение: всем участникам чата, кроме отправителя и тех, у кого чат без звука. */
 export async function notifyNewMessage(m: any): Promise<void> {
   if (!pushEnabled() || m.content_type === 'service' || m.deleted_for_all) return;
+  if (m.media_group_id) {
+    const key = `${m.chat_id}:${m.sender_id}:${m.media_group_id}`;
+    const g = pendingGroups.get(key) || { timer: setTimeout(() => undefined, 0), messages: [] as any[] };
+    clearTimeout(g.timer);
+    g.messages.push(m);
+    g.timer = setTimeout(() => {
+      pendingGroups.delete(key);
+      fireAndForget(sendMessagePush(g.messages), 'альбом');
+    }, GROUP_WAIT_MS);
+    pendingGroups.set(key, g);
+    return;
+  }
+  await sendMessagePush([m]);
+}
+
+async function sendMessagePush(list: any[]): Promise<void> {
+  const m = list[list.length - 1];
   const chatId = Number(m.chat_id);
   const chat = (await pool.query('SELECT id, name, type, avatar_url, is_supergroup FROM chats WHERE id = $1', [chatId])).rows[0];
   if (!chat) return;
@@ -160,7 +206,7 @@ export async function notifyNewMessage(m: any): Promise<void> {
       sender_id: String(m.sender_id),
       sender_name: senderName,
       sender_avatar: m.sender_avatar_url || '',
-      text: pushPreview(m),
+      text: list.length > 1 ? groupPreview(list) : pushPreview(m),
       sent_at: new Date(m.created_at || Date.now()).toISOString(),
     },
   );

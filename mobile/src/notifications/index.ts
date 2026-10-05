@@ -14,6 +14,7 @@ import { subscribe } from '../services/socket';
 import { MessagePush, TaskPush, parsePush } from './model';
 import { ensureChannels } from './display';
 import { handleIncoming, handleNotificationEvent } from './handlers';
+import { firstTime } from './state';
 
 /**
  * Запуск уведомлений.
@@ -160,6 +161,8 @@ function startSocketFallback(): () => void {
         const m = list?.[list.length - 1];
         if (!m || m.id !== e.message_id || m.sender_id === uid || m.content_type === 'service') return;
         if (chatMuted.has(String(e.chat_id))) return;
+        // Альбом приходит по одному сообщению — уведомляем один раз на группу.
+        if (m.media_group_id && !firstTime(`g:${m.media_group_id}`)) return;
         const chat = await chatInfo(String(e.chat_id));
         const senderName = m.sender_display_name || m.sender_name || 'Участник';
         const push: MessagePush = {

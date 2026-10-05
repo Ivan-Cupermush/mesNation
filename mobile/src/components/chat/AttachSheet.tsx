@@ -183,14 +183,11 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
   const byUri = useMemo(() => new Map(all.map((p) => [p.uri, p])), [all]);
 
   const toggle = (uri: string) => {
-    setSelected((prev) => {
-      if (prev.includes(uri)) return prev.filter((u) => u !== uri);
-      if (prev.length >= MAX_SELECTED) {
-        Alert.alert('Слишком много', `За раз можно отправить до ${MAX_SELECTED} фото и видео`);
-        return prev;
-      }
-      return [...prev, uri];
-    });
+    if (!selected.includes(uri) && selected.length >= MAX_SELECTED) {
+      Alert.alert('Слишком много', `За раз можно отправить до ${MAX_SELECTED} фото и видео`);
+      return;
+    }
+    setSelected((prev) => (prev.includes(uri) ? prev.filter((u) => u !== uri) : [...prev, uri]));
   };
 
   const openCamera = async () => {

@@ -66,8 +66,6 @@ export interface LoginResponse {
 
 export const api = {
   login: async (username: string, password: string): Promise<LoginResponse> => {
-    console.log('=== ЛОВУшка: ЗАПРОС ИДЁТ НА ===', '/api/auth/login');
-    console.log('=== ЛОВУШКА: ЗАПРОС ИДЁТ НА ===', '/api/auth/login');
     const response = await apiClient.post('/api/auth/login', { username, password });
     return response.data;
   },

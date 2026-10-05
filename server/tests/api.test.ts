@@ -15,7 +15,7 @@ let c: Awaited<ReturnType<typeof seedCompany>>;
 
 beforeAll(async () => {
   await resetDatabase();
-  app = createApp();
+  app = createApp({ webDistDir: null });
   server = createServer(app);
   initSocket(server);
   await new Promise<void>((r) => server.listen(0, r));
@@ -494,6 +494,32 @@ describe('мессенджер как в Telegram', () => {
     list = (await as(c.acc).get('/api/chats')).body as any[];
     expect(list.find((x) => x.id === id).unread_count).toBe(0);
     expect((await as(c.mgr1).get(`/api/chats/${id}`)).body.peer_last_read_id).toBe(m1.body.id);
+  });
+
+  it('темы супергруппы: список с последним сообщением, права на изменение', async () => {
+    const g = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Форум', user_ids: [c.mgr2.id], is_supergroup: true });
+    expect(g.status).toBe(201);
+    const gid = g.body.id;
+    const topic = await as(c.mgr1).post(`/api/chats/${gid}/topics`, { title: 'Отчёты', icon: 'chart', icon_color: '#3B82F6' });
+    expect(topic.status).toBe(201);
+    const sent = await as(c.mgr2).post(`/api/chats/${gid}/messages`, { text: 'Отчёт https://example.com', topic_id: topic.body.id });
+    expect(sent.status).toBe(201);
+    // Раньше список тем всегда отвечал 500 (один параметр SQL использовался как число и как текст).
+    const list = await as(c.mgr2).get(`/api/chats/${gid}/topics`);
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].last_message).toMatchObject({ id: sent.body.id, text: 'Отчёт https://example.com' });
+    const stats = await as(c.mgr2).get(`/api/chats/${gid}/topics/${topic.body.id}/stats`);
+    expect(stats.body.links).toBe(1);
+    const own = await as(c.mgr2).get(`/api/chats/${gid}/messages`).query({ type: 'links', topic_id: topic.body.id });
+    expect(own.status).toBe(200);
+    expect(own.body.map((m: any) => m.id)).toEqual([sent.body.id]);
+    // Тему меняют автор и админы, обычный участник — нет.
+    expect((await as(c.mgr2).patch(`/api/topics/${topic.body.id}`, { title: 'Чужое' })).status).toBe(403);
+    expect((await as(c.mgr1).patch(`/api/topics/${topic.body.id}`, { title: 'Отчёты за месяц' })).status).toBe(200);
+    expect((await as(c.mgr2).delete(`/api/topics/${topic.body.id}`)).status).toBe(403);
+    expect((await as(c.mgr1).delete(`/api/topics/${topic.body.id}`)).status).toBe(200);
+    expect((await as(c.mgr2).get(`/api/chats/${gid}/topics`)).body).toHaveLength(0);
   });
 
   it('удаление личного чата скрывает его только у себя, новое сообщение возвращает', async () => {

@@ -1,0 +1,25 @@
+# Caddy — HTTPS напрямую на белом IP сервера (вариант А в docs/DEPLOY.md).
+# Положите как C:\caddy\Caddyfile. Caddy сам получит и будет продлевать сертификаты
+# Let's Encrypt, если порты 80 и 443 проброшены с роутера на этот компьютер,
+# а DNS-записи offixcrm.ru и web.offixcrm.ru указывают на белый IP (в Cloudflare —
+# «серое облако», DNS only).
+
+{
+	# Почта для уведомлений Let's Encrypt о проблемах с сертификатом.
+	email admin@offixcrm.ru
+}
+
+offixcrm.ru, web.offixcrm.ru {
+	# Node уже сжимает ответы; здесь — для того, что не сжато.
+	encode zstd gzip
+
+	# Сайт, API, файлы и WebSocket — всё в один сервер Node.
+	reverse_proxy 127.0.0.1:5000
+
+	log {
+		output file C:/caddy/logs/access.log {
+			roll_size 20mb
+			roll_keep 10
+		}
+	}
+}

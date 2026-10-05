@@ -1,0 +1,144 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, opacity 0.15s, transform 0.1s;
+  user-select: none;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sm {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.md {
+  height: 42px;
+  padding: 0 16px;
+  font-size: 15px;
+}
+
+.lg {
+  height: 50px;
+  padding: 0 22px;
+  font-size: 16px;
+}
+
+.block {
+  width: 100%;
+}
+
+.primary {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--c-accent-hover);
+}
+
+.secondary {
+  background: var(--c-input-bg);
+  color: var(--c-text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--c-surface-active);
+}
+
+.soft {
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+}
+
+.soft:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--c-accent);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--c-input-bg);
+}
+
+.danger {
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+}
+
+.danger:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.success {
+  background: var(--c-success);
+  color: #fff;
+}
+
+.success:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 12px;
+  color: var(--c-text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.icon:hover:not(:disabled) {
+  background: var(--c-input-bg);
+  color: var(--c-text-primary);
+}
+
+.icon:disabled {
+  opacity: 0.45;
+}
+
+.tone_accent {
+  color: var(--c-accent);
+}
+
+.tone_danger {
+  color: var(--c-danger);
+}
+
+.tone_soft {
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+}
+
+.tone_soft:hover:not(:disabled) {
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+  filter: brightness(0.96);
+}
+
+.iconActive {
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+}

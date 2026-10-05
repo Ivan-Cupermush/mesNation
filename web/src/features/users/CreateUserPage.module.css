@@ -1,0 +1,90 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--c-card);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--c-text-secondary);
+}
+
+.role {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 12px;
+  border-radius: 13px;
+  border: 1.5px solid transparent;
+  background: var(--c-input-bg);
+  text-align: left;
+}
+
+.role:hover {
+  background: var(--c-surface-active);
+}
+
+.invalid {
+  border-color: var(--c-danger);
+}
+
+.roleIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.role b {
+  flex: 1;
+}
+
+.placeholder {
+  flex: 1;
+  color: var(--c-text-muted);
+}
+
+.chevron {
+  color: var(--c-text-muted);
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+}
+
+.error {
+  font-size: 13px;
+  color: var(--c-danger);
+}
+
+.pwActions {
+  display: flex;
+  gap: 2px;
+}
+
+.credentials {
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--c-input-bg);
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  user-select: text;
+}

@@ -1,0 +1,270 @@
+.shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--c-background);
+}
+
+/* ---------- Меню слева (компьютер) ---------- */
+
+.sidebar {
+  width: 248px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-card);
+  border-right: 1px solid var(--c-border);
+  padding: 18px 12px 14px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 18px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.brandText {
+  min-width: 0;
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+}
+
+.company {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 13px;
+  color: var(--c-text-secondary);
+  font-size: 15px;
+  font-weight: 650;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navItem:hover {
+  background: var(--c-input-bg);
+  color: var(--c-text-primary);
+}
+
+.active,
+.active:hover {
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+}
+
+.navIcon {
+  position: relative;
+  display: inline-flex;
+}
+
+.badge {
+  position: absolute;
+  top: -7px;
+  right: -11px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 19px;
+  text-align: center;
+  border: 2px solid var(--c-card);
+  box-sizing: content-box;
+}
+
+.navLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.me {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--c-border);
+  border-radius: 0 0 14px 14px;
+  text-align: left;
+}
+
+.me:hover {
+  background: var(--c-input-bg);
+  border-radius: 14px;
+}
+
+.meText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.meName {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meRole {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Содержимое ---------- */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  /* На телефоне каркас — колонка: без этого блок растягивается под всю ленту и прокручивается страница. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.offline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--c-warning-soft);
+  color: var(--c-warning);
+  font-size: 13px;
+  font-weight: 650;
+  flex-shrink: 0;
+}
+
+/* ---------- Нижние вкладки (телефон) ---------- */
+
+.tabbar {
+  display: none;
+}
+
+/* Средние экраны: меню только из иконок */
+@media (max-width: 1100px) and (min-width: 769px) {
+  .sidebar {
+    width: 76px;
+    padding: 16px 10px 12px;
+    align-items: center;
+  }
+
+  .brand {
+    padding: 0 0 14px;
+  }
+
+  .brandText,
+  .navLabel,
+  .meText {
+    display: none;
+  }
+
+  .navItem {
+    width: 52px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .me {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .tabbar {
+    display: flex;
+    flex-shrink: 0;
+    height: calc(var(--tabbar-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: var(--c-tab-bar);
+    border-top: 1px solid var(--c-border);
+  }
+
+  .nested .tabbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--c-text-muted);
+  }
+
+  .tabActive {
+    color: var(--c-accent);
+  }
+
+  .tabLabel {
+    font-size: 10.5px;
+    font-weight: 650;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .badge {
+    border-color: var(--c-tab-bar);
+  }
+}

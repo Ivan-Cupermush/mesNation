@@ -56,10 +56,11 @@ router.get('/chats/:id/topics', async (req: AuthRequest, res: Response) => {
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type, m.media_kind, m.thumb_url, m.file_url, m.poll_id,
                       COALESCE(u.display_name, u.username) AS sender_name
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
-               WHERE m.chat_id = $1::text AND m.topic_id = t.id AND m.deleted_for_all IS NOT TRUE
+               WHERE m.chat_id = $2 AND m.topic_id = t.id AND m.deleted_for_all IS NOT TRUE
                ORDER BY m.created_at DESC LIMIT 1) lm) AS last_message
      FROM topics t WHERE t.chat_id = $1 AND t.deleted_at IS NULL ORDER BY t.created_at ASC`,
-    [chatId],
+    // messages.chat_id — текст, topics.chat_id — число: один параметр двух типов PostgreSQL не принимает.
+    [chatId, String(chatId)],
   );
   res.json(rows);
 });

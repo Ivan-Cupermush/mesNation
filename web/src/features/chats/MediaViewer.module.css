@@ -1,0 +1,135 @@
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.95);
+  color: #fff;
+  animation: fade 0.15s ease;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: calc(8px + var(--safe-top)) 10px 8px 18px;
+  background: linear-gradient(rgba(0, 0, 0, 0.5), transparent);
+  z-index: 1;
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0.85;
+}
+
+.btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  transition: transform 0.2s var(--ease);
+}
+
+.zoomed {
+  cursor: zoom-out;
+}
+
+.blur {
+  position: absolute;
+  width: 60%;
+  filter: blur(14px);
+  opacity: 0.6;
+}
+
+.error {
+  opacity: 0.8;
+}
+
+.nav {
+  position: absolute;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin-top: -26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transition: background 0.15s;
+}
+
+.nav:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.prev {
+  left: 16px;
+}
+
+.next {
+  right: 16px;
+}
+
+.caption {
+  max-height: 25vh;
+  overflow-y: auto;
+  padding: 12px 20px calc(16px + var(--safe-bottom));
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+}
+
+@media (hover: none) {
+  .nav {
+    display: none;
+  }
+}

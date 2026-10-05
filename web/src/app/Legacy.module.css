@@ -1,0 +1,13 @@
+.legacy {
+  height: 100%;
+  overflow-y: auto;
+  background: #fafaf8;
+  color: #141414;
+  color-scheme: light;
+}
+
+@media (max-width: 768px) {
+  .legacy {
+    padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom));
+  }
+}

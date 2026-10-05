@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { env } from '../config/env';
-import { AuthRequest, extractBearer, verifyUserToken } from '../middleware/auth';
+import { AuthRequest, checkSession, extractBearer, verifyUserToken } from '../middleware/auth';
 import { forbidden, notFound, unauthorized } from '../lib/errors';
 import { UPLOADS_ROOT, UPLOAD_DIRS, urlToDiskPath } from '../lib/uploads';
 import { getTaskRoles, isChatMember } from '../services/access';
@@ -73,26 +73,32 @@ async function canAccessFile(url: string, userId: number): Promise<boolean> {
   return false;
 }
 
-/** Определяет пользователя по заголовку или по токену из ссылки. */
-function resolveViewer(req: AuthRequest, url: string): number | null {
+/**
+ * Определяет пользователя по заголовку или по токену из ссылки.
+ * Отозванная сессия (смена пароля, «выйти везде») и деактивированный
+ * сотрудник файлы больше не получают — так же, как и остальной API.
+ */
+async function resolveViewer(req: AuthRequest, url: string): Promise<number | null> {
   const bearer = extractBearer(req.headers.authorization);
   if (bearer) {
     try {
-      return verifyUserToken(bearer).userId;
+      const payload = verifyUserToken(bearer);
+      return (await checkSession(payload)) ? null : payload.userId;
     } catch {
       return null;
     }
   }
   const token = typeof req.query.token === 'string' ? req.query.token : null;
   if (!token) return null;
+  let p: { purpose?: string; path?: string; userId?: number };
   try {
-    const p = jwt.verify(token, env.JWT_SECRET) as { purpose?: string; path?: string; userId?: number };
-    // Старые ссылки /api/file-token выдавались на имя файла в корне uploads.
-    if (p.purpose === 'file' && p.path === url && typeof p.userId === 'number') return p.userId;
-    return null;
+    p = jwt.verify(token, env.JWT_SECRET) as typeof p;
   } catch {
     return null;
   }
+  if (p.purpose !== 'file' || p.path !== url || typeof p.userId !== 'number') return null;
+  const { rows } = await pool.query('SELECT is_active FROM users WHERE id = $1', [p.userId]);
+  return rows[0]?.is_active ? p.userId : null;
 }
 
 const publicStatic = (dir: string) => express.static(dir, { fallthrough: true, index: false, dotfiles: 'deny' });
@@ -117,7 +123,7 @@ uploadsRouter.get('/avatars/:name', async (req, res, next) => {
 uploadsRouter.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') return next();
   const url = '/uploads' + req.path;
-  const viewer = resolveViewer(req, url);
+  const viewer = await resolveViewer(req, url);
   if (!viewer) throw unauthorized('Нет доступа к файлу');
   if (!(await canAccessFile(url, viewer))) throw forbidden('Нет доступа к файлу');
   const disk = urlToDiskPath(url);

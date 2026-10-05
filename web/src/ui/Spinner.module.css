@@ -1,0 +1,36 @@
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  border-style: solid;
+  border-color: var(--c-accent-muted);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.inherit {
+  border-color: currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+}
+
+.page {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--c-text-muted);
+}
+
+.label {
+  font-size: 14px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

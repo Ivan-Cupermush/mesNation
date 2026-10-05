@@ -15,12 +15,26 @@ npm run build && npm start
 
 Миграции применяются и автоматически при старте сервера.
 
+## Сайт и API с одного адреса
+
+Сервер сам раздаёт собранную веб-версию (`web/dist`, путь — `WEB_DIST_DIR`):
+`/api/*` — API, `/socket.io/*` — реальное время, `/uploads/*` — файлы,
+всё остальное — страницы сайта. Dev-сервер Vite в продакшене не используется.
+
+```bash
+cd web && npm ci && npm run build      # собрать сайт
+cd ../server && npm run build && npm start
+```
+
+Установка на Windows-сервер, туннель/прямой доступ и диагностика — `docs/DEPLOY.md`.
+
 ## Структура
 
 ```
 src/
   app.ts                 сборка Express-приложения (middleware, роуты)
   index.ts               запуск: миграции → HTTP → Socket.IO
+  web.ts                 раздача собранного сайта (web/dist) с того же адреса
   config/env.ts          переменные окружения с проверкой (zod)
   db/pool.ts             единый пул PostgreSQL + withTransaction()
   db/migrate.ts          раннер миграций (таблица schema_migrations)

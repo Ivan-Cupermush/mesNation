@@ -1,0 +1,92 @@
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.titleField {
+  flex: 1;
+}
+
+.label {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.color {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: transform 0.1s;
+}
+
+.color:hover {
+  transform: scale(1.08);
+}
+
+.icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
+  gap: 6px;
+}
+
+.icon {
+  height: 42px;
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-input-bg);
+  color: var(--c-text-secondary);
+}
+
+.icon:hover {
+  color: var(--c-text-primary);
+}
+
+.opacities {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  padding: 7px 14px;
+  border-radius: 16px;
+  background: var(--c-input-bg);
+  font-weight: 650;
+}
+
+.chipOn {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.reset {
+  margin-right: auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-secondary);
+}
+
+.reset:hover {
+  background: var(--c-input-bg);
+}

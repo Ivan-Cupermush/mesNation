@@ -1,0 +1,95 @@
+.calendar {
+  padding: 12px 12px 10px;
+  border-radius: 20px;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.title {
+  flex: 1;
+  text-align: center;
+  font-weight: 750;
+}
+
+.nav {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-secondary);
+}
+
+.nav:hover {
+  background: var(--c-input-bg);
+}
+
+.today {
+  padding: 4px 9px;
+  border-radius: 10px;
+  background: var(--c-accent-muted);
+  color: var(--c-accent);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.weekday {
+  padding: 4px 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--c-text-muted);
+}
+
+.day {
+  position: relative;
+  height: 38px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.12s;
+}
+
+.day:hover {
+  background: var(--c-input-bg);
+}
+
+.today2 {
+  color: var(--c-accent);
+  font-weight: 800;
+}
+
+.selected,
+.selected:hover {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.dot {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+
+.selected .dot {
+  background: var(--c-on-accent);
+}

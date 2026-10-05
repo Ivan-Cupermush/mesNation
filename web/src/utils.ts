@@ -1,27 +1,29 @@
+// Совместимость со старыми экранами сайта (src/screens/*), пока они не переписаны
+// на новую основу: токен и профиль берутся из той же сессии, что и у новых экранов.
+import { getToken as getSessionToken, setToken as setSessionToken } from './lib/http';
+import { storage } from './lib/storage';
+
 export const SERVER_URL = '';
 
-const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'current_user';
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return getSessionToken();
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  setSessionToken(token);
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  setSessionToken(null);
 }
 
-export function setCurrentUser(user: any): void {
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+export function setCurrentUser(user: unknown): void {
+  storage.setJSON(USER_KEY, user);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getCurrentUser(): any {
-  const data = localStorage.getItem(USER_KEY);
-  return data ? JSON.parse(data) : null;
+  return storage.getJSON(USER_KEY);
 }
-

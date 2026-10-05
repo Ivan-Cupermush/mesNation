@@ -11,6 +11,9 @@ dotenv.config({ quiet: true });
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(5000),
+  // На каком адресе слушать. За прокси на этой же машине (cloudflared, Caddy) — 127.0.0.1,
+  // тогда порт 5000 недоступен из сети в обход прокси. 0.0.0.0 — доступ по IP из локальной сети.
+  HOST: z.string().default('0.0.0.0'),
 
   DB_HOST: z.string().default('localhost'),
   DB_PORT: z.coerce.number().int().positive().default(5432),
@@ -27,6 +30,16 @@ const schema = z.object({
   // Список разрешённых origin через запятую. Пусто — CORS для браузеров закрыт
   // (мобильному приложению CORS не нужен, веб ходит через тот же домен).
   CORS_ORIGINS: z.string().default(''),
+
+  // Кому доверять заголовок X-Forwarded-For (реальный IP клиента для лимитов
+  // входа и журнала). По умолчанию — только прокси на этой же машине
+  // (cloudflared, Caddy, nginx). Клиент из интернета подделать IP не сможет.
+  // Значения: loopback | число хопов | список адресов/подсетей через запятую.
+  TRUST_PROXY: z.string().default('loopback'),
+
+  // Собранная веб-версия (npm run build в web/). Сервер отдаёт её с того же
+  // адреса, что и API: один процесс, один порт, никакого dev-сервера Vite.
+  WEB_DIST_DIR: z.string().default('../web/dist'),
 
   UPLOADS_DIR: z.string().default('uploads'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
@@ -51,3 +64,13 @@ export const env = parsed.data;
 export const corsOrigins = env.CORS_ORIGINS.split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+
+/** Значение для app.set('trust proxy'): число хопов или список адресов. */
+export function trustProxySetting(raw: string = env.TRUST_PROXY): number | string | boolean {
+  const value = raw.trim();
+  if (value === 'false' || value === '') return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  // `true` доверял бы любому X-Forwarded-For — тогда лимиты входа обходятся подделкой заголовка.
+  if (value === 'true') return 'loopback';
+  return value;
+}

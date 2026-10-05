@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import pool from '../../db/pool';
+import { logger } from '../../lib/logger';
+import { UPLOAD_DIRS } from '../../lib/uploads';
 import { parseDocument } from './documentParser';
 import { chunkText } from './chunker';
 import { getEmbeddings } from './embeddingService';
 
-const UPLOADS_DIR = path.join(__dirname, '../../../uploads/knowledge');
+const UPLOADS_DIR = UPLOAD_DIRS.knowledge;
 
 /**
  * Главный процессор: парсит документ, разбивает на чанки,
@@ -25,7 +27,7 @@ export async function processDocument(documentId: number): Promise<void> {
     }
     
     const doc = docRes.rows[0];
-    const filePath = path.join(UPLOADS_DIR, doc.filename);
+    const filePath = path.join(UPLOADS_DIR, path.basename(doc.filename));
     
     if (!fs.existsSync(filePath)) {
       throw new Error(`Файл ${doc.filename} не найден на диске`);
@@ -38,17 +40,17 @@ export async function processDocument(documentId: number): Promise<void> {
       [documentId]
     );
 
-    console.log(`📄 Парсинг: ${doc.original_name}`);
+    logger.info({ documentId, name: doc.original_name }, 'База знаний: парсинг документа');
     const parseResult = await parseDocument(filePath, doc.mime_type);
     
     if (!parseResult.text || parseResult.text.trim().length < 50) {
       throw new Error('Документ пустой или не удалось извлечь текст');
     }
     
-    console.log(`✓ Извлечено ${parseResult.text.length} символов`);
+    logger.debug({ documentId, chars: parseResult.text.length }, 'База знаний: текст извлечён');
 
     const chunks = chunkText(parseResult.text);
-    console.log(`✓ Создано ${chunks.length} чанков`);
+    logger.debug({ documentId, chunks: chunks.length }, 'База знаний: текст разбит на фрагменты');
 
     if (chunks.length === 0) {
       throw new Error('Не удалось разбить документ на чанки');
@@ -59,7 +61,7 @@ export async function processDocument(documentId: number): Promise<void> {
     
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE).map(c => c.content);
-      console.log(`🧠 Эмбеддинги: батч ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(chunks.length/BATCH_SIZE)}`);
+      logger.debug({ documentId, batch: Math.floor(i / BATCH_SIZE) + 1, of: Math.ceil(chunks.length / BATCH_SIZE) }, 'База знаний: эмбеддинги');
       const batchEmbeddings = await getEmbeddings(batch);
       embeddings.push(...batchEmbeddings);
     }
@@ -98,7 +100,7 @@ export async function processDocument(documentId: number): Promise<void> {
       );
 
       await client.query('COMMIT');
-      console.log(`✅ Документ "${doc.original_name}" обработан: ${chunks.length} чанков`);
+      logger.info({ documentId, chunks: chunks.length }, 'База знаний: документ обработан');
       
     } catch (error) {
       await client.query('ROLLBACK');
@@ -106,7 +108,7 @@ export async function processDocument(documentId: number): Promise<void> {
     }
 
   } catch (error: any) {
-    console.error(`❌ Ошибка обработки документа ${documentId}:`, error.message);
+    logger.error({ err: error, documentId }, 'База знаний: ошибка обработки документа');
     
     await client.query(
       `UPDATE knowledge_documents 
@@ -114,7 +116,7 @@ export async function processDocument(documentId: number): Promise<void> {
            error_message = $1 
        WHERE id = $2`,
       [error.message || 'Неизвестная ошибка', documentId]
-    ).catch(e => console.error('Не удалось сохранить ошибку:', e));
+    ).catch((e) => logger.error({ err: e, documentId }, 'База знаний: не удалось сохранить ошибку обработки'));
     
   } finally {
     client.release();

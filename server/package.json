@@ -16,6 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "compression": "^1.8.2",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",

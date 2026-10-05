@@ -1,0 +1,499 @@
+.section {
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: var(--c-card);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.headIcon {
+  display: flex;
+  color: var(--c-accent);
+}
+
+.headTitle {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.headCount {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--c-input-bg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  color: var(--c-text-secondary);
+}
+
+.headAction {
+  margin-left: auto;
+}
+
+.center {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 12px;
+  font-size: 14px;
+  text-align: center;
+  color: var(--c-text-muted);
+}
+
+.muted {
+  color: var(--c-text-muted);
+  flex-shrink: 0;
+}
+
+.late {
+  color: var(--c-danger);
+}
+
+/* ---------- Контрольные точки ---------- */
+
+.cp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.cp + .cp {
+  border-top: 1px solid var(--c-border);
+}
+
+.cpBox {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 2px solid var(--c-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.cpBox:hover:not(:disabled) {
+  border-color: var(--c-accent);
+}
+
+.cpDone {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+
+.cpMissed {
+  background: var(--c-danger);
+  border-color: var(--c-danger);
+}
+
+.cpBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cpTitle {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cpTitleDone {
+  text-decoration: line-through;
+  color: var(--c-text-secondary);
+}
+
+.cpDate {
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.cpMiss {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.cpAdd {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cpAdd input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: var(--c-input-bg);
+  outline: none;
+  font-size: 15px;
+}
+
+.cpAdd input:focus {
+  border-color: var(--c-accent);
+}
+
+/* ---------- Комментарии ролей ---------- */
+
+.roleView {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--c-input-bg);
+  text-align: left;
+}
+
+.roleView:hover:not(:disabled) {
+  background: var(--c-surface-active);
+}
+
+.roleText {
+  flex: 1;
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.roleText a {
+  color: var(--c-accent);
+  text-decoration: underline;
+}
+
+.rolePlaceholder {
+  flex: 1;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--c-text-muted);
+}
+
+.roleEdit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.roleEdit textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1.5px solid var(--c-accent);
+  border-radius: 13px;
+  background: var(--c-input-bg);
+  outline: none;
+  resize: vertical;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.roleActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---------- Файлы ---------- */
+
+.files {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+}
+
+.filesDrag {
+  outline: 2px dashed var(--c-accent);
+  outline-offset: 4px;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file + .file {
+  border-top: 1px solid var(--c-border);
+}
+
+.fileMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.fileMain:hover .fileName {
+  color: var(--c-accent);
+}
+
+.fileIcon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fileBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fileName {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+}
+
+.uploading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+}
+
+.dropHint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--c-card) 85%, transparent);
+  color: var(--c-accent);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* ---------- История ---------- */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.event {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.event:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 26px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--c-border);
+}
+
+.eventDot {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eventBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.eventHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.eventTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.eventStatuses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.eventComment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--c-input-bg);
+  font-size: 13.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--c-text-secondary);
+}
+
+.eventComment svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* ---------- Обсуждение ---------- */
+
+.comments {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.comment {
+  display: flex;
+  gap: 10px;
+}
+
+.commentBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.commentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: 14px;
+}
+
+.roleBadge {
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.commentActions {
+  display: inline-flex;
+  margin-left: 4px;
+}
+
+.commentText {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--c-input-bg);
+  font-size: 15px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.commentText a {
+  color: var(--c-accent);
+  text-decoration: underline;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
+  background: var(--c-card);
+  border-top: 1px solid var(--c-border);
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 160px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 21px;
+  background: var(--c-input-bg);
+  outline: none;
+  resize: none;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.send {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-surface-active);
+  color: var(--c-text-muted);
+}
+
+.sendOn {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}

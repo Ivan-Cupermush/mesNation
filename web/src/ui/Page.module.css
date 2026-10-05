@@ -1,0 +1,135 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--c-background);
+}
+
+.header {
+  flex-shrink: 0;
+  background: var(--c-card);
+  border-bottom: 1px solid var(--c-border);
+  padding: 10px 20px;
+  padding-top: calc(10px + var(--safe-top));
+}
+
+.large {
+  border-bottom: none;
+  padding-top: calc(16px + var(--safe-top));
+  padding-bottom: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-left: -8px;
+  border-radius: 12px;
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+
+.back:hover {
+  background: var(--c-input-bg);
+}
+
+.titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: 34px;
+  color: var(--c-text-primary);
+}
+
+.titleCompact {
+  font-size: 18px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+}
+
+.narrow {
+  max-width: 720px;
+}
+
+.cardWrap {
+  margin-bottom: 18px;
+}
+
+.cardTitle {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  margin: 0 6px 8px;
+}
+
+.card {
+  background: var(--c-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+
+.padded {
+  padding: 16px;
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .title {
+    font-size: 30px;
+  }
+
+  .inner {
+    padding: 14px 12px calc(96px + var(--safe-bottom));
+  }
+}

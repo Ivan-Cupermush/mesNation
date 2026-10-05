@@ -1,13 +1,15 @@
 import React, { memo, useRef } from 'react';
-import { View, Text, TouchableOpacity, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
 import { Check, CheckCheck, Clock, AlertCircle, FileText, CornerUpLeft, Download } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
-import { C, fileBadge, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
+import { C, fileBadge, formatSize, formatTime, hashColor, initials, isUnlistened, messagePreview } from './chatUtils';
 import UploadProgress from './UploadProgress';
+import VoiceBubble from './voice/VoiceBubble';
+import VideoNoteBubble from './voice/VideoNoteBubble';
 
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
@@ -44,6 +46,13 @@ interface Props {
   onCancelUpload?: (msg: any) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
   onPressSender?: (userId: number) => void;
+  /** Режим выделения (как в Telegram): нажатие отмечает сообщение. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (row: Props['row']) => void;
+  onPlayVoice?: (msg: any) => void;
+  onSeekVoice?: (msg: any, ratio: number) => void;
+  onVideoNoteStarted?: (msg: any) => void;
 }
 
 function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: number; onMedia?: boolean }) {
@@ -74,7 +83,7 @@ function MessageRow(props: Props) {
   propsRef.current = props;
   const swipe = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dx < -12 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+      onMoveShouldSetPanResponder: (_, g) => !propsRef.current.selecting && g.dx < -12 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
       onPanResponderMove: (_, g) => dx.setValue(Math.max(-80, Math.min(0, g.dx))),
       onPanResponderRelease: (_, g) => {
         if (g.dx < -60) propsRef.current.onSwipeReply(main);
@@ -88,11 +97,14 @@ function MessageRow(props: Props) {
   const sub = mine ? C.textOutMuted : C.textMuted;
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
+  const isVoice = main.media_kind === 'voice' && !!main.file_url;
+  const isVideoNote = main.media_kind === 'video_note' && !!main.file_url;
+  const unlistened = isUnlistened(main, currentUserId);
   // Группа документов (несколько файлов одним сообщением, как в Telegram).
   const isDocGroup = row.type === 'album' && msgs.every((m) => m.media_kind === 'file');
   const isVisual =
     !isPoll && !isDocGroup && (row.type === 'album' || main.media_kind === 'photo' || main.media_kind === 'video' || (!main.media_kind && main.thumb_url));
-  const isFile = !isPoll && !isVisual && !!main.file_url;
+  const isFile = !isPoll && !isVisual && !isVoice && !isVideoNote && !!main.file_url;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
   const caption = main.text && !isNote ? main.text : '';
@@ -117,9 +129,42 @@ function MessageRow(props: Props) {
   };
 
   const onLong = () => props.onLongPress(row);
+  const selecting = !!props.selecting;
+
+  const checkSlot = selecting ? (
+    <View style={styles.checkSlot} pointerEvents="none">
+      <View style={[styles.check, props.selected && styles.checkOn]}>{props.selected && <Check size={14} color={T.onAccent} strokeWidth={3} />}</View>
+    </View>
+  ) : null;
+
+  // Кружочек — без пузыря, как в Telegram.
+  if (isVideoNote) {
+    return (
+      <View style={[styles.rowOuter, selecting && styles.rowSelecting, props.highlighted && styles.highlight, props.selected && styles.selectedRow]}>
+        {checkSlot}
+        <Animated.View
+          {...swipe.panHandlers}
+          style={[styles.row, selecting && styles.flex, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
+        >
+          {showSideAvatar && <View style={styles.avatarSlot} />}
+          <VideoNoteBubble
+            msg={main}
+            mine={mine}
+            unlistened={unlistened}
+            meta={meta(true)}
+            onStarted={(m) => props.onVideoNoteStarted?.(m)}
+            onLongPress={onLong}
+            onCancel={props.onCancelUpload}
+          />
+        </Animated.View>
+        {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
+      </View>
+    );
+  }
 
   return (
-    <View style={[styles.rowOuter, props.highlighted && styles.highlight]}>
+    <View style={[styles.rowOuter, selecting && styles.rowSelecting, props.highlighted && styles.highlight, props.selected && styles.selectedRow]}>
+      {checkSlot}
       <Animated.View style={[styles.swipeIcon, { opacity: dx.interpolate({ inputRange: [-70, -20, 0], outputRange: [1, 0.2, 0] }) }]}>
         <View style={styles.swipeIconCircle}>
           <CornerUpLeft size={16} color={T.onAccent} />
@@ -127,7 +172,7 @@ function MessageRow(props: Props) {
       </Animated.View>
       <Animated.View
         {...swipe.panHandlers}
-        style={[styles.row, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
+        style={[styles.row, selecting && styles.flex, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
       >
         {showSideAvatar && (
           <View style={styles.avatarSlot}>
@@ -197,6 +242,18 @@ function MessageRow(props: Props) {
             />
           )}
 
+          {isVoice && (
+            <VoiceBubble
+              msg={main}
+              mine={mine}
+              unlistened={unlistened}
+              onPlay={(m) => props.onPlayVoice?.(m)}
+              onSeek={(m, r) => props.onSeekVoice?.(m, r)}
+              onCancel={props.onCancelUpload}
+            />
+          )}
+          {isVoice && !caption && <View style={styles.metaRoomVoice} />}
+
           {isFile &&
             msgs.map((f) => (
               <FileRow key={f.client_id || f.id} msg={f} mine={mine} fg={fg} sub={sub} onOpen={props.onOpenFile} onLongPress={onLong} onCancel={props.onCancelUpload} />
@@ -235,6 +292,8 @@ function MessageRow(props: Props) {
           {main.status === 'failed' && <Text style={styles.failed}>Не отправлено · нажмите, чтобы повторить</Text>}
         </TouchableOpacity>
       </Animated.View>
+      {/* В режиме выделения вся строка — одна большая кнопка «отметить». */}
+      {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
     </View>
   );
 }
@@ -317,7 +376,24 @@ export function DayDivider({ label }: { label: string }) {
 
 const styles = themed(() => ({
   rowOuter: { paddingHorizontal: 8 },
+  rowSelecting: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
   highlight: { backgroundColor: withAlpha(T.accent, 0.14) },
+  selectedRow: { backgroundColor: withAlpha(T.accent, 0.16) },
+  checkSlot: { width: 34, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: T.accent, borderColor: T.accent },
+  selectCatcher: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+  metaRoomVoice: { height: 4 },
   row: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 6 },
   rowTight: { marginTop: 2 },
   rowMine: { justifyContent: 'flex-end' },

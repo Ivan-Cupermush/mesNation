@@ -294,3 +294,14 @@ export async function signedFileUrl(path: string): Promise<string> {
   const { url } = await request<{ url: string }>('/api/files/url', { query: { path } });
   return `${SERVER_URL}${url}`;
 }
+
+// Подписанная ссылка живёт 10 минут; держим её 8, чтобы повторное открытие
+// фото или голосового брало файл из кеша, а не запрашивало ссылку заново.
+const signedCache = new Map<string, { url: string; at: number }>();
+export async function cachedSignedUrl(path: string): Promise<string> {
+  const hit = signedCache.get(path);
+  if (hit && Date.now() - hit.at < 8 * 60_000) return hit.url;
+  const url = await signedFileUrl(path);
+  signedCache.set(path, { url, at: Date.now() });
+  return url;
+}

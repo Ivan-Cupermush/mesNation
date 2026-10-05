@@ -81,3 +81,30 @@ jest.mock('@react-native-firebase/messaging', () => ({
   onTokenRefresh: jest.fn(() => () => undefined),
   setBackgroundMessageHandler: jest.fn(),
 }));
+
+// Нативные модули голосовых и кружочков в тестах не нужны.
+jest.mock('react-native-vision-camera', () => ({
+  Camera: () => null,
+  CommonResolutions: { VGA_4_3: { width: 480, height: 640 } },
+  useVideoOutput: () => ({ createRecorder: jest.fn() }),
+}));
+jest.mock('react-native-nitro-sound', () => {
+  const sound = () => ({
+    setSubscriptionDuration: jest.fn(),
+    addRecordBackListener: jest.fn(),
+    removeRecordBackListener: jest.fn(),
+    addPlayBackListener: jest.fn(),
+    removePlayBackListener: jest.fn(),
+    addPlaybackEndListener: jest.fn(),
+    removePlaybackEndListener: jest.fn(),
+    startRecorder: jest.fn(() => Promise.resolve('')),
+    stopRecorder: jest.fn(() => Promise.resolve('')),
+    startPlayer: jest.fn(() => Promise.resolve('')),
+    stopPlayer: jest.fn(() => Promise.resolve('')),
+    pausePlayer: jest.fn(() => Promise.resolve('')),
+    resumePlayer: jest.fn(() => Promise.resolve('')),
+    seekToPlayer: jest.fn(() => Promise.resolve('')),
+    setPlaybackSpeed: jest.fn(() => Promise.resolve('')),
+  });
+  return { createSound: sound, AudioSourceAndroidType: {}, OutputFormatAndroidType: {}, AudioEncoderAndroidType: {} };
+});

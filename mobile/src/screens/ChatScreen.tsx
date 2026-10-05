@@ -14,6 +14,10 @@ import {
   Image,
   Linking,
   Pressable,
+  BackHandler,
+  LayoutAnimation,
+  Vibration,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused, useRoute, RouteProp } from '@react-navigation/native';
@@ -37,6 +41,7 @@ import {
   Undo2,
   Square,
   Image as ImageIcon,
+  Download,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -59,6 +64,11 @@ import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
 import { useTheme } from '../theme/ThemeContext';
 import { clearActiveChat, setActiveChat } from '../notifications/state';
+import VoicePlayerBar from '../components/chat/voice/VoicePlayerBar';
+import { RecordButton, RecordingLayer, useChatRecorder, VideoNoteResult, VoiceResult } from '../components/chat/voice/ChatRecorder';
+import VideoNoteCamera from '../components/chat/voice/VideoNoteCamera';
+import { seekVoice, setVoiceStartHandler, stopVoice, toggleVoice } from '../components/chat/voice/voicePlayer';
+import { copyText, saveMessagesToDevice } from '../components/chat/saveToDevice';
 import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
@@ -110,7 +120,7 @@ export default function ChatScreen({ navigation }: any) {
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
-  const [actionRow, setActionRow] = useState<Exclude<Row, { type: 'divider' }> | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [highlightId, setHighlightId] = useState<number | null>(null);
 
   const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
@@ -132,6 +142,14 @@ export default function ChatScreen({ navigation }: any) {
   const [onlineIds, setOnlineIds] = useState<number[]>([]);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [newWhileAway, setNewWhileAway] = useState(0);
+
+  // Выделение сообщений (как в Telegram): ключ строки ленты → строка.
+  const [selected, setSelected] = useState<Map<string, Exclude<Row, { type: 'divider' }>>>(() => new Map());
+  const selecting = selected.size > 0;
+  const [toast, setToast] = useState<string | null>(null);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [barHeight, setBarHeight] = useState(56);
 
   const listRef = useRef<FlatList>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -315,6 +333,14 @@ export default function ChatScreen({ navigation }: any) {
         }
       }),
       subscribe('scheduled_changed', () => loadScheduled()),
+      subscribe('message_listened', (e: any) => {
+        if (!sameChat(e.chat_id)) return;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === e.id && !(m.listened_by || []).includes(e.user_id) ? { ...m, listened_by: [...(m.listened_by || []), e.user_id] } : m,
+          ),
+        );
+      }),
       subscribe('messages_read', (e: any) => {
         if (sameChat(e.chat_id) && e.user_id !== meRef.current) setPeerLastReadId((p) => Math.max(p, e.message_id));
       }),
@@ -529,6 +555,10 @@ export default function ChatScreen({ navigation }: any) {
             media_group_id: local.media_group_id || undefined,
             as_file: local.as_file ? 'true' : undefined,
             reply_to_message_id: local.reply_to_message_id || undefined,
+            // Голосовое / кружочек: тип, длительность, волна.
+            kind: local.upload?.kind,
+            duration: local.upload?.duration,
+            waveform: local.upload?.waveform,
           },
           (p) => {
             // Не перерисовываем ленту на каждый байт — шаг 4%.
@@ -908,6 +938,220 @@ export default function ChatScreen({ navigation }: any) {
     ]);
   };
 
+
+  // ===== Голосовые и кружочки =====
+  /** Голосовые после этого — плеер включит их сам по очереди, как Telegram. */
+  const voicesAfter = (msg: any) => {
+    const at = new Date(msg.created_at).getTime();
+    return messages.filter((m) => !m.local && m.media_kind === 'voice' && m.file_url && new Date(m.created_at).getTime() > at);
+  };
+
+  const onPlayVoice = useCallback(
+    (msg: any) => {
+      toggleVoice(msg, voicesAfter(msg)).catch((e: any) => Alert.alert('Не удалось воспроизвести', e?.message || ''));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages],
+  );
+
+  const onSeekVoice = useCallback(
+    (msg: any, ratio: number) => {
+      seekVoice(msg, ratio, voicesAfter(msg)).catch(() => undefined);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages],
+  );
+
+  /** Прослушано: точка у голосового гаснет у всех. */
+  const markListened = useCallback(
+    (msg: any) => {
+      const me = meRef.current;
+      if (!me || typeof msg.id !== 'number' || msg.sender_id === me || (msg.listened_by || []).includes(me)) return;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, listened_by: [...(m.listened_by || []), me] } : m)));
+      request(`/api/messages/${msg.id}/listened`, { method: 'POST' }).catch(() => undefined);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setVoiceStartHandler(markListened);
+    return () => {
+      setVoiceStartHandler(null);
+      stopVoice();
+    };
+  }, [markListened]);
+
+  const sendVoice = (r: VoiceResult) => {
+    const duration = Math.round(r.durationMs / 100) / 10;
+    enqueue([
+      {
+        ...baseLocal(),
+        media_kind: 'voice',
+        file_url: 'local',
+        local_uri: r.uri,
+        media_duration: duration,
+        media_waveform: r.waveform,
+        reply_to_message_id: replyTo?.id ?? null,
+        local_file: { uri: r.uri, name: 'voice.m4a', type: 'audio/mp4' },
+        upload: { kind: 'voice', duration, waveform: r.waveform },
+      },
+    ]);
+  };
+
+  const sendVideoNote = (r: VideoNoteResult) => {
+    const duration = Math.round(r.durationMs / 100) / 10;
+    enqueue([
+      {
+        ...baseLocal(),
+        media_kind: 'video_note',
+        file_url: 'local',
+        local_uri: r.uri,
+        media_duration: duration,
+        reply_to_message_id: replyTo?.id ?? null,
+        local_file: { uri: r.uri, name: 'video_note.mp4', type: 'video/mp4' },
+        upload: { kind: 'video_note', duration },
+      },
+    ]);
+  };
+
+  const recorder = useChatRecorder({ onVoice: sendVoice, onVideoNote: sendVideoNote });
+
+  // ===== Выделение сообщений =====
+  const showToast = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    Animated.timing(toastAnim, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+    toastTimer.current = setTimeout(() => {
+      Animated.timing(toastAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setToast(null));
+    }, 1800);
+  };
+
+  const clearSelection = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.create(160, 'easeInEaseOut', 'opacity'));
+    setSelected(new Map());
+  }, []);
+
+  /** Удержание — начать выделение с этого сообщения (вместо всплывающего меню). */
+  const startSelection = useCallback((row: Exclude<Row, { type: 'divider' }>) => {
+    if (rowMain(row).local) return;
+    Vibration.vibrate(10);
+    LayoutAnimation.configureNext(LayoutAnimation.create(160, 'easeInEaseOut', 'opacity'));
+    setSelected((prev) => {
+      if (prev.size) {
+        const next = new Map(prev);
+        next.set(row.key, row);
+        return next;
+      }
+      return new Map([[row.key, row]]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleSelect = useCallback((row: Exclude<Row, { type: 'divider' }>) => {
+    if (rowMain(row).local) return;
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(row.key)) next.delete(row.key);
+      else next.set(row.key, row);
+      if (!next.size) LayoutAnimation.configureNext(LayoutAnimation.create(160, 'easeInEaseOut', 'opacity'));
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // «Назад» на телефоне снимает выделение, а не закрывает чат.
+  useEffect(() => {
+    if (!selecting) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      clearSelection();
+      return true;
+    });
+    return () => sub.remove();
+  }, [selecting, clearSelection]);
+
+  const selRows = useMemo(() => [...selected.values()], [selected]);
+  const selMsgs = useMemo(
+    () =>
+      selRows
+        .flatMap((r) => rowMessages(r))
+        .filter((m) => typeof m.id === 'number')
+        .sort((a, b) => a.id - b.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selRows],
+  );
+  const selSingle = selRows.length === 1 ? rowMain(selRows[0]) : null;
+  const selCanEdit = !!selSingle && selSingle.sender_id === currentUserId && !selSingle.poll_id && !selSingle.note_share_id && selSingle.media_kind !== 'video_note';
+  const selCanCopy = selMsgs.some((m) => m.text && m.content_type !== 'note');
+  const selCanForward = selMsgs.length > 0 && selMsgs.every((m) => !m.poll_id);
+  const selCanSave = selMsgs.some((m) => m.file_url || m.text);
+  const selMore = selRows.length === 1 ? actionsFor(selRows[0]).filter((a) => ['pin', 'open', 'retract', 'stop'].includes(a.key)) : [];
+
+  const selReply = () => {
+    if (!selSingle) return;
+    setReplyTo(selSingle);
+    clearSelection();
+  };
+
+  const selForward = () => {
+    setForwardIds(selMsgs.map((m) => m.id));
+    clearSelection();
+  };
+
+  const selCopy = () => {
+    Clipboard.setString(copyText(selMsgs, senderNameOf));
+    clearSelection();
+    showToast(selMsgs.filter((m) => m.text).length > 1 ? 'Сообщения скопированы' : 'Текст скопирован');
+  };
+
+  const selEdit = () => {
+    if (!selSingle) return;
+    setEditingMessage(selSingle);
+    setText(selSingle.text || '');
+    clearSelection();
+  };
+
+  const selSave = async () => {
+    const list = selMsgs;
+    clearSelection();
+    try {
+      const r = await saveMessagesToDevice(list, senderNameOf);
+      const parts = [
+        r.gallery ? (r.gallery > 1 ? `${r.gallery} в галерею` : 'Сохранено в галерею') : '',
+        r.files ? (r.files > 1 ? `файлов: ${r.files}` : 'Файл сохранён') : '',
+        r.text ? 'Текст сохранён' : '',
+      ].filter(Boolean);
+      if (parts.length) showToast(parts.join(' · '));
+    } catch (e: any) {
+      Alert.alert('Не удалось сохранить', e?.message || '');
+    }
+  };
+
+  const selDelete = () => {
+    const list = selMsgs;
+    if (!list.length) return;
+    const canAll = list.every((m) => m.sender_id === currentUserId || rights.can_delete_messages);
+    const n = list.length;
+    const what = n > 1 ? `${n} ${plural(n, ['сообщение', 'сообщения', 'сообщений'])}` : 'сообщение';
+    const run = async (scope: 'me' | 'all') => {
+      clearSelection();
+      try {
+        for (let i = 0; i < list.length; i += 100) {
+          await request('/api/messages/bulk-delete', { method: 'POST', body: { ids: list.slice(i, i + 100).map((m) => m.id), scope } });
+        }
+        const ids = new Set(list.map((m) => m.id));
+        setMessages((prev) => prev.filter((m) => !ids.has(m.id)));
+        loadPinned();
+      } catch (e: any) {
+        Alert.alert('Не удалось удалить', e?.message || 'Попробуйте ещё раз');
+      }
+    };
+    Alert.alert(`Удалить ${what}?`, canAll ? 'Можно удалить только у себя или у всех участников.' : 'Сообщения исчезнут только у вас.', [
+      { text: 'Отмена', style: 'cancel' },
+      ...(canAll ? [{ text: 'Удалить у всех', style: 'destructive' as const, onPress: () => run('all') }] : []),
+      { text: 'Удалить у меня', style: 'destructive' as const, onPress: () => run('me') },
+    ]);
+  };
+
   // ===== Шапка =====
   const openInfo = () => {
     if (topicId) navigation.navigate('TopicInfo', { chatId, topicId });
@@ -977,7 +1221,13 @@ export default function ChatScreen({ navigation }: any) {
         peerLastReadId={peerLastReadId}
         currentUserId={currentUserId || 0}
         highlighted={highlightId !== null && rowMessages(item.row).some((m) => m.id === highlightId)}
-        onLongPress={(row) => !rowMain(row).local && setActionRow(row)}
+        onLongPress={startSelection}
+        selecting={selecting}
+        selected={selected.has(item.row.key)}
+        onToggleSelect={toggleSelect}
+        onPlayVoice={onPlayVoice}
+        onSeekVoice={onSeekVoice}
+        onVideoNoteStarted={markListened}
         onOpenMedia={openMedia}
         onOpenFile={openFile}
         onPressReply={onPressReply}
@@ -990,12 +1240,51 @@ export default function ChatScreen({ navigation }: any) {
     );
   };
 
-  const actionMain = actionRow ? rowMain(actionRow) : null;
   const canSend = !!text.trim();
+  // Пустое поле — микрофон/кружочек; есть текст или правка — «отправить».
+  const showRecord = !canSend && !editingMessage;
+  const recordingVideo = recorder.mode === 'video' && (recorder.phase === 'recording' || recorder.phase === 'locked');
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== ШАПКА ===== */}
+      {selecting ? (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={clearSelection} style={styles.headerBtn} accessibilityLabel="Снять выделение">
+            <X size={24} color={C.text} strokeWidth={2} />
+          </TouchableOpacity>
+          <Text style={styles.selCount}>{selMsgs.length}</Text>
+          <View style={styles.flex1} />
+          {selCanEdit && (
+            <TouchableOpacity onPress={selEdit} style={styles.headerBtn} accessibilityLabel="Изменить">
+              <Pencil size={21} color={C.text} />
+            </TouchableOpacity>
+          )}
+          {selCanCopy && (
+            <TouchableOpacity onPress={selCopy} style={styles.headerBtn} accessibilityLabel="Копировать">
+              <Copy size={21} color={C.text} />
+            </TouchableOpacity>
+          )}
+          {selCanForward && (
+            <TouchableOpacity onPress={selForward} style={styles.headerBtn} accessibilityLabel="Переслать">
+              <Forward size={22} color={C.text} />
+            </TouchableOpacity>
+          )}
+          {selCanSave && (
+            <TouchableOpacity onPress={selSave} style={styles.headerBtn} accessibilityLabel="Сохранить">
+              <Download size={21} color={C.text} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={selDelete} style={styles.headerBtn} accessibilityLabel="Удалить">
+            <Trash2 size={21} color={C.danger} />
+          </TouchableOpacity>
+          {selMore.length > 0 && (
+            <TouchableOpacity onPress={() => setMoreOpen(true)} style={styles.headerBtn} accessibilityLabel="Ещё">
+              <MoreVertical size={21} color={C.text} />
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityLabel="Назад">
           <ChevronLeft size={26} color={C.text} strokeWidth={2} />
@@ -1017,6 +1306,7 @@ export default function ChatScreen({ navigation }: any) {
           <MoreVertical size={22} color={C.text} strokeWidth={2} />
         </TouchableOpacity>
       </View>
+      )}
 
       {/* ===== ЗАКРЕП ===== */}
       {pinnedMessages.length > 0 && (
@@ -1041,6 +1331,8 @@ export default function ChatScreen({ navigation }: any) {
           <Pin size={18} color={C.textMuted} />
         </TouchableOpacity>
       )}
+
+      <VoicePlayerBar nameOf={(m) => (m.sender_id === currentUserId ? 'Вы' : senderNameOf(m))} onOpen={(m) => typeof m.id === 'number' && scrollToMessage(m.id)} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         <View style={styles.listWrap}>
@@ -1107,8 +1399,36 @@ export default function ChatScreen({ navigation }: any) {
               )}
             </TouchableOpacity>
           )}
+
+          {recordingVideo && <VideoNoteCamera rec={recorder} />}
+
+          {toast && (
+            <Animated.View pointerEvents="none" style={[styles.toast, { opacity: toastAnim, transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }]}>
+              <Text style={styles.toastText}>{toast}</Text>
+            </Animated.View>
+          )}
         </View>
 
+        {/* ===== ВЫДЕЛЕНИЕ: «Ответить» и «Переслать» вместо поля ввода ===== */}
+        {selecting ? (
+          <View style={[styles.selBar, { minHeight: barHeight }]}>
+            {selSingle ? (
+              <TouchableOpacity onPress={selReply} style={styles.selBtn} activeOpacity={0.7}>
+                <CornerUpLeft size={22} color={C.accent} />
+                <Text style={styles.selBtnText}>Ответить</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.flex1} />
+            )}
+            {selCanForward && (
+              <TouchableOpacity onPress={selForward} style={[styles.selBtn, styles.selBtnRight]} activeOpacity={0.7}>
+                <Text style={styles.selBtnText}>Переслать</Text>
+                <Forward size={22} color={C.accent} />
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+        <>
         {/* ===== ПЛАШКИ НАД ВВОДОМ ===== */}
         {(replyTo || editingMessage) && (
           <View style={styles.plate}>
@@ -1147,7 +1467,7 @@ export default function ChatScreen({ navigation }: any) {
         )}
 
         {/* ===== ВВОД ===== */}
-        <View style={styles.inputBar}>
+        <View style={styles.inputBar} onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
           <TouchableOpacity onPress={() => setShowAttach(true)} style={styles.attachBtn} accessibilityLabel="Вложения" disabled={!!editingMessage}>
             <Paperclip size={24} color={editingMessage ? T.textMuted : C.textMuted} strokeWidth={2} />
           </TouchableOpacity>
@@ -1164,21 +1484,27 @@ export default function ChatScreen({ navigation }: any) {
             returnKeyType={sendByEnter ? 'send' : 'default'}
             onSubmitEditing={sendByEnter ? handleSend : undefined}
           />
-          <TouchableOpacity
-            onPress={handleSend}
-            onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
-            delayLongPress={350}
-            disabled={!canSend && !editingMessage}
-            style={[styles.sendBtn, { backgroundColor: canSend || editingMessage ? C.accent : T.surfaceActive }]}
-            accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
-          >
-            {editingMessage ? (
-              <Pencil size={18} color={T.onAccent} strokeWidth={2.5} />
-            ) : (
-              <SendHorizonal size={19} color={canSend ? T.onAccent : T.textMuted} strokeWidth={2.4} />
-            )}
-          </TouchableOpacity>
+          {showRecord || recorder.phase !== 'idle' ? (
+            <RecordButton rec={recorder} />
+          ) : (
+            <TouchableOpacity
+              onPress={handleSend}
+              onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
+              delayLongPress={350}
+              style={[styles.sendBtn, { backgroundColor: C.accent }]}
+              accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
+            >
+              {editingMessage ? (
+                <Pencil size={18} color={T.onAccent} strokeWidth={2.5} />
+              ) : (
+                <SendHorizonal size={19} color={T.onAccent} strokeWidth={2.4} />
+              )}
+            </TouchableOpacity>
+          )}
         </View>
+        <RecordingLayer rec={recorder} barHeight={barHeight} />
+        </>
+        )}
       </KeyboardAvoidingView>
 
       {/* ===== МОДАЛКИ ===== */}
@@ -1207,11 +1533,17 @@ export default function ChatScreen({ navigation }: any) {
         }}
       />
       <ActionSheet
-        visible={!!actionRow}
-        title={actionMain ? (actionMain.sender_id === currentUserId ? 'Вы' : senderNameOf(actionMain)) : ''}
-        preview={actionMain ? messagePreview(actionMain) : ''}
-        actions={actionRow ? actionsFor(actionRow) : []}
-        onClose={() => setActionRow(null)}
+        visible={moreOpen && !!selSingle}
+        title={selSingle ? (selSingle.sender_id === currentUserId ? 'Вы' : senderNameOf(selSingle)) : ''}
+        preview={selSingle ? messagePreview(selSingle) : ''}
+        actions={selMore.map((a) => ({
+          ...a,
+          onPress: () => {
+            clearSelection();
+            a.onPress();
+          },
+        }))}
+        onClose={() => setMoreOpen(false)}
       />
       <ShareToChatModal visible={!!forwardIds} title="Переслать" onClose={() => setForwardIds(null)} onSend={forwardTo} />
 
@@ -1298,6 +1630,29 @@ const styles = themed(() => ({
     borderColor: T.card,
   },
   headerCenter: { flex: 1 },
+  flex1: { flex: 1 },
+  selCount: { fontSize: 19, fontWeight: '700', color: C.text, marginLeft: 6 },
+  selBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    backgroundColor: T.card,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
+  },
+  selBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, height: 48 },
+  selBtnRight: { justifyContent: 'flex-end' },
+  selBtnText: { fontSize: 15, fontWeight: '700', color: C.accent, textTransform: 'uppercase', letterSpacing: 0.3 },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(20,24,22,0.9)',
+  },
+  toastText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
   headerSubtitle: { fontSize: 13, color: C.textMuted, marginTop: 1 },
 

@@ -88,6 +88,25 @@ describe('дерево ролей', () => {
     expect(r.status).toBe(400);
   });
 
+  it('у дерева один корень: «потерянная» роль возвращается под директора', async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    // Второй корень база больше не принимает.
+    await expect(pool.query(`INSERT INTO role_tree (name, parent_id) VALUES ('Сирота', NULL)`)).rejects.toThrow();
+    // Старые данные: снимаем защиту и создаём роль без родителя, как после старого удаления.
+    await pool.query('DROP INDEX uq_role_tree_single_root');
+    const stray = (await pool.query(`INSERT INTO role_tree (name, parent_id) VALUES ('Сирота', NULL) RETURNING id`)).rows[0].id;
+    const sql = readFileSync(join(__dirname, '../src/db/migrations/0013_role_tree_single_root.sql'), 'utf8');
+    await pool.query(sql);
+    const row = (await pool.query('SELECT parent_id, level FROM role_tree WHERE id = $1', [stray])).rows[0];
+    expect(row.parent_id).toBe(c.nodes.root);
+    expect(row.level).toBe(1);
+    const roots = await pool.query('SELECT id FROM role_tree WHERE parent_id IS NULL');
+    expect(roots.rows.map((r) => r.id)).toEqual([c.nodes.root]);
+    expect((await as(c.dir).get('/api/auth/me')).body.is_director).toBe(true);
+    await as(c.dir).delete(`/api/role-tree/${stray}`);
+  });
+
   it('прямые члены роли отдаются одним запросом', async () => {
     const r = await as(c.dir).get(`/api/role-tree/${c.nodes.mgrNode}/users`);
     expect(r.body.map((u: any) => u.username).sort()).toEqual(['mgr1', 'mgr2']);

@@ -65,6 +65,8 @@ type ChatStackParamList = {
   UserProfile: { userId: number; username?: string; displayName?: string; avatarUrl?: string; role?: string };
   Appearance: undefined;
   NotificationSettings: undefined;
+  Employees: undefined;
+  RoleTreeEditor: { focusNodeId?: number; focusUserId?: number } | undefined;
 };
 
 type TasksStackParamList = {
@@ -145,6 +147,9 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
       <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
       <ChatStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
       <ChatStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ headerShown: false }} />
+      {/* Руководителям без прав директора — из профиля (вкладки «Настройки» у них нет). */}
+      <ChatStack.Screen name="Employees" component={EmployeesScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="RoleTreeEditor" component={RoleTreeEditorScreen} options={{ headerShown: false }} />
     </ChatStack.Navigator>
   );
 }
@@ -326,7 +331,8 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
           tabBarIcon: ({ focused }) => <TabIcon icon={BookOpen} focused={focused} />,
         }}
       />
-      {currentUser && (currentUser.is_director || currentUser.has_subordinates) && (
+      {/* Настройки компании — только у директора (корень дерева ролей). */}
+      {currentUser?.is_director && (
         <Tab.Screen
           name="SettingsTab"
           options={{

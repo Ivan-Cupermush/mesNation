@@ -59,6 +59,19 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   // Режим переноса человека на дереве
   const [moveUser, setMoveUser] = useState<any>(null);
+  // Режим переноса роли (вместе с её поддеревом) под другую роль
+  const [moveRole, setMoveRole] = useState<any>(null);
+  const moving = !!moveUser || !!moveRole;
+  const cancelMove = () => {
+    setMoveUser(null);
+    setMoveRole(null);
+  };
+
+  // Менять дерево может только директор; руководители смотрят его без правки.
+  const [canEdit, setCanEdit] = useState(true);
+  useEffect(() => {
+    api.getCurrentUser().then((me) => setCanEdit(!!me?.is_director)).catch(() => undefined);
+  }, []);
 
   const loadTree = async () => {
     try {
@@ -135,6 +148,10 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const handleNodePress = async (node: any) => {
     if (moveUser) {
       handleMoveTarget(node);
+      return;
+    }
+    if (moveRole) {
+      handleRoleMoveTarget(node);
       return;
     }
     setEditingNode(node);
@@ -217,6 +234,58 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
     setMoveUser(user);
   };
 
+  // === Перенос роли: новая родительская роль ===
+  const startMoveRole = () => {
+    if (!editingNode || editingNode.is_root) return;
+    setShowEditModal(false);
+    setMoveRole(editingNode);
+  };
+
+  const subtreeIds = (rootId: number) => {
+    const ids = new Set<number>([rootId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      nodes.forEach((n: any) => {
+        if (n.parent_id != null && ids.has(n.parent_id) && !ids.has(n.id)) {
+          ids.add(n.id);
+          grew = true;
+        }
+      });
+    }
+    return ids;
+  };
+
+  const handleRoleMoveTarget = (target: any) => {
+    if (!moveRole) return;
+    if (target.id === moveRole.parent_id) {
+      Alert.alert('Уже здесь', `«${moveRole.name}» уже подчиняется «${target.name}»`);
+      return;
+    }
+    if (subtreeIds(moveRole.id).has(target.id)) {
+      Alert.alert('Нельзя', 'Роль нельзя перенести внутрь её собственной ветки');
+      return;
+    }
+    Alert.alert('Перенести роль?', `«${moveRole.name}» со всей веткой будет подчиняться «${target.name}»`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Перенести',
+        onPress: async () => {
+          setSaving(true);
+          try {
+            await api.updateRoleNode(moveRole.id, { parent_id: target.id });
+            setMoveRole(null);
+            loadTree();
+          } catch (e: any) {
+            Alert.alert('Ошибка', e.message || 'Не удалось перенести роль');
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
   // === Цель переноса: любой узел дерева (вверх/вниз/вбок) ===
   const handleMoveTarget = (node: any) => {
     if (!moveUser) return;
@@ -273,7 +342,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         borderBottomColor: colors.border,
         paddingTop: insets.top + 8,
       }]}>
-        <TouchableOpacity onPress={() => (moveUser ? setMoveUser(null) : navigation.goBack())} style={styles.backBtn} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => (moving ? cancelMove() : navigation.goBack())} style={styles.backBtn} activeOpacity={0.7}>
           <ChevronLeft size={22} color={T.accent} strokeWidth={2.5} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -283,17 +352,17 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       </View>
 
       {/* ===== ПЛАШКА РЕЖИМА ПЕРЕНОСА ===== */}
-      {moveUser && (
+      {moving && (
         <View style={styles.moveBanner}>
           <View style={{ flex: 1 }}>
             <Text style={styles.moveBannerTitle} numberOfLines={1}>
-              Перенос: {moveUser.display_name || moveUser.username}
+              Перенос: {moveUser ? moveUser.display_name || moveUser.username : moveRole?.name}
             </Text>
             <Text style={styles.moveBannerSub}>
-              Нажмите новую роль на дереве. Роль директора недоступна
+              {moveUser ? 'Нажмите новую роль на дереве. Роль директора недоступна' : 'Нажмите роль, которой она будет подчиняться'}
             </Text>
           </View>
-          <TouchableOpacity onPress={() => setMoveUser(null)} style={styles.moveCancel} activeOpacity={0.7}>
+          <TouchableOpacity onPress={cancelMove} style={styles.moveCancel} activeOpacity={0.7}>
             <X size={18} color={T.onAccent} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
@@ -303,6 +372,8 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
         <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
           {moveUser
             ? 'Выберите роль, в которую перенести сотрудника'
+            : moveRole
+            ? 'Выберите новую руководящую роль'
             : 'Нажмите на роль — откроются её настройки и сотрудники. «+» под ролью добавляет подчинённую роль.'}
         </Text>
       </View>
@@ -310,7 +381,8 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       <TreeGraphView
         nodes={nodes}
         onNodePress={handleNodePress}
-        onAddChildPress={moveUser ? undefined : handleAddChild}
+        onAddChildPress={moving || !canEdit ? undefined : handleAddChild}
+        selectedNodeId={moveRole?.id ?? null}
       />
 
       {/* ===== МОДАЛКА ДОБАВЛЕНИЯ РЕБЁНКА ===== */}
@@ -404,6 +476,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                 style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.border }]}
                 value={editName}
                 onChangeText={setEditName}
+                editable={canEdit}
                 placeholder="Название роли"
                 placeholderTextColor={colors.textMuted}
               />
@@ -485,7 +558,8 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                   .map((user: any) => (
                   <TouchableOpacity
                     key={user.id}
-                    onPress={() => startMoveUser(user)}
+                    onPress={() => canEdit && startMoveUser(user)}
+                    disabled={!canEdit}
                     style={[styles.userRow, { backgroundColor: colors.surface }]}
                     activeOpacity={0.7}
                   >
@@ -506,7 +580,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
                         {user.role_name || 'Без роли'}
                       </Text>
                     </View>
-                    {editingNode?.is_root ? (
+                    {!canEdit ? null : editingNode?.is_root ? (
                       <View style={styles.userLockIcon}>
                         <Lock size={16} color={T.textMuted} strokeWidth={2.2} />
                       </View>
@@ -527,17 +601,28 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
               >
                 <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>Отмена</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleSaveEdit}
-                disabled={saving}
-                style={[styles.modalBtn, { backgroundColor: colors.accent }]}
-              >
-                <Text style={{ color: colors.onAccent, fontWeight: '600' }}>
-                  {saving ? 'Сохраняем...' : 'Сохранить'}
-                </Text>
-              </TouchableOpacity>
+              {canEdit && (
+                <TouchableOpacity
+                  onPress={handleSaveEdit}
+                  disabled={saving}
+                  style={[styles.modalBtn, { backgroundColor: colors.accent }]}
+                >
+                  <Text style={{ color: colors.onAccent, fontWeight: '600' }}>
+                    {saving ? 'Сохраняем...' : 'Сохранить'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
-            {editingNode && !editingNode.is_root && (
+            {canEdit && editingNode && !editingNode.is_root && (
+              <TouchableOpacity
+                onPress={startMoveRole}
+                disabled={saving}
+                style={[styles.deleteBtn, { backgroundColor: T.accentMuted }]}
+              >
+                <Text style={{ color: T.accent, fontWeight: '600' }}>Перенести под другую роль</Text>
+              </TouchableOpacity>
+            )}
+            {canEdit && editingNode && !editingNode.is_root && (
               <TouchableOpacity
                 onPress={handleDelete}
                 disabled={saving}

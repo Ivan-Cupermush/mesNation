@@ -94,15 +94,43 @@ router.patch('/messages/:id', validate(editSchema), async (req: AuthRequest, res
 });
 
 router.delete('/messages/:id', async (req: AuthRequest, res: Response) => {
-  const msg = await loadMessage(paramId(req));
-  const scope = req.query.scope === 'all' ? 'all' : 'me';
-  const rights = await getChatRights(Number(msg.chat_id), req.userId!);
+  await deleteOne(await loadMessage(paramId(req)), req.query.scope === 'all' ? 'all' : 'me', req.userId!);
+  res.json({ success: true });
+});
+
+/** Удаление выделенных сообщений одним запросом (выделение в чате, как в Telegram). */
+const bulkDeleteSchema = z.object({
+  ids: z.array(id).min(1).max(100),
+  scope: z.enum(['me', 'all']).default('me'),
+});
+
+router.post('/messages/bulk-delete', validate(bulkDeleteSchema), async (req: AuthRequest, res: Response) => {
+  const { ids, scope } = req.body as z.infer<typeof bulkDeleteSchema>;
+  // Сначала проверяем все, потом удаляем: либо всё, либо ничего.
+  const msgs = [];
+  for (const mid of ids) {
+    const msg = await loadMessage(mid);
+    await assertCanDelete(msg, scope, req.userId!);
+    msgs.push(msg);
+  }
+  for (const msg of msgs) await deleteOne(msg, scope, req.userId!);
+  res.json({ success: true, deleted: msgs.length });
+});
+
+async function assertCanDelete(msg: any, scope: 'me' | 'all', userId: number) {
+  const rights = await getChatRights(Number(msg.chat_id), userId);
   if (!rights.isMember) throw forbidden('Вы не участник этого чата');
   if (scope === 'all') {
-    const own = msg.sender_id === req.userId;
+    const own = msg.sender_id === userId;
     if (!own && !rights.isCreator && !(rights.isAdmin && rights.can('delete_messages'))) {
       throw forbidden('Удалить для всех можно только своё сообщение или с правами администратора');
     }
+  }
+}
+
+async function deleteOne(msg: any, scope: 'me' | 'all', userId: number) {
+  await assertCanDelete(msg, scope, userId);
+  if (scope === 'all') {
     // Мягкое удаление: запись остаётся в базе (аудит), содержимое никому не отдаётся.
     await pool.query('UPDATE messages SET deleted_for_all = TRUE, pinned = FALSE WHERE id = $1', [msg.id]);
     emitToChat(msg.chat_id, 'message_deleted', { id: msg.id, scope: 'all' });
@@ -110,11 +138,27 @@ router.delete('/messages/:id', async (req: AuthRequest, res: Response) => {
     await pool.query(
       `UPDATE messages SET deleted_for_user_ids = array_append(COALESCE(deleted_for_user_ids, '{}'), $1)
        WHERE id = $2 AND NOT ($1 = ANY(COALESCE(deleted_for_user_ids, '{}')))`,
-      [req.userId, msg.id],
+      [userId, msg.id],
     );
     // "Удалить у себя" касается только этого пользователя (на всех его устройствах).
-    emitToUser(req.userId!, 'message_deleted', { id: msg.id, scope: 'me' });
+    emitToUser(userId, 'message_deleted', { id: msg.id, scope: 'me' });
   }
+}
+
+/**
+ * Голосовое или кружочек прослушаны: точка «не прослушано» гаснет
+ * у слушателя и у отправителя.
+ */
+router.post('/messages/:id/listened', async (req: AuthRequest, res: Response) => {
+  const msg = await loadMessage(paramId(req));
+  await assertChatMember(msg.chat_id, req.userId!);
+  if (msg.media_kind !== 'voice' && msg.media_kind !== 'video_note') throw badRequest('Это не голосовое сообщение');
+  if (msg.sender_id === req.userId) return res.json({ success: true });
+  const { rowCount } = await pool.query(
+    'INSERT INTO message_listens (message_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [msg.id, req.userId],
+  );
+  if (rowCount) emitToChat(msg.chat_id, 'message_listened', { id: msg.id, chat_id: Number(msg.chat_id), user_id: req.userId });
   res.json({ success: true });
 });
 
@@ -167,6 +211,7 @@ router.post('/messages/forward', validate(forwardSchema), async (req: AuthReques
     mediaDuration: original.media_duration === null ? null : Number(original.media_duration),
     fileSize: original.file_size === null ? null : Number(original.file_size),
     mimeType: original.mime_type ?? null,
+    mediaWaveform: original.media_waveform ?? null,
     forwardedFromUserId: original.forwarded_from_user_id ?? original.sender_id,
     forwardedFromMessageId: original.forwarded_from_message_id ?? original.id,
   });
@@ -238,6 +283,15 @@ const uploadSchema = z.object({
   media_group_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
   // «Отправить как файл»: без сжатия и превью.
   as_file: z.enum(['true', 'false']).optional(),
+  // Голосовое сообщение или кружочек (видеосообщение).
+  kind: z.enum(['voice', 'video_note']).optional(),
+  // Длительность записи по данным телефона (если на сервере нет ffprobe).
+  duration: z.coerce.number().min(0).max(3600).optional(),
+  // Волна голосового: до 100 уровней 0..31.
+  waveform: z
+    .string()
+    .regex(/^([0-9]|[12][0-9]|3[01])(,([0-9]|[12][0-9]|3[01])){0,99}$/, 'Некорректная волна')
+    .optional(),
 });
 
 router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: Response) => {
@@ -247,7 +301,8 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
     // Отправитель — всегда владелец токена; senderId из запроса игнорируется.
     const body = uploadSchema.parse(req.body);
     await assertChatMember(body.chatId, req.userId!);
-    const media = await processUpload(file, body.as_file === 'true');
+    const media = await processUpload(file, body.as_file === 'true', body.kind);
+    const isVoice = media.kind === 'voice';
     const message = await createMessage({
       chatId: body.chatId,
       senderId: req.userId!,
@@ -264,7 +319,8 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
       mediaKind: media.kind,
       mediaWidth: media.width,
       mediaHeight: media.height,
-      mediaDuration: media.duration,
+      mediaDuration: media.duration ?? (body.kind ? body.duration ?? null : null),
+      mediaWaveform: isVoice ? body.waveform ?? null : null,
       fileSize: file.size,
       mimeType: file.mimetype,
     });

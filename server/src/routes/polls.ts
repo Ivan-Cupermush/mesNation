@@ -9,7 +9,7 @@ import { createMessage } from '../services/messages';
 import { getPollResults } from '../services/polls';
 import { emitToChat } from '../realtime/socket';
 import { UPLOAD_DIRS, makeUploader, removeFile } from '../lib/uploads';
-import { processUpload } from '../services/media';
+import { MediaInfo, processUpload } from '../services/media';
 
 /** Монтируется на /api/polls (после authenticate). */
 const router = Router();
@@ -45,7 +45,7 @@ interface PollMedia {
   fileUrl: string;
   fileName: string;
   thumbUrl: string | null;
-  kind: 'photo' | 'video' | 'file';
+  kind: MediaInfo['kind'];
   width: number | null;
   height: number | null;
   duration: number | null;

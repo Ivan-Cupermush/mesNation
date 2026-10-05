@@ -11,6 +11,10 @@ export const MESSAGE_SELECT = `
   m.pinned, m.deleted_for_all, m.content_type, m.poll_id, m.client_id, m.created_at,
   m.forwarded_from_user_id, m.forwarded_from_message_id,
   m.media_group_id, m.media_kind, m.media_width, m.media_height, m.media_duration, m.file_size, m.mime_type,
+  m.media_waveform,
+  CASE WHEN m.media_kind IN ('voice', 'video_note') THEN
+    COALESCE((SELECT json_agg(ml.user_id) FROM message_listens ml WHERE ml.message_id = m.id), '[]'::json)
+  END AS listened_by,
   (SELECT COALESCE(fu.display_name, fu.username) FROM users fu WHERE fu.id = m.forwarded_from_user_id) AS forwarded_from_name,
   m.note_share_id,
   (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
@@ -31,7 +35,7 @@ export const MESSAGE_SELECT = `
 export function serializeMessage(m: any) {
   const { deleted_for_user_ids: _hidden, ...rest } = m;
   if (rest.deleted_for_all) {
-    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, media_kind: null };
+    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, media_kind: null, media_waveform: null };
   }
   return rest;
 }
@@ -53,12 +57,14 @@ export interface NewMessage {
   forwardedFromMessageId?: number | null;
   noteShareId?: number | null;
   mediaGroupId?: string | null;
-  mediaKind?: 'photo' | 'video' | 'file' | null;
+  mediaKind?: 'photo' | 'video' | 'file' | 'voice' | 'video_note' | null;
   mediaWidth?: number | null;
   mediaHeight?: number | null;
   mediaDuration?: number | null;
   fileSize?: number | null;
   mimeType?: string | null;
+  /** Голосовое: уровни громкости 0..31 через запятую. */
+  mediaWaveform?: string | null;
 }
 
 /**
@@ -95,8 +101,9 @@ export async function createMessage(input: NewMessage) {
        INSERT INTO messages (chat_id, sender_id, text, reply_to_message_id, topic_id, client_id,
                              file_url, file_name, thumb_url, external_reply_chat_id, content_type, poll_id,
                              forwarded_from_user_id, forwarded_from_message_id, note_share_id,
-                             media_group_id, media_kind, media_width, media_height, media_duration, file_size, mime_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+                             media_group_id, media_kind, media_width, media_height, media_duration, file_size, mime_type,
+                             media_waveform)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        ON CONFLICT (sender_id, client_id) WHERE client_id IS NOT NULL DO NOTHING
        RETURNING *
      )
@@ -124,6 +131,7 @@ export async function createMessage(input: NewMessage) {
       input.mediaDuration ?? null,
       input.fileSize ?? null,
       input.mimeType ?? null,
+      input.mediaWaveform ?? null,
     ],
   );
 

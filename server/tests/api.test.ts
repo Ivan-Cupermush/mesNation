@@ -588,6 +588,64 @@ describe('мессенджер как в Telegram', () => {
     expect(b.body).toMatchObject({ media_group_id: 'docs-1', text: 'Договор и приложение' });
   });
 
+  it('голосовое: длительность, волна, прослушивание', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Голосовые', user_ids: [c.mgr2.id] });
+    const voice = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('fake-aac'), 'voice.m4a')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'voice')
+      .field('duration', '4.2')
+      .field('waveform', '0,5,31,12,7');
+    expect(voice.status).toBe(201);
+    expect(voice.body).toMatchObject({ media_kind: 'voice', content_type: 'voice', media_waveform: '0,5,31,12,7', listened_by: [] });
+    expect(Number(voice.body.media_duration)).toBeCloseTo(4.2);
+
+    const bad = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('x'), 'v.m4a')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'voice')
+      .field('waveform', '99,1');
+    expect(bad.status).toBe(400);
+
+    // Отправитель своё не «прослушивает»; получатель — да, один раз.
+    await as(c.mgr1).post(`/api/messages/${voice.body.id}/listened`);
+    expect((await as(c.mgr2).post(`/api/messages/${voice.body.id}/listened`)).status).toBe(200);
+    await as(c.mgr2).post(`/api/messages/${voice.body.id}/listened`);
+    const hist = await as(c.mgr1).get(`/api/messages/${chat.body.id}`);
+    expect(hist.body.find((m: any) => m.id === voice.body.id).listened_by).toEqual([c.mgr2.id]);
+
+    const note = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('fake-mp4'), 'circle.mp4')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'video_note')
+      .field('duration', '7');
+    expect(note.body).toMatchObject({ media_kind: 'video_note', content_type: 'video_note' });
+
+    // Обычное текстовое «прослушать» нельзя.
+    const text = await as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text: 'привет' });
+    expect((await as(c.mgr2).post(`/api/messages/${text.body.id}/listened`)).status).toBe(400);
+  });
+
+  it('удаление выделенных сообщений одним запросом', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Выделение', user_ids: [c.mgr2.id] });
+    const send = (who: Actor, text: string) => as(who).post(`/api/chats/${chat.body.id}/messages`, { text });
+    const a = await send(c.mgr1, 'раз');
+    const b = await send(c.mgr1, 'два');
+    const foreign = await send(c.mgr2, 'чужое');
+    // Участник без прав не удалит у всех чужое — и ничего не удаляется (своё тоже).
+    const denied = await as(c.mgr2).post('/api/messages/bulk-delete', { ids: [foreign.body.id, a.body.id], scope: 'all' });
+    expect(denied.status).toBe(403);
+    const texts = async (who: Actor) =>
+      (await as(who).get(`/api/messages/${chat.body.id}`)).body.filter((m: any) => m.content_type !== 'service' && !m.deleted_for_all);
+    expect(await texts(c.mgr2)).toHaveLength(3);
+    const ok = await as(c.mgr1).post('/api/messages/bulk-delete', { ids: [a.body.id, b.body.id], scope: 'all' });
+    expect(ok.body).toMatchObject({ success: true, deleted: 2 });
+    const mine = await as(c.mgr1).post('/api/messages/bulk-delete', { ids: [foreign.body.id], scope: 'me' });
+    expect(mine.status).toBe(200);
+    expect(await texts(c.mgr1)).toHaveLength(0);
+    expect(await texts(c.mgr2)).toHaveLength(1);
+  });
+
   it('опрос с фото: медиа хранится в сообщении опроса', async () => {
     const sharp = (await import('sharp')).default;
     const png = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#2563EB' } }).png().toBuffer();

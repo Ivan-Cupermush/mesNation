@@ -48,6 +48,20 @@ export function AreaChart({ data, height = 190 }: { data: ChartPoint[]; height?:
     return `${acc} C ${prev.x + dx} ${prev.y}, ${p.x - dx} ${p.y}, ${p.x} ${p.y}`;
   }, '');
   const area = pts.length ? `${line} L ${pts[pts.length - 1].x} ${pad.top + ch} L ${pts[0].x} ${pad.top + ch} Z` : '';
+  // Каждой подписи — своя полоса между соседними точками (у крайних — до края):
+  // подпись стоит по центру полосы и обрезается по её ширине, поэтому
+  // не налезает на соседние и не уходит за край на узком экране.
+  const fontSize = cw / Math.max(1, data.length - 1) < 90 ? 10 : 11;
+  const slots = pts.map((p, i) => {
+    const left = i === 0 ? 0 : (pts[i - 1].x + p.x) / 2;
+    const right = i === pts.length - 1 ? width : (p.x + pts[i + 1].x) / 2;
+    return { cx: (left + right) / 2, chars: Math.max(3, Math.floor((right - left - 6) / (fontSize * 0.62))) };
+  });
+  const label = (i: number) => {
+    const str = data[i].label;
+    const max = slots[i].chars;
+    return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+  };
   const active = hover != null ? pts[hover] : null;
 
   return (
@@ -68,8 +82,8 @@ export function AreaChart({ data, height = 190 }: { data: ChartPoint[]; height?:
           {pts.map((p, i) => (
             <g key={i}>
               <circle cx={p.x} cy={p.y} r={hover === i ? 5.5 : 3.5} className={s.dot} />
-              <text x={p.x} y={height - 7} textAnchor="middle" className={s.axisLabel}>
-                {data[i].label.length > 12 ? `${data[i].label.slice(0, 11)}…` : data[i].label}
+              <text x={slots[i].cx} y={height - 7} textAnchor="middle" fontSize={fontSize} className={s.axisLabel}>
+                {label(i)}
               </text>
               {/* Широкая невидимая полоса — удобно наводить и нажимать на телефоне. */}
               <rect

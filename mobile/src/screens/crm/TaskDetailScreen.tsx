@@ -50,6 +50,7 @@ import {
   Monitor,
   Wrench,
 } from 'lucide-react-native';
+import { clearTaskNotification } from '../../notifications/display';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { signedFileUrl } from '../../services/http';
@@ -126,6 +127,11 @@ export default function TaskDetailScreen({ navigation }: any) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Открыли задачу — её уведомление в шторке больше не нужно.
+  useEffect(() => {
+    clearTaskNotification(taskId).catch(() => undefined);
+  }, [taskId]);
 
   const onRefresh = () => {
     setRefreshing(true);

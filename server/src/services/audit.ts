@@ -36,6 +36,8 @@ export async function audit(
 /** Отзывает все токены пользователя (и рвёт его сокеты, если они открыты). */
 export async function revokeSessions(userId: number) {
   await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [userId]);
+  // Телефоны с отозванной сессией больше не получают push этого пользователя.
+  await pool.query('DELETE FROM push_tokens WHERE user_id = $1', [userId]);
   const { disconnectUser } = await import('../realtime/socket');
   disconnectUser(userId);
 }

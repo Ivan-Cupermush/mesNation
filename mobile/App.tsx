@@ -6,6 +6,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ApiError, clearToken, getToken, onUnauthorized } from './src/services/http';
 import { connectSocket, disconnectSocket } from './src/services/socket';
+import { navigationRef, flushPendingNavigation } from './src/navigation/ref';
+import { startNotifications, stopNotifications } from './src/notifications';
+import NotificationBanner from './src/components/NotificationBanner';
 import type { CurrentUser } from './src/services/api';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
 import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
@@ -24,6 +27,7 @@ import MediaListScreen from './src/screens/MediaListScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 import AppearanceScreen from './src/screens/AppearanceScreen';
+import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen';
 
 // ===== Экраны CRM =====
 import TasksScreen from './src/screens/crm/TasksScreen';
@@ -60,6 +64,7 @@ type ChatStackParamList = {
   Profile: undefined;
   UserProfile: { userId: number; username?: string; displayName?: string; avatarUrl?: string; role?: string };
   Appearance: undefined;
+  NotificationSettings: undefined;
 };
 
 type TasksStackParamList = {
@@ -139,6 +144,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
       />
       <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
       <ChatStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ headerShown: false }} />
     </ChatStack.Navigator>
   );
 }
@@ -245,6 +251,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
       <SettingsStack.Screen name="Employees" component={EmployeesScreen} options={{ title: 'Сотрудники', headerShown: false }} />
       <SettingsStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
       <SettingsStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }
@@ -371,17 +378,24 @@ function RootNavigator() {
     () =>
       onUnauthorized(() => {
         disconnectSocket();
+        // Сессия уже недействительна — с сервера токен устройства не удалить, только локально.
+        stopNotifications({ unregister: false });
         setIsLoggedIn(false);
       }),
     [],
   );
 
   useEffect(() => {
-    if (isLoggedIn) connectSocket();
+    if (isLoggedIn) {
+      connectSocket();
+      startNotifications().catch(() => undefined);
+    }
   }, [isLoggedIn]);
 
   const handleLoginSuccess = (_token: string, _user: any) => setIsLoggedIn(true);
   const handleLogout = async () => {
+    // Пока токен действителен — отвязываем телефон от push этого пользователя.
+    await stopNotifications().catch(() => undefined);
     disconnectSocket();
     await clearToken();
     setIsLoggedIn(false);
@@ -418,6 +432,8 @@ function RootNavigator() {
     <>
       <StatusBar barStyle={colors.statusBar} backgroundColor="transparent" translucent />
       <NavigationContainer
+        ref={navigationRef}
+        onReady={flushPendingNavigation}
         key={version}
         theme={navTheme}
         initialState={navState.current}
@@ -427,6 +443,7 @@ function RootNavigator() {
       >
         {isLoggedIn ? <MainTabs onLogout={handleLogout} /> : <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />}
       </NavigationContainer>
+      {isLoggedIn ? <NotificationBanner /> : null}
     </>
   );
 }

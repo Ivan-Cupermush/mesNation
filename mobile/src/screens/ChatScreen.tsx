@@ -57,6 +57,8 @@ import { C, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLa
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { setActiveChat } from '../notifications/state';
+import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
@@ -359,6 +361,16 @@ export default function ChatScreen({ navigation }: any) {
     }, 2000);
     return () => clearInterval(t);
   }, [typing]);
+
+  // ===== Уведомления =====
+  // Открытый чат не присылает уведомлений о своих сообщениях; при открытии
+  // его уведомление из шторки убирается (как в Telegram).
+  useEffect(() => {
+    if (!isFocused) return;
+    setActiveChat(chatId, topicId);
+    clearChatNotification(chatId).catch(() => undefined);
+    return () => setActiveChat(null);
+  }, [isFocused, chatId, topicId]);
 
   // ===== Прочитано =====
   useEffect(() => {

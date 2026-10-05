@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Push через Firebase: google-services.json кладётся в android/app (в CI — из
+// секрета GOOGLE_SERVICES_JSON). Без него приложение собирается и работает,
+// уведомления приходят, пока приложение запущено.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.

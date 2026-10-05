@@ -25,6 +25,7 @@ import {
   Pencil,
   Palette,
   Target,
+  Bell,
 } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
@@ -276,6 +277,17 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
             </View>
             <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
           </TouchableOpacity>
+          <View style={styles.rowDivider} />
+          <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('NotificationSettings')} activeOpacity={0.7}>
+            <View style={[styles.actionIconWrap, { backgroundColor: T.dangerSoft }]}>
+              <Bell size={20} color={T.danger} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionTitle}>Уведомления</Text>
+              <Text style={styles.actionSub}>Сообщения, задачи, звук, проверка</Text>
+            </View>
+            <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
+          </TouchableOpacity>
         </View>
 
         {/* ===== ОПАСНАЯ ЗОНА ===== */}
@@ -347,6 +359,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
 }
 
 const styles = themed(() => ({
+  rowDivider: { height: 1, backgroundColor: T.border, marginLeft: 60 },
   modalBackdrop: { flex: 1, backgroundColor: T.overlay, justifyContent: 'center', padding: 24 },
   modalCard: { backgroundColor: T.card, borderRadius: 20, padding: 20 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: T.textPrimary, marginBottom: 14 },

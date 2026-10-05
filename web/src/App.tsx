@@ -16,11 +16,10 @@ import { Legacy } from './app/Legacy';
 const ChatsRoutes = lazy(() => import('./features/chats/ChatsRoutes'));
 const UserProfile = lazy(() => import('./features/users/UserProfile'));
 const TasksRoutes = lazy(() => import('./features/tasks/TasksRoutes'));
+const NotesRoutes = lazy(() => import('./features/notes/NotesRoutes'));
 
 // Разделы старой версии — до переноса на новую основу
 const KpiScreen = lazy(() => import('./screens/KpiScreen'));
-const NotesScreen = lazy(() => import('./screens/NotesScreen'));
-const NoteEditorScreen = lazy(() => import('./screens/NoteEditorScreen'));
 const KnowledgeScreen = lazy(() => import('./screens/KnowledgeScreen'));
 const ProfileScreen = lazy(() => import('./screens/ProfileScreen'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
@@ -60,9 +59,7 @@ function AppRoutes() {
           <Route path="users/:id" element={<UserProfile />} />
 
           <Route path="tasks/*" element={<TasksRoutes />} />
-          <Route path="notes" element={<Legacy><NotesScreen /></Legacy>} />
-          <Route path="notes/new" element={<Legacy><NoteEditorScreen /></Legacy>} />
-          <Route path="notes/:id" element={<Legacy><NoteEditorScreen /></Legacy>} />
+          <Route path="notes/*" element={<NotesRoutes />} />
           <Route path="stats" element={<Legacy><KpiScreen /></Legacy>} />
           <Route path="employee/:userId" element={<Legacy><EmployeeStatsScreen /></Legacy>} />
           <Route path="import" element={<Legacy><ImportExcelScreen /></Legacy>} />

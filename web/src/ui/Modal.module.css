@@ -1,0 +1,147 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--c-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fade 0.15s ease;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(88vh, 900px);
+  background: var(--c-elevated);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  animation: pop 0.18s var(--ease);
+}
+
+.sm {
+  max-width: 400px;
+}
+
+.md {
+  max-width: 520px;
+}
+
+.lg {
+  max-width: 720px;
+}
+
+.xl {
+  max-width: 980px;
+}
+
+.grabber {
+  display: none;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 18px 6px 22px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.close {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-secondary);
+  flex-shrink: 0;
+}
+
+.close:hover {
+  background: var(--c-input-bg);
+}
+
+.body {
+  padding: 12px 22px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.flush {
+  padding: 0;
+}
+
+.footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 22px 20px;
+  border-top: 1px solid var(--c-border);
+}
+
+.footer > * {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .panel {
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: 24px 24px 0 0;
+    padding-bottom: var(--safe-bottom);
+    animation: slideUp 0.22s var(--ease);
+  }
+
+  .grabber {
+    display: block;
+    width: 40px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--c-surface-active);
+    margin: 8px auto 0;
+  }
+
+  .header {
+    padding-top: 10px;
+  }
+
+  .footer > * {
+    flex: 1;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+}

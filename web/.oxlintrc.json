@@ -3,6 +3,9 @@
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+    "react/exhaustive-deps": "warn",
+    "react/only-export-components": "off",
+    "typescript/no-explicit-any": "off"
+  },
+  "ignorePatterns": ["dist", "dist-next", "dist-prev"]
 }

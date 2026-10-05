@@ -1,0 +1,34 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--c-accent) 35%, transparent);
+  flex-shrink: 0;
+}
+
+.name {
+  margin-top: 16px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.caption {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--c-text-muted);
+}
+
+.compact .tile {
+  box-shadow: none;
+}

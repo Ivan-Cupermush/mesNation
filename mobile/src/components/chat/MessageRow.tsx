@@ -9,6 +9,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { C, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
 
 import { T, themed } from '../../theme/runtime';
+import { withAlpha } from '../../theme/palettes';
 /**
  * Одна строка ленты: служебное сообщение, обычный пузырь или альбом.
  * Пузыри одного отправителя подряд «склеиваются»: имя показывается у
@@ -256,7 +257,7 @@ export function DayDivider({ label }: { label: string }) {
 
 const styles = themed(() => ({
   rowOuter: { paddingHorizontal: 8 },
-  highlight: { backgroundColor: 'rgba(31,122,82,0.12)' },
+  highlight: { backgroundColor: withAlpha(T.accent, 0.14) },
   row: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 6 },
   rowTight: { marginTop: 2 },
   rowMine: { justifyContent: 'flex-end' },
@@ -287,7 +288,7 @@ const styles = themed(() => ({
   forwarded: { fontSize: 13, fontStyle: 'italic', marginBottom: 3 },
   quote: { borderLeftWidth: 3, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 5 },
   quoteMine: { borderLeftColor: T.card, backgroundColor: 'rgba(255,255,255,0.14)' },
-  quoteOther: { borderLeftColor: C.accent, backgroundColor: 'rgba(31,122,82,0.08)' },
+  quoteOther: { borderLeftColor: C.accent, backgroundColor: withAlpha(T.accent, 0.1) },
   quoteInMedia: { marginHorizontal: 5, marginTop: 4 },
   quoteName: { fontSize: 13, fontWeight: '700' },
   quoteText: { fontSize: 13 },

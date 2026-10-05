@@ -57,6 +57,7 @@ import { C, dayLabel, hashColor, initials, isVisualMedia, lastSeenLabel, message
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
 import { T, themed } from '../theme/runtime';
+import { withAlpha } from '../theme/palettes';
 import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
@@ -1227,12 +1228,12 @@ const styles = themed(() => ({
   listWrap: { flex: 1, backgroundColor: C.bg },
   listContent: { paddingVertical: 8 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyCard: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 18, padding: 20, alignItems: 'center', maxWidth: 280 },
+  emptyCard: { backgroundColor: withAlpha(T.card, 0.92), borderRadius: 18, padding: 20, alignItems: 'center', maxWidth: 280 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 4 },
   emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center' },
   retryBtn: { marginTop: 12, paddingHorizontal: 18, height: 40, borderRadius: 12, backgroundColor: C.accent, justifyContent: 'center' },
   retryText: { color: T.onAccent, fontWeight: '700' },
-  unreadBar: { marginVertical: 8, paddingVertical: 5, backgroundColor: 'rgba(255,255,255,0.75)', alignItems: 'center' },
+  unreadBar: { marginVertical: 8, paddingVertical: 5, backgroundColor: withAlpha(T.card, 0.85), alignItems: 'center' },
   unreadText: { fontSize: 13, color: C.accent, fontWeight: '700' },
 
   scrollDown: {

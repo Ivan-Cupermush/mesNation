@@ -2,8 +2,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal,
-} from 'react-native';
+  Alert, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
 import TreeGraphView from '../../components/TreeGraphView';
@@ -110,6 +109,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
 
       {/* Форма создания */}
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)} statusBarTranslucent>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
@@ -183,6 +183,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
             <SafeBottom />
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -202,9 +203,11 @@ const styles = themed(() => ({
   headerBtn: { padding: 8, minWidth: 60 },
   headerTitle: { fontSize: 17, fontWeight: '600' },
   hint: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: T.card,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
   },
   modalOverlay: {
     flex: 1,

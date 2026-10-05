@@ -692,6 +692,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         visible={showCpPicker}
         initialDate={executorDeadline}
         minDate={new Date()}
+        maxDate={executorDeadline}
         title="Срок контрольной точки"
         onClose={() => setShowCpPicker(false)}
         onSave={(d: Date) => {

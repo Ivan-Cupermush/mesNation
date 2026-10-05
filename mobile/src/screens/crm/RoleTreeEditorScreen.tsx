@@ -3,8 +3,7 @@ import { useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal, ScrollView, Platform, Image,
-} from 'react-native';
+  Alert, ActivityIndicator, TextInput, Modal, ScrollView, Platform, Image, KeyboardAvoidingView } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
 import { publicFileUrl } from '../../services/http';
@@ -316,6 +315,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
       {/* ===== МОДАЛКА ДОБАВЛЕНИЯ РЕБЁНКА ===== */}
       <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
@@ -382,10 +382,12 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
             <SafeBottom />
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ===== МОДАЛКА РЕДАКТИРОВАНИЯ УЗЛА + ЛЮДИ РОЛИ ===== */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => { setShowEditModal(false); setMoveUser(null); setUserQuery(''); }}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
             <View style={styles.modalHeaderRow}>
@@ -549,6 +551,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
             <SafeBottom />
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

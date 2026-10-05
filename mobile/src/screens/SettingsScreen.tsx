@@ -9,8 +9,7 @@ import {
   Image,
   Modal,
   TextInput,
-  ActivityIndicator
-} from 'react-native';
+  ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   FileSpreadsheet,
@@ -310,6 +309,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       </ScrollView>
 
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Название компании</Text>
@@ -340,6 +340,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

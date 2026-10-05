@@ -11,8 +11,7 @@ import {
   Modal,
   Switch,
   Image,
-  Pressable,
-} from 'react-native';
+  Pressable, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -535,6 +534,7 @@ export default function ChatInfoScreen({ navigation }: any) {
 
       {/* ===== Переименование ===== */}
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.dialogBackdrop}>
           <View style={styles.dialog}>
             <Text style={styles.dialogTitle}>Название группы</Text>
@@ -549,6 +549,7 @@ export default function ChatInfoScreen({ navigation }: any) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ===== Права администратора ===== */}

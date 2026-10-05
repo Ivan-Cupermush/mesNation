@@ -1363,6 +1363,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
       {/* ===== МОДАЛКА ОТКЛОНЕНИЯ ===== */}
       <Modal visible={showRejectModal} transparent animationType="slide" onRequestClose={() => setShowRejectModal(false)} statusBarTranslucent>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -1424,6 +1425,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             <SafeBottom />
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

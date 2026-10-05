@@ -31,6 +31,11 @@ const schema = z.object({
   UPLOADS_DIR: z.string().default('uploads'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+  // Push-уведомления через Firebase Cloud Messaging. Ключ сервисного аккаунта
+  // Firebase: содержимое JSON целиком или путь к файлу. Пусто — push выключены,
+  // уведомления приходят, только пока приложение запущено.
+  FIREBASE_SERVICE_ACCOUNT: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);

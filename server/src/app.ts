@@ -20,6 +20,7 @@ import messagesRouter from './routes/messages';
 import topicsRouter from './routes/topics';
 import pollsRouter from './routes/polls';
 import roleTreeRouter from './routes/roleTree';
+import pushRouter from './routes/push';
 import tasksRouter from './routes/tasks';
 import notesRouter, { notePdfPublicRouter } from './routes/notes';
 import kpiImportRouter from './routes/kpiImport';
@@ -85,6 +86,7 @@ export function createApp() {
   app.use('/api', messagesRouter);
   app.use('/api', topicsRouter);
   app.use('/api/polls', pollsRouter);
+  app.use('/api/push', pushRouter);
   app.use('/api/role-tree', roleTreeRouter);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/notes', notesRouter);

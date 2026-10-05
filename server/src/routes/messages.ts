@@ -197,6 +197,33 @@ router.post('/messages/reply-to-another-chat', validate(replyElsewhereSchema), a
   res.status(201).json(message);
 });
 
+// ---------- Отправка по HTTP ----------
+
+const sendSchema = z.object({
+  text: z.string().trim().min(1, 'Пустое сообщение').max(4000, 'Сообщение длиннее 4000 символов'),
+  reply_to_message_id: id.nullish(),
+  topic_id: id.nullish(),
+  client_id: z.string().max(64).nullish(),
+});
+
+/**
+ * То же, что send_message по сокету. Нужно, когда сокета нет: ответ прямо
+ * из уведомления при закрытом приложении.
+ */
+router.post('/chats/:chatId/messages', validate(sendSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req, 'chatId');
+  const body = req.body as z.infer<typeof sendSchema>;
+  const message = await createMessage({
+    chatId,
+    senderId: req.userId!,
+    text: body.text,
+    replyToMessageId: body.reply_to_message_id ?? null,
+    topicId: body.topic_id ?? null,
+    clientId: body.client_id ?? null,
+  });
+  res.status(201).json(message);
+});
+
 // ---------- Файлы в чате ----------
 
 const chatUpload = makeUploader({ dir: UPLOAD_DIRS.chat, maxSizeMb: 200 });
@@ -232,7 +259,8 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
       fileName: file.originalname,
       thumbUrl: media.thumbUrl,
       contentType: media.kind === 'file' ? 'file' : media.kind,
-      mediaGroupId: media.kind === 'file' ? null : body.media_group_id ?? null,
+      // Файлы, отправленные вместе, тоже группируются (как документы в Telegram).
+      mediaGroupId: body.media_group_id ?? null,
       mediaKind: media.kind,
       mediaWidth: media.width,
       mediaHeight: media.height,

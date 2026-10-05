@@ -8,6 +8,8 @@ import { assertChatMember } from '../services/access';
 import { createMessage } from '../services/messages';
 import { getPollResults } from '../services/polls';
 import { emitToChat } from '../realtime/socket';
+import { UPLOAD_DIRS, makeUploader, removeFile } from '../lib/uploads';
+import { processUpload } from '../services/media';
 
 /** Монтируется на /api/polls (после authenticate). */
 const router = Router();
@@ -36,9 +38,23 @@ const createSchema = z
     message: 'В викторине отметьте правильный ответ',
   });
 
-router.post('/', validate(createSchema), async (req: AuthRequest, res: Response) => {
-  const p = req.body as z.infer<typeof createSchema>;
-  await assertChatMember(p.chat_id, req.userId!);
+type PollInput = z.infer<typeof createSchema>;
+
+/** Медиа опроса (фото, видео или файл над вопросом — как в Telegram). */
+interface PollMedia {
+  fileUrl: string;
+  fileName: string;
+  thumbUrl: string | null;
+  kind: 'photo' | 'video' | 'file';
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  size: number;
+  mime: string;
+}
+
+async function createPoll(p: PollInput, userId: number, media?: PollMedia) {
+  await assertChatMember(p.chat_id, userId);
   const poll = await withTransaction(async (client) => {
     const created = (
       await client.query(
@@ -47,7 +63,7 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
         [
           p.chat_id,
           p.topic_id ?? null,
-          req.userId,
+          userId,
           p.question,
           !!p.is_anonymous,
           !!p.allows_multiple && !p.is_quiz,
@@ -70,13 +86,71 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
   // Сообщение с опросом рассылается всем участникам через сокет.
   let message;
   try {
-    message = await createMessage({ chatId: p.chat_id, senderId: req.userId!, topicId: p.topic_id ?? null, contentType: 'poll', pollId: poll.id });
+    message = await createMessage({
+      chatId: p.chat_id,
+      senderId: userId,
+      topicId: p.topic_id ?? null,
+      contentType: 'poll',
+      pollId: poll.id,
+      ...(media
+        ? {
+            fileUrl: media.fileUrl,
+            fileName: media.fileName,
+            thumbUrl: media.thumbUrl,
+            mediaKind: media.kind,
+            mediaWidth: media.width,
+            mediaHeight: media.height,
+            mediaDuration: media.duration,
+            fileSize: media.size,
+            mimeType: media.mime,
+          }
+        : {}),
+    });
   } catch (err) {
     await pool.query('DELETE FROM polls WHERE id = $1', [poll.id]);
     throw err;
   }
-  const results = await getPollResults(poll.id, req.userId!);
-  res.status(201).json({ ...results, message });
+  const results = await getPollResults(poll.id, userId);
+  return { ...results, message };
+}
+
+router.post('/', validate(createSchema), async (req: AuthRequest, res: Response) => {
+  res.status(201).json(await createPoll(req.body as PollInput, req.userId!));
+});
+
+const pollUpload = makeUploader({ dir: UPLOAD_DIRS.chat, maxSizeMb: 200 });
+
+/** Опрос с медиа: multipart, поле payload — JSON опроса, поле file — вложение. */
+router.post('/with-media', pollUpload.single('file'), async (req: AuthRequest, res: Response) => {
+  const file = req.file;
+  try {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(String(req.body?.payload || ''));
+    } catch {
+      throw badRequest('Некорректные данные опроса');
+    }
+    const p = createSchema.parse(raw);
+    let media: PollMedia | undefined;
+    if (file) {
+      const info = await processUpload(file, req.body?.as_file === 'true');
+      media = {
+        fileUrl: `/uploads/${file.filename}`,
+        fileName: file.originalname,
+        thumbUrl: info.thumbUrl,
+        kind: info.kind,
+        width: info.width,
+        height: info.height,
+        duration: info.duration,
+        size: file.size,
+        mime: file.mimetype,
+      };
+    }
+    res.status(201).json(await createPoll(p, req.userId!, media));
+  } catch (err) {
+    if (file) removeFile(file.path);
+    throw err;
+  }
 });
 
 const voteSchema = z.object({ option_ids: z.array(id).min(1, 'Выберите хотя бы один вариант').max(10) });

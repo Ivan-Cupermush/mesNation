@@ -8,6 +8,7 @@ import { id, paramId, validate } from '../lib/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
 import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
+import { fireAndForget, notifyChatRead } from '../services/push';
 import { MESSAGE_SELECT, createServiceMessage, serializeMessage, userName } from '../services/messages';
 import { emitToChat, emitToUser } from '../realtime/socket';
 
@@ -139,6 +140,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                AND m.deleted_for_all IS NOT TRUE AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))) AS unread_count,
             cm.last_read_message_id AS my_last_read_id,
             cm.pinned_at,
+            CASE WHEN cm.muted_until > NOW() THEN cm.muted_until END AS muted_until,
             (SELECT COALESCE(MAX(o.last_read_message_id), 0) FROM chat_members o
              WHERE o.chat_id = c.id AND o.user_id <> $1) AS peer_last_read_id
      FROM chats c
@@ -172,19 +174,31 @@ async function readMarks(chatId: number, userId: number) {
   const { rows } = await pool.query(
     `SELECT
        (SELECT last_read_message_id FROM chat_members WHERE chat_id = $1 AND user_id = $2) AS my_last_read_id,
-       (SELECT COALESCE(MAX(last_read_message_id), 0) FROM chat_members WHERE chat_id = $1 AND user_id <> $2) AS peer_last_read_id`,
+       (SELECT COALESCE(MAX(last_read_message_id), 0) FROM chat_members WHERE chat_id = $1 AND user_id <> $2) AS peer_last_read_id,
+       (SELECT CASE WHEN muted_until > NOW() THEN muted_until END FROM chat_members WHERE chat_id = $1 AND user_id = $2) AS muted_until`,
     [chatId, userId],
   );
   return rows[0];
 }
 
-const membershipSchema = z.object({ pinned: z.boolean() });
+const membershipSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    // «Без звука» до указанного момента; null — включить уведомления.
+    muted_until: z.coerce.date({ error: 'Некорректная дата' }).nullable().optional(),
+  })
+  .refine((v) => v.pinned !== undefined || v.muted_until !== undefined, { message: 'Нет данных для изменения' });
 
-/** Личные настройки чата у участника: закрепить в списке. */
+/** Личные настройки чата у участника: закрепить в списке, отключить уведомления. */
 router.patch('/:id/membership', validate(membershipSchema), async (req: AuthRequest, res: Response) => {
   const chatId = paramId(req);
   await assertChatMember(chatId, req.userId!);
-  const { pinned } = req.body as z.infer<typeof membershipSchema>;
+  const { pinned, muted_until } = req.body as z.infer<typeof membershipSchema>;
+  if (muted_until !== undefined) {
+    await pool.query('UPDATE chat_members SET muted_until = $1 WHERE chat_id = $2 AND user_id = $3', [muted_until, chatId, req.userId]);
+    emitToUser(req.userId!, 'chat_activity', { chat_id: chatId });
+    if (pinned === undefined) return res.json({ success: true, muted_until });
+  }
   if (pinned) {
     const count = await pool.query('SELECT COUNT(*)::int AS n FROM chat_members WHERE user_id = $1 AND pinned_at IS NOT NULL', [req.userId]);
     if (count.rows[0].n >= 10) throw badRequest('Можно закрепить не больше 10 чатов');
@@ -213,6 +227,8 @@ router.post('/:id/read', validate(readSchema), async (req: AuthRequest, res: Res
   const last = rows[0].last_read_message_id;
   emitToChat(chatId, 'messages_read', { chat_id: chatId, user_id: req.userId, message_id: last });
   emitToUser(req.userId!, 'chat_activity', { chat_id: chatId });
+  // Прочитали на одном устройстве — уведомления этого чата исчезают и на других.
+  fireAndForget(notifyChatRead(req.userId!, chatId, last), 'прочтение чата');
   res.json({ last_read_message_id: last });
 });
 

@@ -37,6 +37,7 @@ import {
   BarChart3,
   UserMinus,
   ShieldOff,
+  Wallpaper as WallpaperIcon,
 } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request, upload } from '../services/http';
@@ -44,6 +45,11 @@ import { subscribe } from '../services/socket';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import { C, hashColor, initials, lastSeenLabel, plural } from '../components/chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from '../components/ui/SafeBottom';
+import WallpaperPicker from '../components/chat/WallpaperPicker';
+import { WallpaperView } from '../components/chat/ChatWallpaper';
+import { setChatWallpaper, useChatWallpaper } from '../theme/wallpapers';
 /**
  * Информация о чате (как в Telegram).
  * Группа: фото и название (если есть право), темы, медиа, участники с ролями;
@@ -69,7 +75,7 @@ function Avatar({ name, url, size }: { name: string; url?: string | null; size: 
     <Image source={{ uri: SERVER_URL + url }} style={{ width: size, height: size, borderRadius: size / 2 }} />
   ) : (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: hashColor(name), alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: size * 0.36 }}>{initials(name)}</Text>
+      <Text style={{ color: T.onAccent, fontWeight: '700', fontSize: size * 0.36 }}>{initials(name)}</Text>
     </View>
   );
 }
@@ -91,6 +97,8 @@ export default function ChatInfoScreen({ navigation }: any) {
   const [memberMenu, setMemberMenu] = useState<any>(null);
   const [adminEditor, setAdminEditor] = useState<{ user: any; perms: string[]; existing: boolean } | null>(null);
   const [topicsDialog, setTopicsDialog] = useState<{ topics: any[]; keep: number | null; merge: boolean } | null>(null);
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
+  const { wallpaper, custom: customWallpaper } = useChatWallpaper(chatId);
 
   const load = useCallback(async () => {
     try {
@@ -316,14 +324,14 @@ export default function ChatInfoScreen({ navigation }: any) {
   };
 
   const mediaRows = [
-    { key: 'images', label: 'Фото и видео', icon: <ImageIcon size={20} color="#8B5CF6" />, bg: '#EDE9FE', count: stats?.media },
+    { key: 'images', label: 'Фото и видео', icon: <ImageIcon size={20} color={T.violet} />, bg: T.violetSoft, count: stats?.media },
     { key: 'files', label: 'Файлы', icon: <FileText size={20} color={C.accent} />, bg: C.accentSoft, count: stats?.files },
-    { key: 'links', label: 'Ссылки', icon: <Link2 size={20} color="#0EA5E9" />, bg: '#E0F2FE', count: stats?.links },
-    { key: 'polls', label: 'Опросы', icon: <BarChart3 size={20} color="#F59E0B" />, bg: '#FEF3C7', count: stats?.polls },
+    { key: 'links', label: 'Ссылки', icon: <Link2 size={20} color={T.info} />, bg: T.infoSoft, count: stats?.links },
+    { key: 'polls', label: 'Опросы', icon: <BarChart3 size={20} color={T.warning} />, bg: T.warningSoft, count: stats?.polls },
   ];
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
           <ChevronLeft size={26} color={C.text} />
@@ -352,7 +360,7 @@ export default function ChatInfoScreen({ navigation }: any) {
             <Avatar name={name} url={chat.avatar_url} size={96} />
             {isGroup && rights.can_change_info && (
               <TouchableOpacity onPress={changeAvatar} style={styles.cameraBtn} disabled={uploadingAvatar} accessibilityLabel="Сменить фото группы">
-                {uploadingAvatar ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Camera size={16} color="#FFFFFF" />}
+                {uploadingAvatar ? <ActivityIndicator size="small" color={T.onAccent} /> : <Camera size={16} color={T.onAccent} />}
               </TouchableOpacity>
             )}
           </View>
@@ -386,9 +394,24 @@ export default function ChatInfoScreen({ navigation }: any) {
               <View style={[styles.rowIcon, { backgroundColor: r.bg }]}>{r.icon}</View>
               <Text style={styles.rowText}>{r.label}</Text>
               <Text style={styles.rowCount}>{r.count ?? ''}</Text>
-              <ChevronRight size={18} color="#C4C4C8" />
+              <ChevronRight size={18} color={T.textMuted} />
             </TouchableOpacity>
           ))}
+        </View>
+
+        {/* ===== ФОН ЧАТА ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.row} onPress={() => setWallpaperOpen(true)} activeOpacity={0.6}>
+            <View style={[styles.rowIcon, { overflow: 'hidden' }]}>
+              <WallpaperView wallpaper={wallpaper} radius={10} />
+              <WallpaperIcon size={18} color={T.textPrimary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowText}>Фон чата</Text>
+              <Text style={styles.rowHint}>{customWallpaper ? 'Свой фон для этого чата' : 'Как у всех чатов'}</Text>
+            </View>
+            <ChevronRight size={18} color={T.textMuted} />
+          </TouchableOpacity>
         </View>
 
         {/* ===== ТЕМЫ ===== */}
@@ -402,7 +425,7 @@ export default function ChatInfoScreen({ navigation }: any) {
                 <Text style={styles.rowText}>Темы</Text>
                 <Text style={styles.rowHint}>Разделить переписку на отдельные ветки</Text>
               </View>
-              <Switch value={!!chat.is_supergroup} onValueChange={toggleTopics} trackColor={{ false: '#E4E4E7', true: C.accent }} thumbColor="#FFFFFF" />
+              <Switch value={!!chat.is_supergroup} onValueChange={toggleTopics} trackColor={{ false: T.surfaceActive, true: C.accent }} thumbColor={T.onAccent} />
             </View>
           </View>
         )}
@@ -445,14 +468,14 @@ export default function ChatInfoScreen({ navigation }: any) {
                       </Text>
                     </View>
                     {m.role === 'creator' ? (
-                      <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
-                        <Crown size={11} color="#B45309" />
-                        <Text style={[styles.badgeText, { color: '#B45309' }]}>владелец</Text>
+                      <View style={[styles.badge, { backgroundColor: T.warningSoft }]}>
+                        <Crown size={11} color={T.warning} />
+                        <Text style={[styles.badgeText, { color: T.warning }]}>владелец</Text>
                       </View>
                     ) : m.role === 'admin' ? (
-                      <View style={[styles.badge, { backgroundColor: '#EDE9FE' }]}>
-                        <Shield size={11} color="#7C3AED" />
-                        <Text style={[styles.badgeText, { color: '#7C3AED' }]}>админ</Text>
+                      <View style={[styles.badge, { backgroundColor: T.violetSoft }]}>
+                        <Shield size={11} color={T.violet} />
+                        <Text style={[styles.badgeText, { color: T.violet }]}>админ</Text>
                       </View>
                     ) : null}
                   </TouchableOpacity>
@@ -466,7 +489,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         <View style={styles.card}>
           {isGroup && (
             <TouchableOpacity style={styles.row} onPress={leave} activeOpacity={0.6}>
-              <View style={[styles.rowIcon, { backgroundColor: '#FEE2E2' }]}>
+              <View style={[styles.rowIcon, { backgroundColor: T.dangerSoft }]}>
                 <LogOut size={20} color={C.danger} />
               </View>
               <Text style={[styles.rowText, { color: C.danger }]}>Покинуть группу</Text>
@@ -474,7 +497,7 @@ export default function ChatInfoScreen({ navigation }: any) {
           )}
           {(!isGroup || rights.is_creator) && (
             <TouchableOpacity style={[styles.row, isGroup && styles.rowDivider]} onPress={deleteChat} activeOpacity={0.6}>
-              <View style={[styles.rowIcon, { backgroundColor: '#FEE2E2' }]}>
+              <View style={[styles.rowIcon, { backgroundColor: T.dangerSoft }]}>
                 <Trash2 size={20} color={C.danger} />
               </View>
               <Text style={[styles.rowText, { color: C.danger }]}>{isGroup ? 'Удалить группу' : 'Удалить чат'}</Text>
@@ -482,6 +505,25 @@ export default function ChatInfoScreen({ navigation }: any) {
           )}
         </View>
       </ScrollView>
+
+      {/* ===== Фон чата ===== */}
+      <Modal visible={wallpaperOpen} transparent animationType="slide" onRequestClose={() => setWallpaperOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setWallpaperOpen(false)} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Фон этого чата</Text>
+          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в «Оформлении».</Text>
+          <ScrollView style={{ maxHeight: 420 }}>
+            <WallpaperPicker value={wallpaper} onChange={(wp) => setChatWallpaper(chatId, wp)} />
+          </ScrollView>
+          {customWallpaper && (
+            <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: T.inputBg }]} onPress={() => setChatWallpaper(chatId, null)}>
+              <Text style={[styles.primaryBtnText, { color: T.textPrimary }]}>Как у всех чатов</Text>
+            </TouchableOpacity>
+          )}
+          <SafeBottom />
+        </View>
+      </Modal>
 
       {/* ===== Меню участника ===== */}
       <ActionSheet
@@ -502,7 +544,7 @@ export default function ChatInfoScreen({ navigation }: any) {
                 <Text style={styles.dialogBtnText}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={rename} style={[styles.dialogBtn, styles.dialogBtnPrimary]} disabled={!newName.trim()}>
-                <Text style={[styles.dialogBtnText, { color: '#FFFFFF' }]}>Сохранить</Text>
+                <Text style={[styles.dialogBtnText, { color: T.onAccent }]}>Сохранить</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -537,7 +579,7 @@ export default function ChatInfoScreen({ navigation }: any) {
                     }
                   >
                     <Text style={styles.permLabel}>{p.label}</Text>
-                    <View style={[styles.checkbox, on && styles.checkboxOn]}>{on && <Check size={14} color="#FFFFFF" strokeWidth={3} />}</View>
+                    <View style={[styles.checkbox, on && styles.checkboxOn]}>{on && <Check size={14} color={T.onAccent} strokeWidth={3} />}</View>
                   </TouchableOpacity>
                 );
               })}
@@ -546,6 +588,7 @@ export default function ChatInfoScreen({ navigation }: any) {
               </TouchableOpacity>
             </>
           )}
+          <SafeBottom />
         </View>
       </Modal>
 
@@ -578,20 +621,21 @@ export default function ChatInfoScreen({ navigation }: any) {
               </TouchableOpacity>
             </>
           )}
+          <SafeBottom />
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F3F1' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.inputBg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   muted: { color: C.textMuted, fontSize: 15 },
-  header: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 4, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 4, backgroundColor: T.card },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: C.text, textAlign: 'center' },
-  hero: { alignItems: 'center', paddingVertical: 22, paddingHorizontal: 20, backgroundColor: '#FFFFFF', marginBottom: 12 },
+  hero: { alignItems: 'center', paddingVertical: 22, paddingHorizontal: 20, backgroundColor: T.card, marginBottom: 12 },
   cameraBtn: {
     position: 'absolute',
     right: -2,
@@ -601,7 +645,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: C.accent,
     borderWidth: 3,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -609,7 +653,7 @@ const styles = StyleSheet.create({
   heroSub: { fontSize: 14, color: C.textMuted, marginTop: 4, textAlign: 'center' },
   heroAction: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 16, height: 40, borderRadius: 12, backgroundColor: C.accentSoft },
   heroActionText: { color: C.accent, fontWeight: '700', fontSize: 15 },
-  card: { backgroundColor: '#FFFFFF', marginHorizontal: 12, marginBottom: 12, borderRadius: 16, overflow: 'hidden' },
+  card: { backgroundColor: T.card, marginHorizontal: 12, marginBottom: 12, borderRadius: 16, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, minHeight: 54 },
   rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border },
   rowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -620,11 +664,11 @@ const styles = StyleSheet.create({
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 8 },
   memberName: { fontSize: 16, fontWeight: '600', color: C.text },
   memberSub: { fontSize: 13, color: C.textMuted, marginTop: 1 },
-  onlineDot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFFFFF' },
+  onlineDot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, backgroundColor: T.success, borderWidth: 2, borderColor: T.card },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, height: 22, borderRadius: 11 },
   badgeText: { fontSize: 12, fontWeight: '700' },
   dialogBackdrop: { flex: 1, backgroundColor: C.overlay, justifyContent: 'center', padding: 24 },
-  dialog: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20 },
+  dialog: { backgroundColor: T.card, borderRadius: 18, padding: 20 },
   dialogTitle: { fontSize: 18, fontWeight: '700', color: C.text, marginBottom: 12 },
   dialogInput: { fontSize: 17, color: C.text, borderBottomWidth: 2, borderBottomColor: C.accent, paddingVertical: 8 },
   dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
@@ -637,22 +681,22 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
     paddingBottom: 30,
   },
-  sheetHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', marginBottom: 12 },
+  sheetHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: T.surfaceActive, marginBottom: 12 },
   sheetTitle: { fontSize: 18, fontWeight: '700', color: C.text },
   sheetHint: { fontSize: 14, color: C.textMuted, marginTop: 6, marginBottom: 10, lineHeight: 20 },
   sheetUser: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   permRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   permLabel: { flex: 1, fontSize: 15, color: C.text },
-  checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: '#C4C4C8', alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: C.accent, borderColor: C.accent },
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, height: 48, borderRadius: 12 },
   topicRowActive: { backgroundColor: C.accentSoft },
   primaryBtn: { marginTop: 16, height: 50, borderRadius: 14, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-});
+  primaryBtnText: { color: T.onAccent, fontSize: 16, fontWeight: '700' },
+}));

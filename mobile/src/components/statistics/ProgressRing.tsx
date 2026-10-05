@@ -31,6 +31,8 @@ export const ProgressRing: React.FC<ProgressRingProps> = ({
       duration: 950,
       useNativeDriver: false,
     }).start();
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clamped]);
 
   const radius = (size - strokeWidth) / 2;

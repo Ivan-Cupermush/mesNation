@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 
+import { themed } from '../theme/runtime';
 interface DayWithNotes {
   note_date: string;
   note_count: number;
@@ -32,13 +33,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   selectedDate,
   daysWithNotes,
   onDateSelect,
-  onMonthChange,
+  onMonthChange
 }) => {
   const { colors } = useTheme();
   const [days, setDays] = useState<Date[]>([]);
 
   useEffect(() => {
     generateDays();
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth]);
 
   const generateDays = () => {
@@ -179,7 +182,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: {
     padding: 12,
     borderRadius: 16,
@@ -256,5 +259,5 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 6,
     alignSelf: 'center',
-  },
-});
+  }
+}));

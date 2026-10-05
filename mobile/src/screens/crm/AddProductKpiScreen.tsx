@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -6,6 +7,7 @@ import {
 import { useTheme } from '../../theme/ThemeContext';
 import { api, MetricType } from '../../services/api';
 
+import { themed } from '../../theme/runtime';
 const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
   { id: 'quantity', label: 'Количество (шт)', unit: 'шт' },
   { id: 'amount', label: 'Сумма (рублей)', unit: '₽' },
@@ -13,6 +15,7 @@ const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
 ];
 
 export default function AddProductKpiScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [productName, setProductName] = useState('');
   const [metricType, setMetricType] = useState<MetricType>('quantity');
@@ -52,16 +55,16 @@ export default function AddProductKpiScreen({ navigation }: any) {
   const currentUnit = METRIC_OPTIONS.find(m => m.id === metricType)?.unit || '';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingBottom: insets.bottom }]}>
       <StatusBar 
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'} 
-        backgroundColor={colors.background}
+        barStyle={colors.statusBar} 
+        backgroundColor="transparent" translucent
       />
       
       {/* Header */}
       <View style={[styles.header, { 
         borderBottomColor: colors.border,
-        paddingTop: (StatusBar.currentHeight || 24) + 8,
+        paddingTop: insets.top + 8,
       }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={{ color: colors.accent, fontSize: 16 }}>Отмена</Text>
@@ -183,7 +186,7 @@ export default function AddProductKpiScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -218,4 +221,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   createBtnText: { fontSize: 16, fontWeight: '600' },
-});
+}));

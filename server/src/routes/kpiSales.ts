@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { isSubordinate, isDirector } from '../services/access';
+import { paramId } from '../lib/validate';
 import xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
@@ -51,6 +52,47 @@ async function findUserByName(name: string): Promise<{ id: number; display_name:
     [clean],
   );
   return partial.rows.length === 1 ? partial.rows[0] : null;
+}
+
+/**
+ * Число из ячейки Excel: «1 234,50 ₽», «1234.5», «1,234.50» → число.
+ * Одна запятая без точки — десятичный разделитель (русская запись);
+ * раньше «1 234,50» читалось как 123450.
+ */
+function parseRuNumber(val: any): number {
+  if (typeof val === 'number') return val;
+  let str = String(val ?? '').replace(/[\s\u00a0]/g, '');
+  if (!str) return 0;
+  if (str.includes(',') && !str.includes('.')) str = str.replace(',', '.');
+  else str = str.replace(/,/g, '');
+  const num = parseFloat(str.replace(/[^\d.-]/g, ''));
+  return isNaN(num) ? 0 : num;
+}
+
+/** Число из запроса: undefined/'' → fallback, мусор → NaN (проверяется вызывающим). */
+function num(v: any, fallback?: number): number {
+  if (v === undefined || v === null || v === '') return fallback as number;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Права на цель. Владелец и его руководители могут вести прогресс. Но план,
+ * который назначил руководитель (created_by ≠ владелец), сотрудник сам
+ * не может ни уменьшить, ни удалить — только тот, кто назначил, или
+ * вышестоящий.
+ */
+async function targetAccess(userId: number, targetId: number) {
+  const r = await pool.query('SELECT user_id, created_by FROM sales_targets WHERE id = $1', [targetId]);
+  if (!r.rows.length) return null;
+  const { user_id: ownerId, created_by: createdBy } = r.rows[0];
+  const isOwner = ownerId === userId;
+  const isManager = !isOwner && (await isManagerOf(userId, ownerId));
+  const assignedByOther = createdBy != null && createdBy !== ownerId;
+  return {
+    canView: isOwner || isManager,
+    canEditPlan: isManager || createdBy === userId || (isOwner && !assignedByOther),
+  };
 }
 
 // ===================== ЦЕЛИ ПРОДАЖ =====================
@@ -170,12 +212,19 @@ router.post('/targets', async (req: Request, res: Response) => {
       description,
     } = req.body;
     
-    if (!target_value || target_value <= 0) {
-      return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
+    const target = num(target_value);
+    const current = num(current_value, 0);
+    if (!(target > 0)) {
+      return res.status(400).json({ error: 'Целевое значение должно быть числом больше 0' });
     }
-    
-    if (!product_name) {
+    if (!(current >= 0)) {
+      return res.status(400).json({ error: 'Текущее значение не может быть отрицательным' });
+    }
+    if (!product_name || !String(product_name).trim()) {
       return res.status(400).json({ error: 'Название товара обязательно' });
+    }
+    if (!['quantity', 'amount', 'contracts'].includes(metric_type)) {
+      return res.status(400).json({ error: 'Неизвестный тип показателя' });
     }
     
     const result = await pool.query(
@@ -186,10 +235,10 @@ router.post('/targets', async (req: Request, res: Response) => {
        RETURNING *`,
       [
         userId, 
-        product_name, 
+        String(product_name).trim(), 
         metric_type, 
-        target_value, 
-        current_value,
+        target,
+        current,
         period_start || new Date(), 
         period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         description
@@ -225,8 +274,8 @@ router.post(
         return res.status(403).json({ error: 'Назначать план можно только своим подчинённым' });
       }
       
-      if (!target_value || target_value <= 0) {
-        return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
+      if (!(num(target_value) > 0)) {
+        return res.status(400).json({ error: 'Целевое значение должно быть числом больше 0' });
       }
       
       // Деактивировать старые планы этого пользователя
@@ -249,7 +298,7 @@ router.post(
          RETURNING *`,
         [
           user_id,
-          target_value,
+          num(target_value),
           period_start || new Date(),
           period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           description,
@@ -270,26 +319,24 @@ router.post(
 router.patch('/targets/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const targetId = Number(req.params.id);
+    const targetId = paramId(req);
     const { current_value, target_value, description } = req.body;
     
-    const check = await pool.query(
-      'SELECT user_id FROM sales_targets WHERE id = $1',
-      [targetId]
-    );
-    
-    if (check.rows.length === 0) {
+    const access = await targetAccess(userId, targetId);
+    if (!access) {
       return res.status(404).json({ error: 'Цель не найдена' });
     }
-    
-    const targetUserId = check.rows[0].user_id;
-    
-    // Проверка: владелец ИЛИ руководитель
-    if (targetUserId !== userId) {
-      const isManager = await isManagerOf(userId, targetUserId);
-      if (!isManager) {
-        return res.status(403).json({ error: 'Нет доступа' });
-      }
+    if (!access.canView) {
+      return res.status(403).json({ error: 'Нет доступа' });
+    }
+    if (target_value !== undefined && !access.canEditPlan) {
+      return res.status(403).json({ error: 'План назначил руководитель — изменить его может только он' });
+    }
+    if (current_value !== undefined && !(num(current_value) >= 0)) {
+      return res.status(400).json({ error: 'Текущее значение должно быть числом не меньше 0' });
+    }
+    if (target_value !== undefined && !(num(target_value) > 0)) {
+      return res.status(400).json({ error: 'Целевое значение должно быть числом больше 0' });
     }
     
     const updates: string[] = [];
@@ -298,11 +345,11 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     
     if (current_value !== undefined) {
       updates.push(`current_value = $${paramIndex++}`);
-      values.push(current_value);
+      values.push(num(current_value));
     }
     if (target_value !== undefined) {
       updates.push(`target_value = $${paramIndex++}`);
-      values.push(target_value);
+      values.push(num(target_value));
     }
     if (description !== undefined) {
       updates.push(`description = $${paramIndex++}`);
@@ -325,7 +372,8 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     );
     
     res.json(result.rows[0]);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'ZodError') return res.status(400).json({ error: 'Некорректный идентификатор' });
     console.error('Ошибка обновления цели:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
@@ -335,24 +383,17 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
 router.delete('/targets/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    const targetId = Number(req.params.id);
+    const targetId = paramId(req);
     
-    // Проверка: владелец ИЛИ руководитель
-    const check = await pool.query(
-      'SELECT user_id FROM sales_targets WHERE id = $1',
-      [targetId]
-    );
-    
-    if (check.rows.length === 0) {
+    const access = await targetAccess(userId, targetId);
+    if (!access) {
       return res.status(404).json({ error: 'Цель не найдена' });
     }
-    
-    const targetUserId = check.rows[0].user_id;
-    if (targetUserId !== userId) {
-      const isManager = await isManagerOf(userId, targetUserId);
-      if (!isManager) {
-        return res.status(403).json({ error: 'Нет доступа' });
-      }
+    if (!access.canView) {
+      return res.status(403).json({ error: 'Нет доступа' });
+    }
+    if (!access.canEditPlan) {
+      return res.status(403).json({ error: 'План назначил руководитель — удалить его может только он' });
     }
     
     const result = await pool.query(
@@ -365,7 +406,8 @@ router.delete('/targets/:id', async (req: Request, res: Response) => {
     }
     
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'ZodError') return res.status(400).json({ error: 'Некорректный идентификатор' });
     console.error('Ошибка удаления:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
@@ -392,6 +434,8 @@ router.get('/transactions', async (req: Request, res: Response) => {
       query += ` AND transaction_date >= DATE_TRUNC('month', CURRENT_DATE)`;
     } else if (period === 'week') {
       query += ` AND transaction_date >= CURRENT_DATE - INTERVAL '7 days'`;
+    } else if (period === 'quarter') {
+      query += ` AND transaction_date >= DATE_TRUNC('quarter', CURRENT_DATE)`;
     }
     
     query += ' ORDER BY transaction_date DESC, created_at DESC LIMIT 100';
@@ -418,8 +462,22 @@ router.post('/transactions', async (req: Request, res: Response) => {
       target_id,
     } = req.body;
     
-    if (!product_name) {
+    const qty = num(quantity, 1);
+    const sum = num(amount, 0);
+    if (!product_name || !String(product_name).trim()) {
       return res.status(400).json({ error: 'Название товара обязательно' });
+    }
+    if (!(qty > 0)) {
+      return res.status(400).json({ error: 'Количество должно быть числом больше 0' });
+    }
+    if (!(sum >= 0)) {
+      return res.status(400).json({ error: 'Сумма не может быть отрицательной' });
+    }
+    if (transaction_date && Number.isNaN(new Date(transaction_date).getTime())) {
+      return res.status(400).json({ error: 'Некорректная дата продажи' });
+    }
+    if (target_id && !(Number.isInteger(Number(target_id)) && Number(target_id) > 0)) {
+      return res.status(400).json({ error: 'Некорректная цель' });
     }
     if (target_id) {
       const own = await pool.query('SELECT 1 FROM sales_targets WHERE id = $1 AND user_id = $2', [target_id, userId]);
@@ -435,7 +493,7 @@ router.post('/transactions', async (req: Request, res: Response) => {
            (user_id, target_id, product_name, quantity, amount, transaction_date, client_name, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
-        [userId, target_id || null, product_name, quantity, amount, 
+        [userId, target_id || null, String(product_name).trim(), qty, sum, 
          transaction_date || new Date(), client_name, notes]
       );
       
@@ -446,7 +504,7 @@ router.post('/transactions', async (req: Request, res: Response) => {
         );
         
         if (targetCheck.rows.length > 0) {
-          const increment = targetCheck.rows[0].metric_type === 'amount' ? amount : quantity;
+          const increment = targetCheck.rows[0].metric_type === 'amount' ? sum : qty;
           await client.query(
             `UPDATE sales_targets 
              SET current_value = current_value + $1, updated_at = NOW()
@@ -560,6 +618,12 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const { importId, mapping } = req.body;
+    if (!Number.isInteger(Number(importId)) || Number(importId) <= 0) {
+      return res.status(400).json({ error: 'Некорректный импорт' });
+    }
+    if (!mapping || typeof mapping !== 'object' || !mapping.product_name) {
+      return res.status(400).json({ error: 'Укажите колонку с названием товара' });
+    }
     
     const importCheck = await pool.query(
       'SELECT * FROM sales_imports WHERE id = $1 AND user_id = $2',
@@ -568,6 +632,10 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
     
     if (importCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Импорт не найден' });
+    }
+    // Повторное подтверждение (двойное нажатие, повтор запроса) задвоило бы продажи.
+    if (importCheck.rows[0].status === 'completed') {
+      return res.status(409).json({ error: 'Этот файл уже импортирован' });
     }
     
     const filePath = path.join(importsDir, `${importId}.xlsx`);
@@ -599,11 +667,7 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
       return new Date(str);
     };
     
-    const parseNumber = (val: any): number => {
-      if (!val) return 0;
-      const num = parseFloat(String(val).replace(/[^\d.-]/g, ''));
-      return isNaN(num) ? 0 : num;
-    };
+    const parseNumber = parseRuNumber;
     
     const transactions: any[] = [];
     const errors: string[] = [];
@@ -620,11 +684,17 @@ router.post('/import/confirm', async (req: Request, res: Response) => {
         continue;
       }
       
+      const date = mapping.transaction_date ? parseDate(row[mapping.transaction_date]) : new Date();
+      if (Number.isNaN(date.getTime())) {
+        errors.push(`Строка ${i + 2}: не удалось прочитать дату`);
+        continue;
+      }
+      
       transactions.push({
         product_name: productName,
         quantity: mapping.quantity ? parseNumber(row[mapping.quantity]) || 1 : 1,
         amount: mapping.amount ? parseNumber(row[mapping.amount]) : 0,
-        transaction_date: mapping.transaction_date ? parseDate(row[mapping.transaction_date]) : new Date(),
+        transaction_date: date,
         client_name: mapping.client_name ? String(row[mapping.client_name] || '').trim() || null : null,
         notes: mapping.notes ? String(row[mapping.notes] || '').trim() || null : null,
       });
@@ -776,6 +846,12 @@ export default router;
 // GET /api/kpi/sales/subordinates — список подчинённых с их KPI
 router.get('/subordinates', async (req: Request, res: Response) => {
   try {
+    // Выручка команды за выбранный на экране период (по умолчанию — месяц).
+    const since = req.query.period === 'week'
+      ? `CURRENT_DATE - INTERVAL '7 days'`
+      : req.query.period === 'quarter'
+        ? `DATE_TRUNC('quarter', CURRENT_DATE)`
+        : `DATE_TRUNC('month', CURRENT_DATE)`;
     const managerId = (req as any).userId;
     
     // Получить роль руководителя
@@ -825,7 +901,11 @@ router.get('/subordinates', async (req: Request, res: Response) => {
              )
            ) FILTER (WHERE st.id IS NOT NULL),
            '[]'
-         ) as kpis
+         ) as kpis,
+         (SELECT rt.name FROM user_role_assignments ura JOIN role_tree rt ON rt.id = ura.role_node_id
+           WHERE ura.user_id = u.id LIMIT 1) AS role_name,
+         (SELECT COALESCE(SUM(tx.amount), 0) FROM sales_transactions tx
+           WHERE tx.user_id = u.id AND tx.transaction_date >= ${since}) AS total_amount
        FROM users u
        LEFT JOIN sales_targets st ON st.user_id = u.id 
          AND st.period_start <= CURRENT_DATE 
@@ -861,15 +941,21 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
     if (!user_id) {
       return res.status(400).json({ error: 'Не указан пользователь' });
     }
-    if (!target_value || target_value <= 0) {
-      return res.status(400).json({ error: 'Целевое значение должно быть больше 0' });
+    if (!(num(target_value) > 0)) {
+      return res.status(400).json({ error: 'Целевое значение должно быть числом больше 0' });
     }
-    if (!product_name) {
+    if (!(num(current_value, 0) >= 0)) {
+      return res.status(400).json({ error: 'Текущее значение не может быть отрицательным' });
+    }
+    if (!product_name || !String(product_name).trim()) {
       return res.status(400).json({ error: 'Название товара обязательно' });
+    }
+    if (!['quantity', 'amount', 'contracts'].includes(metric_type)) {
+      return res.status(400).json({ error: 'Неизвестный тип показателя' });
     }
     
     // Проверить что user_id — подчинённый менеджера
-    const isManager = await isManagerOf(managerId, user_id);
+    const isManager = await isManagerOf(managerId, Number(user_id));
     if (!isManager) {
       return res.status(403).json({ error: 'Вы не являетесь руководителем этого пользователя' });
     }
@@ -882,10 +968,10 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
        RETURNING *`,
       [
         user_id,
-        product_name,
+        String(product_name).trim(),
         metric_type,
-        target_value,
-        current_value,
+        num(target_value),
+        num(current_value, 0),
         period_start || new Date(),
         period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         description,
@@ -913,11 +999,7 @@ router.post('/import-report', upload.single('file'), async (req: Request, res: R
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-    const parseNum = (v: any): number => {
-      if (typeof v === 'number') return v;
-      const n = parseFloat(String(v || '').replace(/[^\d.-]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
+    const parseNum = parseRuNumber;
     const lastNum = (cells: string[]) => parseNum(cells[cells.length - 1]);
 
     let periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -1037,8 +1119,7 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res:
       const s = cellStr(v);
       if (!s) return 0;
       if (/^да$/i.test(s)) return 1;
-      const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
-      return isNaN(n) ? 0 : n;
+      return parseRuNumber(s);
     };
 
     const results: any[] = [];

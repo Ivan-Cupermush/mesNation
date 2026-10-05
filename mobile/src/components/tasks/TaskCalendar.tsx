@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Task } from '../../services/api';
 
+import { themed } from '../../theme/runtime';
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -34,7 +35,7 @@ const PRIORITY_COLORS = {
 const PRIORITY_THICKNESS = {
   high: 8,
   medium: 6,
-  low: 4,
+  low: 4
 };
 
 const getTaskColor = (task: Task): string => {
@@ -332,7 +333,7 @@ export default function TaskCalendar({ tasks, onPressTask }: TaskCalendarProps) 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: {
     flex: 1,
   },
@@ -449,5 +450,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center',
     fontStyle: 'italic',
-  },
-});
+  }
+}));

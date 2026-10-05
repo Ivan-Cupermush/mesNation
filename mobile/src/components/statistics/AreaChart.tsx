@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Dimensions } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop, Text as SvgText } from 'react-native-svg';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -10,7 +10,7 @@ export const AreaChart: React.FC<{ data: ChartPoint[]; height?: number; color?: 
 }) => {
   const { colors } = useTheme();
   const stroke = color || colors.accent;
-  const width = Dimensions.get('window').width - 64;
+  const width = useWindowDimensions().width - 64;
   const pad = { top: 14, right: 6, bottom: 22, left: 6 };
   const cw = width - pad.left - pad.right;
   const ch = height - pad.top - pad.bottom;

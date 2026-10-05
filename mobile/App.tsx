@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from './src/services/api';
-import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { View, ActivityIndicator, Text, StyleSheet, StatusBar } from 'react-native';
+import { NavigationContainer, DefaultTheme, DarkTheme, getFocusedRouteNameFromRoute, NavigationState } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ApiError, clearToken, getToken, onUnauthorized } from './src/services/http';
@@ -22,6 +22,7 @@ import AddMembersScreen from './src/screens/AddMembersScreen';
 import MediaListScreen from './src/screens/MediaListScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
+import AppearanceScreen from './src/screens/AppearanceScreen';
 
 // ===== Экраны CRM =====
 import TasksScreen from './src/screens/crm/TasksScreen';
@@ -43,6 +44,7 @@ import EmployeesScreen from './src/screens/crm/EmployeesScreen';
 // ===== Тема =====
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { T, themed } from './src/theme/runtime';
 
 // ========== Навигационные типы ==========
 type ChatStackParamList = {
@@ -55,7 +57,8 @@ type ChatStackParamList = {
   AddMembers: { chatId: string };
   MediaList: { chatId: string; type: 'files' | 'images' };
   Profile: undefined;
-  UserProfile: { userId: number; username: string; displayName: string; avatarUrl: string; role: string };
+  UserProfile: { userId: number; username?: string; displayName?: string; avatarUrl?: string; role?: string };
+  Appearance: undefined;
 };
 
 type TasksStackParamList = {
@@ -134,6 +137,7 @@ function ChatStackNavigator({ onLogout }: { onLogout: () => void }) {
         children={(props) => <ProfileScreen {...props} onLogout={onLogout} />}
       />
       <ChatStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
+      <ChatStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
     </ChatStack.Navigator>
   );
 }
@@ -204,6 +208,13 @@ function KnowledgeStackNavigator() {
   );
 }
 
+// Корневые экраны вкладок — на них панель вкладок видна.
+const ROOT_SCREENS = new Set(['ChatList', 'TasksHome', 'NotesHome', 'KpiHome', 'KnowledgeHome', 'SettingsHome']);
+function isRootScreen(route: any) {
+  const name = getFocusedRouteNameFromRoute(route);
+  return !name || ROOT_SCREENS.has(name);
+}
+
 // ========== Иконка вкладки ==========
 import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
 
@@ -232,6 +243,7 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
       <SettingsStack.Screen name="CreateUserRole" component={CreateUserRoleScreen} options={{ title: 'Новый пользователь', headerShown: false }} />
       <SettingsStack.Screen name="Employees" component={EmployeesScreen} options={{ title: 'Сотрудники', headerShown: false }} />
       <SettingsStack.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
     </SettingsStack.Navigator>
   );
 }
@@ -248,21 +260,23 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
 
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
+        // Внутри разделов (чат, карточка задачи, редактор заметки…) панель
+        // вкладок прячется, как в Telegram: больше места и нет конфликта
+        // с полем ввода и системными кнопками.
+        tabBarStyle: isRootScreen(route)
+          ? { backgroundColor: colors.tabBar, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }
+          : { display: 'none' },
         tabBarActiveTintColor: colors.tabBarIconActive,
         tabBarInactiveTintColor: colors.tabBarIcon,
         // Высоту и отступ под системную навигацию (жесты/кнопки, в том числе
         // на Xiaomi) считает сама библиотека по safe-area. Раньше жёсткие
         // height: 64 + paddingBottom: insets.bottom «сплющивали» или
         // поднимали панель на телефонах с режимом edge-to-edge.
-        tabBarStyle: {
-          backgroundColor: colors.tabBar,
-          borderTopColor: colors.border,
-          borderTopWidth: StyleSheet.hairlineWidth,
-        },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-      }}
+        tabBarHideOnKeyboard: true,
+      })}
     >
       <Tab.Screen
         name="TasksTab"
@@ -372,20 +386,48 @@ function RootNavigator() {
     setIsLoggedIn(false);
   };
 
-  if (isLoggedIn === null) {
+  const { colors, isDark, version, ready } = useTheme();
+  // Открытые экраны сохраняются: при смене темы интерфейс перерисовывается
+  // с теми же экранами, а не с нуля.
+  const navState = useRef<NavigationState | undefined>(undefined);
+  const navTheme = {
+    ...(isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(isDark ? DarkTheme : DefaultTheme).colors,
+      primary: colors.accent,
+      background: colors.background,
+      card: colors.card,
+      text: colors.textPrimary,
+      border: colors.border,
+      notification: colors.danger,
+    },
+  };
+
+  if (isLoggedIn === null || !ready) {
     return (
       <View style={styles.splash}>
-        <ActivityIndicator size="large" color="#6366F1" />
+        <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
+        <ActivityIndicator size="large" color={T.accent} />
         <Text style={styles.splashText}>Offix</Text>
-        <Text style={{ marginTop: 8, fontSize: 10, fontWeight: '500', color: '#9CA3AF', letterSpacing: 2 }}>коммуникационный шлюз Dixit</Text>
+        <Text style={styles.splashSub}>коммуникационный шлюз Dixit</Text>
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
-      {isLoggedIn ? <MainTabs onLogout={handleLogout} /> : <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />}
-    </NavigationContainer>
+    <>
+      <StatusBar barStyle={colors.statusBar} backgroundColor="transparent" translucent />
+      <NavigationContainer
+        key={version}
+        theme={navTheme}
+        initialState={navState.current}
+        onStateChange={(st) => {
+          navState.current = st;
+        }}
+      >
+        {isLoggedIn ? <MainTabs onLogout={handleLogout} /> : <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />}
+      </NavigationContainer>
+    </>
   );
 }
 
@@ -400,8 +442,9 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   tabIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  splashText: { marginTop: 16, fontSize: 18, fontWeight: '600', color: '#6366F1' },
-});
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.background },
+  splashText: { marginTop: 16, fontSize: 18, fontWeight: '600', color: T.accent },
+  splashSub: { marginTop: 8, fontSize: 10, fontWeight: '500', color: T.textMuted, letterSpacing: 2 },
+}));

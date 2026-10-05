@@ -7,6 +7,7 @@ import { request, signedFileUrl } from '../services/http';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import { C, formatDuration, formatSize } from '../components/chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
 /**
  * Общие материалы чата: фото и видео (сетка, открываются во встроенном
  * просмотрщике), файлы, ссылки и опросы. Подгружаются постранично.
@@ -85,7 +86,7 @@ export default function MediaListScreen({ route, navigation }: any) {
           )}
           {item.media_kind === 'video' && (
             <View style={styles.videoPill}>
-              <Play size={10} color="#FFFFFF" fill="#FFFFFF" />
+              <Play size={10} color={T.onAccent} fill={T.onAccent} />
               <Text style={styles.videoText}>{item.media_duration ? formatDuration(item.media_duration) : 'видео'}</Text>
             </View>
           )}
@@ -113,11 +114,11 @@ export default function MediaListScreen({ route, navigation }: any) {
       const urls: string[] = (item.text || '').match(URL_RE) || [];
       return (
         <TouchableOpacity style={styles.row} onPress={() => urls[0] && Linking.openURL(urls[0])} onLongPress={() => goToMessage(item)} activeOpacity={0.6}>
-          <View style={[styles.rowIcon, { backgroundColor: '#E0F2FE' }]}>
-            <Link2 size={22} color="#0EA5E9" />
+          <View style={[styles.rowIcon, { backgroundColor: T.infoSoft }]}>
+            <Link2 size={22} color={T.info} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.rowTitle, { color: '#0284C7' }]} numberOfLines={1}>
+            <Text style={[styles.rowTitle, { color: T.info }]} numberOfLines={1}>
               {urls[0] || item.text}
             </Text>
             <Text style={styles.rowSub} numberOfLines={2}>
@@ -129,8 +130,8 @@ export default function MediaListScreen({ route, navigation }: any) {
     }
     return (
       <TouchableOpacity style={styles.row} onPress={() => goToMessage(item)} activeOpacity={0.6}>
-        <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
-          <BarChart3 size={22} color="#F59E0B" />
+        <View style={[styles.rowIcon, { backgroundColor: T.warningSoft }]}>
+          <BarChart3 size={22} color={T.warning} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.rowTitle} numberOfLines={2}>
@@ -147,7 +148,7 @@ export default function MediaListScreen({ route, navigation }: any) {
   const viewerItems: ViewerItem[] = kind === 'images' ? items.map((m) => ({ ...m, sender_name: m.sender_display_name || m.sender_name })) : [];
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
           <ChevronLeft size={26} color={C.text} />
@@ -191,8 +192,8 @@ export default function MediaListScreen({ route, navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.card },
   header: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 4 },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: C.text, textAlign: 'center' },
@@ -211,13 +212,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: T.overlay,
   },
-  videoText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  videoText: { color: T.onAccent, fontSize: 11, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
   rowIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   rowTitle: { fontSize: 15, fontWeight: '600', color: C.text },
   rowSub: { fontSize: 13, color: C.textMuted, marginTop: 2 },
   sep: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 74 },
   empty: { textAlign: 'center', color: C.textMuted, marginTop: 50 },
-});
+}));

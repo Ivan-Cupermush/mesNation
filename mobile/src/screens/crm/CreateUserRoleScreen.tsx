@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
@@ -7,7 +8,10 @@ import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
 import TreeGraphView from '../../components/TreeGraphView';
 
+import { T, themed } from '../../theme/runtime';
+import SafeBottom from '../../components/ui/SafeBottom';
 export default function CreateUserRoleScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [nodes, setNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,14 +78,14 @@ export default function CreateUserRoleScreen({ navigation }: any) {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingBottom: insets.bottom }]}>
       <StatusBar
-        barStyle={colors.background === '#fff' ? 'dark-content' : 'light-content'}
-        backgroundColor={colors.background}
+        barStyle={colors.statusBar}
+        backgroundColor="transparent" translucent
       />
       <View style={[styles.header, {
         borderBottomColor: colors.border,
-        paddingTop: (StatusBar.currentHeight || 24) + 8,
+        paddingTop: insets.top + 8,
       }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
           <Text style={{ color: colors.accent, fontSize: 16 }}>← Назад</Text>
@@ -112,8 +116,8 @@ export default function CreateUserRoleScreen({ navigation }: any) {
               Новый пользователь
             </Text>
 
-            <View style={[styles.roleBadge, { backgroundColor: selectedNode?.color || '#6366F1' }]}>
-              <Text style={{ color: '#fff', fontWeight: '600' }}>
+            <View style={[styles.roleBadge, { backgroundColor: selectedNode?.color || T.violet }]}>
+              <Text style={{ color: T.onAccent, fontWeight: '600' }}>
                 {selectedNode?.icon} {selectedNode?.name}
               </Text>
             </View>
@@ -176,6 +180,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
                 </Text>
               </TouchableOpacity>
             </View>
+            <SafeBottom />
           </View>
         </View>
       </Modal>
@@ -183,7 +188,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
@@ -203,7 +208,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -246,4 +251,4 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-});
+}));

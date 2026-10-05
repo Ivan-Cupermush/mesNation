@@ -4,18 +4,17 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Modal,
   FlatList,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Search, Send, Users, User, Check } from 'lucide-react-native';
 import { request } from '../services/http';
 import { fuzzyMatch } from '../utils/fuzzySearch';
 
+import { T, themed } from '../theme/runtime';
 /** Выбор чата для отправки (заметки и т. п.) с необязательным комментарием. */
 
 interface Props {
@@ -69,10 +68,10 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.iconBtn} accessibilityLabel="Закрыть">
-              <X size={22} color="#141414" />
+              <X size={22} color={T.textPrimary} />
             </TouchableOpacity>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {title}
@@ -80,18 +79,18 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
           </View>
 
           <View style={styles.searchBox}>
-            <Search size={18} color="#9A9AA0" />
+            <Search size={18} color={T.textMuted} />
             <TextInput
               style={styles.searchInput}
               value={query}
               onChangeText={setQuery}
               placeholder="Поиск чата или сотрудника"
-              placeholderTextColor="#9A9AA0"
+              placeholderTextColor={T.textMuted}
             />
           </View>
 
           {loading ? (
-            <ActivityIndicator style={{ marginTop: 32 }} color="#1F7A52" />
+            <ActivityIndicator style={{ marginTop: 32 }} color={T.accent} />
           ) : error ? (
             <Text style={styles.empty}>{error}</Text>
           ) : (
@@ -106,12 +105,12 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
                 return (
                   <TouchableOpacity style={[styles.row, active && styles.rowActive]} onPress={() => setSelected(item.id)}>
                     <View style={styles.avatar}>
-                      <Icon size={18} color="#1F7A52" />
+                      <Icon size={18} color={T.accent} />
                     </View>
                     <Text style={styles.rowText} numberOfLines={1}>
                       {item.name || 'Чат'}
                     </Text>
-                    {active && <Check size={20} color="#1F7A52" strokeWidth={2.6} />}
+                    {active && <Check size={20} color={T.accent} strokeWidth={2.6} />}
                   </TouchableOpacity>
                 );
               }}
@@ -124,7 +123,7 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
               value={comment}
               onChangeText={setComment}
               placeholder="Комментарий (необязательно)"
-              placeholderTextColor="#9A9AA0"
+              placeholderTextColor={T.textMuted}
               multiline
               maxLength={4000}
             />
@@ -134,7 +133,7 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
               onPress={send}
               accessibilityLabel="Отправить"
             >
-              {sending ? <ActivityIndicator color="#FFFFFF" /> : <Send size={20} color="#FFFFFF" />}
+              {sending ? <ActivityIndicator color={T.onAccent} /> : <Send size={20} color={T.onAccent} />}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -143,11 +142,11 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6 },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#141414' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: T.textPrimary },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -156,24 +155,24 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
   },
-  searchInput: { flex: 1, height: 44, fontSize: 15, color: '#141414' },
-  empty: { textAlign: 'center', color: '#6F6F73', marginTop: 32 },
+  searchInput: { flex: 1, height: 44, fontSize: 15, color: T.textPrimary },
+  empty: { textAlign: 'center', color: T.textSecondary, marginTop: 32 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  rowActive: { backgroundColor: '#E3F1EA' },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F7F4', alignItems: 'center', justifyContent: 'center' },
-  rowText: { flex: 1, fontSize: 16, color: '#141414' },
+  rowActive: { backgroundColor: T.accentMuted },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.accentMuted, alignItems: 'center', justifyContent: 'center' },
+  rowText: { flex: 1, fontSize: 16, color: T.textPrimary },
   footer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
     padding: 12,
     borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
-    backgroundColor: '#FFFFFF',
+    borderTopColor: T.border,
+    backgroundColor: T.card,
   },
   commentInput: {
     flex: 1,
@@ -182,10 +181,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#F4F4F2',
+    backgroundColor: T.inputBg,
     fontSize: 15,
-    color: '#141414',
+    color: T.textPrimary,
   },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
-  sendBtnDisabled: { backgroundColor: '#C9CCD1' },
-});
+  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
+  sendBtnDisabled: { backgroundColor: T.disabled }
+}));

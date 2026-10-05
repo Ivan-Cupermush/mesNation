@@ -4,17 +4,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Modal,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
 import { Eye, EyeOff, KeyRound } from 'lucide-react-native';
 import { api } from '../services/api';
 import { setToken } from '../services/http';
 
+import { T, themed } from '../theme/runtime';
 /** Смена своего пароля. Другие устройства после смены выходят из аккаунта. */
 export default function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
@@ -57,7 +56,7 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#9A9AA0"
+        placeholderTextColor={T.textMuted}
         secureTextEntry={!show}
         autoCapitalize="none"
         autoCorrect={false}
@@ -69,15 +68,15 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
         <View style={styles.card}>
           <View style={styles.titleRow}>
             <View style={styles.iconWrap}>
-              <KeyRound size={18} color="#1F7A52" />
+              <KeyRound size={18} color={T.accent} />
             </View>
             <Text style={styles.title}>Смена пароля</Text>
             <TouchableOpacity onPress={() => setShow((v) => !v)} hitSlop={10} accessibilityLabel="Показать пароли">
-              {show ? <EyeOff size={20} color="#6F6F73" /> : <Eye size={20} color="#6F6F73" />}
+              {show ? <EyeOff size={20} color={T.textSecondary} /> : <Eye size={20} color={T.textSecondary} />}
             </TouchableOpacity>
           </View>
           {field(current, setCurrent, 'Текущий пароль')}
@@ -88,7 +87,7 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
               <Text style={styles.btnText}>Отмена</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={save} disabled={!canSave} style={[styles.btn, styles.btnPrimary, !canSave && styles.btnDisabled]}>
-              {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={[styles.btnText, styles.btnTextPrimary]}>Сохранить</Text>}
+              {saving ? <ActivityIndicator color={T.onAccent} /> : <Text style={[styles.btnText, styles.btnTextPrimary]}>Сохранить</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -97,29 +96,29 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20 },
+const styles = themed(() => ({
+  backdrop: { flex: 1, backgroundColor: T.overlay, justifyContent: 'center', padding: 24 },
+  card: { backgroundColor: T.card, borderRadius: 20, padding: 20 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  iconWrap: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#E3F1EA', alignItems: 'center', justifyContent: 'center' },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#141414' },
+  iconWrap: { width: 34, height: 34, borderRadius: 10, backgroundColor: T.accentMuted, alignItems: 'center', justifyContent: 'center' },
+  title: { flex: 1, fontSize: 18, fontWeight: '700', color: T.textPrimary },
   input: {
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ECECE8',
-    backgroundColor: '#FAFAF8',
+    borderColor: T.border,
+    backgroundColor: T.background,
     paddingHorizontal: 14,
     fontSize: 16,
-    color: '#141414',
+    color: T.textPrimary,
     marginTop: 10,
   },
-  inputError: { borderColor: '#F87171' },
-  error: { color: '#DC2626', fontSize: 12, marginTop: 4, marginLeft: 4 },
+  inputError: { borderColor: T.danger },
+  error: { color: T.danger, fontSize: 12, marginTop: 4, marginLeft: 4 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
   btn: { minWidth: 100, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
-  btnPrimary: { backgroundColor: '#1F7A52' },
-  btnDisabled: { backgroundColor: '#C9CCD1' },
-  btnText: { fontSize: 15, fontWeight: '700', color: '#141414' },
-  btnTextPrimary: { color: '#FFFFFF' },
-});
+  btnPrimary: { backgroundColor: T.accent },
+  btnDisabled: { backgroundColor: T.disabled },
+  btnText: { fontSize: 15, fontWeight: '700', color: T.textPrimary },
+  btnTextPrimary: { color: T.onAccent }
+}));

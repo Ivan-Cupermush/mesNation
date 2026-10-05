@@ -3,18 +3,18 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   PanResponder,
   Animated,
   LayoutChangeEvent,
-  GestureResponderEvent,
+  GestureResponderEvent
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Plus, Minus, Maximize2, Users } from 'lucide-react-native';
 import { useTheme } from '../theme/ThemeContext';
 
-import { NODE_WIDTH, NODE_HEIGHT, LayoutNode, RoleNode, buildForest, flatten } from './treeLayout';
+import { NODE_WIDTH, NODE_HEIGHT, RoleNode, buildForest, flatten } from './treeLayout';
 
+import { T, themed } from '../theme/runtime';
 export type { RoleNode };
 
 const MIN_SCALE = 0.3;
@@ -229,7 +229,7 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
           ))}
         </Svg>
         {allNodes.map(({ node, x, y }) => {
-          const color = node.color || '#6366F1';
+          const color = node.color || T.violet;
           const selected = selectedNodeId === node.id;
           const userCount = Number(node.users_count) || 0;
           const icon = node.icon && String(node.icon).trim() ? String(node.icon) : '\u{1F464}';
@@ -299,7 +299,7 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1, overflow: 'hidden' },
   svg: { position: 'absolute', top: 0, left: 0 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -348,5 +348,5 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   zoomBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  zoomDivider: { width: 1, height: 24 },
-});
+  zoomDivider: { width: 1, height: 24 }
+}));

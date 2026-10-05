@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, FlatList, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Search, NotebookPen, Star, Paperclip } from 'lucide-react-native';
 import { request } from '../../services/http';
 import { fuzzyMatch } from '../../utils/fuzzySearch';
 import { C } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /** Выбор своей заметки для отправки в чат (вкладка «Заметка» во вложениях). */
 export default function NotePickerModal({
   visible,
   onClose,
-  onPick,
+  onPick
 }: {
   visible: boolean;
   onClose: () => void;
@@ -42,8 +43,8 @@ export default function NotePickerModal({
           <Text style={styles.title}>Отправить заметку</Text>
         </View>
         <View style={styles.search}>
-          <Search size={18} color="#9A9AA0" />
-          <TextInput style={styles.searchInput} value={query} onChangeText={setQuery} placeholder="Поиск по заметкам" placeholderTextColor="#9A9AA0" />
+          <Search size={18} color={T.textMuted} />
+          <TextInput style={styles.searchInput} value={query} onChangeText={setQuery} placeholder="Поиск по заметкам" placeholderTextColor={T.textMuted} />
         </View>
         {notes === null ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 30 }} />
@@ -69,7 +70,7 @@ export default function NotePickerModal({
                   ) : null}
                   <View style={styles.cardMeta}>
                     <Text style={styles.cardDate}>{new Date(item.note_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}</Text>
-                    {item.is_favorite && <Star size={12} color="#F59E0B" fill="#F59E0B" />}
+                    {item.is_favorite && <Star size={12} color={T.warning} fill={T.warning} />}
                     {item.files_count ? (
                       <>
                         <Paperclip size={12} color={C.textMuted} />
@@ -87,9 +88,9 @@ export default function NotePickerModal({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F3F1' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 54, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.inputBg },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 54, backgroundColor: T.card },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 17, fontWeight: '700', color: C.text },
   search: {
@@ -100,14 +101,14 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
   },
   searchInput: { flex: 1, height: 44, fontSize: 15, color: C.text },
   empty: { textAlign: 'center', color: C.textMuted, marginTop: 30 },
-  card: { flexDirection: 'row', gap: 12, padding: 14, borderRadius: 14, backgroundColor: '#FFFFFF' },
+  card: { flexDirection: 'row', gap: 12, padding: 14, borderRadius: 14, backgroundColor: T.card },
   cardIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontSize: 16, fontWeight: '700', color: C.text },
   cardText: { fontSize: 14, color: C.textMuted, marginTop: 2 },
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  cardDate: { fontSize: 12, color: C.textMuted },
-});
+  cardDate: { fontSize: 12, color: C.textMuted }
+}));

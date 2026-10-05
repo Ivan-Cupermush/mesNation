@@ -1,7 +1,8 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { themed } from '../../theme/runtime';
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type Size = 'sm' | 'md' | 'lg';
 
@@ -20,12 +21,12 @@ interface ButtonProps {
 const sizeMap = {
   sm: { py: 8, px: 14, fs: 14, icon: 14 },
   md: { py: 12, px: 18, fs: 15, icon: 16 },
-  lg: { py: 14, px: 22, fs: 16, icon: 18 },
+  lg: { py: 14, px: 22, fs: 16, icon: 18 }
 };
 
 export const Button = ({
   title, onPress, variant = 'primary', size = 'md',
-  loading = false, disabled = false, icon, fullWidth = false, style,
+  loading = false, disabled = false, icon, fullWidth = false, style
 }: ButtonProps) => {
   const { colors } = useTheme();
   const s = sizeMap[size];
@@ -73,8 +74,8 @@ export const Button = ({
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   base: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   fullWidth: { width: '100%' },
-  text: { fontWeight: '600' },
-});
+  text: { fontWeight: '600' }
+}));

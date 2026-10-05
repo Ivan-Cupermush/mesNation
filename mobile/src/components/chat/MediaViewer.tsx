@@ -22,6 +22,7 @@ import ZoomableImage from './ZoomableImage';
 import VideoPlayer from './VideoPlayer';
 import { formatTime, requestSavePermission } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Полноэкранный просмотр фото и видео чата (как в Telegram): листание
  * влево-вправо, зум, свайп вниз — закрыть, сохранить в галерею, переслать,
@@ -165,7 +166,7 @@ export default function MediaViewer({ visible, items, initialIndex, onClose, onF
         <>
           <View style={[styles.topBar, { paddingTop: insets.top + 6 }]}>
             <TouchableOpacity onPress={onClose} style={styles.iconBtn} accessibilityLabel="Закрыть">
-              <X size={24} color="#FFFFFF" />
+              <X size={24} color={T.onAccent} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <Text style={styles.title} numberOfLines={1}>
@@ -191,17 +192,17 @@ export default function MediaViewer({ visible, items, initialIndex, onClose, onF
             <View style={styles.actions}>
               {onForward && (
                 <TouchableOpacity onPress={() => onForward(current)} style={styles.action}>
-                  <Forward size={22} color="#FFFFFF" />
+                  <Forward size={22} color={T.onAccent} />
                   <Text style={styles.actionText}>Переслать</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity onPress={save} style={styles.action} disabled={saving}>
-                {saving ? <ActivityIndicator color="#FFFFFF" /> : <Download size={22} color="#FFFFFF" />}
+                {saving ? <ActivityIndicator color={T.onAccent} /> : <Download size={22} color={T.onAccent} />}
                 <Text style={styles.actionText}>Сохранить</Text>
               </TouchableOpacity>
               {onShowInChat && (
                 <TouchableOpacity onPress={() => onShowInChat(current)} style={styles.action}>
-                  <MessageSquareText size={22} color="#FFFFFF" />
+                  <MessageSquareText size={22} color={T.onAccent} />
                   <Text style={styles.actionText}>В чате</Text>
                 </TouchableOpacity>
               )}
@@ -213,8 +214,8 @@ export default function MediaViewer({ visible, items, initialIndex, onClose, onF
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: { backgroundColor: '#000' },
+const styles = themed(() => ({
+  backdrop: { backgroundColor: 'black' },
   topBar: {
     position: 'absolute',
     top: 0,
@@ -225,12 +226,12 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 8,
     paddingBottom: 10,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: T.overlay,
   },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  title: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  title: { color: T.onAccent, fontSize: 16, fontWeight: '700' },
   subtitle: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 1 },
-  counter: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', paddingHorizontal: 8 },
+  counter: { color: T.onAccent, fontSize: 14, fontWeight: '600', paddingHorizontal: 8 },
   bottomBar: {
     position: 'absolute',
     left: 0,
@@ -238,10 +239,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingTop: 10,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: T.overlay,
   },
-  caption: { color: '#FFFFFF', fontSize: 15, lineHeight: 20, marginBottom: 10 },
+  caption: { color: T.onAccent, fontSize: 15, lineHeight: 20, marginBottom: 10 },
   actions: { flexDirection: 'row', justifyContent: 'space-around' },
   action: { alignItems: 'center', gap: 4, minWidth: 80, paddingVertical: 4 },
-  actionText: { color: '#FFFFFF', fontSize: 12 },
-});
+  actionText: { color: T.onAccent, fontSize: 12 },
+}));

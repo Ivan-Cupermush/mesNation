@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -14,7 +13,7 @@ import {
   Platform,
   Keyboard,
   Linking,
-  StatusBar,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -47,7 +46,7 @@ import {
   AlertCircle,
   ChevronRight,
   Plus,
-  Sparkles,
+  Sparkles
 } from 'lucide-react-native';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -55,6 +54,8 @@ import { signedFileUrl } from '../../services/http';
 import DateTimePickerModal from '../../components/DateTimePickerModal';
 import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
 
+import { T, themed } from '../../theme/runtime';
+import SafeBottom from '../../components/ui/SafeBottom';
 type TaskDetailRouteProp = RouteProp<{ params: { taskId: number } }, 'params'>;
 
 // Цвета и подписи статусов — общие для всех экранов (см. taskStatus.tsx).
@@ -63,9 +64,9 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; i
 );
 
 const IMPORTANCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  green: { label: 'Низкий приоритет', color: '#065F46', bg: '#D1FAE5' },
-  yellow: { label: 'Средний приоритет', color: '#92400E', bg: '#FEF3C7' },
-  red: { label: 'Высокий приоритет', color: '#B91C1C', bg: '#FEE2E2' },
+  green: { label: 'Низкий приоритет', color: T.success, bg: T.successSoft },
+  yellow: { label: 'Средний приоритет', color: T.warning, bg: T.warningSoft },
+  red: { label: 'Высокий приоритет', color: T.danger, bg: T.dangerSoft }
 };
 
 export default function TaskDetailScreen({ navigation }: any) {
@@ -414,34 +415,34 @@ export default function TaskDetailScreen({ navigation }: any) {
     mimeType: string,
     fileName: string,
   ): { icon: any; color: string; bg: string } => {
-    if (!mimeType) return { icon: File, color: '#6B7280', bg: '#F3F4F6' };
+    if (!mimeType) return { icon: File, color: T.textSecondary, bg: T.inputBg };
     if (mimeType.startsWith('image/'))
-      return { icon: ImageIcon, color: '#8B5CF6', bg: '#EDE9FE' };
+      return { icon: ImageIcon, color: T.violet, bg: T.violetSoft };
     if (mimeType.startsWith('video/'))
-      return { icon: FileVideo, color: '#EC4899', bg: '#FCE7F3' };
+      return { icon: FileVideo, color: T.danger, bg: T.dangerSoft };
     if (mimeType.startsWith('audio/'))
-      return { icon: FileAudio, color: '#0EA5E9', bg: '#E0F2FE' };
+      return { icon: FileAudio, color: T.info, bg: T.infoSoft };
     if (mimeType.includes('pdf'))
-      return { icon: FileText, color: '#DC2626', bg: '#FEE2E2' };
+      return { icon: FileText, color: T.danger, bg: T.dangerSoft };
     if (
       mimeType.includes('word') ||
       fileName.endsWith('.docx') ||
       fileName.endsWith('.doc')
     )
-      return { icon: FileText, color: '#2563EB', bg: '#DBEAFE' };
+      return { icon: FileText, color: T.info, bg: T.infoSoft };
     if (
       mimeType.includes('sheet') ||
       fileName.endsWith('.xlsx') ||
       fileName.endsWith('.xls')
     )
-      return { icon: FileSpreadsheet, color: '#16A34A', bg: '#DCFCE7' };
+      return { icon: FileSpreadsheet, color: T.success, bg: T.successSoft };
     if (
       mimeType.includes('zip') ||
       mimeType.includes('rar') ||
       mimeType.includes('archive')
     )
-      return { icon: FileArchive, color: '#F59E0B', bg: '#FEF3C7' };
-    return { icon: File, color: '#6B7280', bg: '#F3F4F6' };
+      return { icon: FileArchive, color: T.warning, bg: T.warningSoft };
+    return { icon: File, color: T.textSecondary, bg: T.inputBg };
   };
 
   const formatFileSize = (bytes: number | null): string => {
@@ -506,7 +507,7 @@ export default function TaskDetailScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+          <ActivityIndicator size="large" color={T.accent} />
           <Text style={styles.loadingText}>Загрузка задачи...</Text>
         </View>
       </SafeAreaView>
@@ -518,8 +519,8 @@ export default function TaskDetailScreen({ navigation }: any) {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
 
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
@@ -528,14 +529,14 @@ export default function TaskDetailScreen({ navigation }: any) {
           style={styles.headerBackBtn}
           activeOpacity={0.7}
         >
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerLabel}>ДЕТАЛИ ЗАДАЧИ</Text>
         </View>
         {isCreator && task.status_new !== 'archived' ? (
           <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
-            <MoreHorizontal size={22} color="#141414" strokeWidth={2} />
+            <MoreHorizontal size={22} color={T.textPrimary} strokeWidth={2} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 40 }} />
@@ -544,8 +545,8 @@ export default function TaskDetailScreen({ navigation }: any) {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -554,7 +555,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#1F7A52"
+              tintColor={T.accent}
             />
           }
           keyboardShouldPersistTaps="handled"
@@ -579,7 +580,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
             {task.is_overdue && (
               <View style={styles.overdueBanner}>
-                <AlertCircle size={14} color="#B91C1C" strokeWidth={2.4} />
+                <AlertCircle size={14} color={T.danger} strokeWidth={2.4} />
                 <Text style={styles.overdueText}>Просрочена</Text>
               </View>
             )}
@@ -610,7 +611,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             {/* Создатель */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconWrap}>
-                <User size={18} color="#1F7A52" strokeWidth={2} />
+                <User size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Создатель</Text>
               <Text style={styles.infoValue} numberOfLines={1}>
@@ -621,7 +622,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             {/* Дедлайн */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconWrap}>
-                <CalendarDays size={18} color="#1F7A52" strokeWidth={2} />
+                <CalendarDays size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Дедлайн</Text>
               <Text style={styles.infoValue} numberOfLines={1}>
@@ -636,7 +637,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <View style={styles.infoIconWrap}>
-                <Users size={18} color="#1F7A52" strokeWidth={2} />
+                <Users size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Исполнители</Text>
               <View style={styles.infoValueRow}>
@@ -676,14 +677,14 @@ export default function TaskDetailScreen({ navigation }: any) {
                 ) : (
                   <Text style={styles.infoValueMuted}>—</Text>
                 )}
-                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
               </View>
             </TouchableOpacity>
 
             {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает */}
             <TouchableOpacity style={styles.infoCard} onPress={() => setPeopleModal('watchers')} activeOpacity={0.7}>
               <View style={styles.infoIconWrap}>
-                <Eye size={18} color="#1F7A52" strokeWidth={2} />
+                <Eye size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.infoLabel}>Наблюдатели</Text>
               <View style={styles.infoValueRow}>
@@ -694,7 +695,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                       : `${task.watchers.length} чел.`
                     : 'Создатель'}
                 </Text>
-                <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
               </View>
             </TouchableOpacity>
           </View>
@@ -702,7 +703,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           {/* Дедлайн проверки (если есть) */}
           {task.reviewer_deadline && (
             <View style={styles.reviewDeadlineCard}>
-              <Clock size={16} color="#92400E" strokeWidth={2} />
+              <Clock size={16} color={T.warning} strokeWidth={2} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.reviewDeadlineLabel}>Дедлайн проверки</Text>
                 <Text style={styles.reviewDeadlineValue}>
@@ -727,7 +728,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                   <View style={styles.transitionList}>
                     {(task.available_transitions || []).map((t) => {
                       const tone =
-                        t.style === 'success' ? '#16A34A' : t.style === 'danger' ? '#DC2626' : t.style === 'primary' ? '#1F7A52' : null;
+                        t.style === 'success' ? T.success : t.style === 'danger' ? T.danger : t.style === 'primary' ? T.accent : null;
                       return (
                         <TouchableOpacity
                           key={t.to}
@@ -736,7 +737,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                           style={[styles.transitionBtn, tone ? { backgroundColor: tone, borderColor: tone } : styles.transitionBtnNeutral]}
                           activeOpacity={0.85}
                         >
-                          <Text style={[styles.transitionText, { color: tone ? '#FFFFFF' : '#141414' }]}>{t.action}</Text>
+                          <Text style={[styles.transitionText, { color: tone ? T.onAccent : T.textPrimary }]}>{t.action}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -755,7 +756,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               <Text style={styles.sectionTitle}>АРХИВ</Text>
               <View style={styles.archiveCard}>
                 <View style={styles.archiveIconWrap}>
-                  <Archive size={20} color="#6F6F73" strokeWidth={2} />
+                  <Archive size={20} color={T.textSecondary} strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.archiveTitle}>
@@ -768,7 +769,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
               {isCreator && (
                 <TouchableOpacity onPress={handleUnarchive} disabled={transitioning} style={styles.actionBtnPrimary} activeOpacity={0.85}>
-                  <Archive size={20} color="#FFFFFF" strokeWidth={2} />
+                  <Archive size={20} color={T.onAccent} strokeWidth={2} />
                   <Text style={styles.actionBtnPrimaryText}>Разархивировать</Text>
                 </TouchableOpacity>
               )}
@@ -797,12 +798,12 @@ export default function TaskDetailScreen({ navigation }: any) {
                       style={[styles.checkpointBox, done && styles.checkpointBoxDone, missed && styles.checkpointBoxMissed]}
                       accessibilityLabel={done ? 'Отметить как невыполненную' : 'Отметить выполненной'}
                     >
-                      {done && <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.5} />}
-                      {missed && <XCircle size={16} color="#FFFFFF" strokeWidth={2.5} />}
+                      {done && <CheckCircle2 size={16} color={T.onAccent} strokeWidth={2.5} />}
+                      {missed && <XCircle size={16} color={T.onAccent} strokeWidth={2.5} />}
                     </TouchableOpacity>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.checkpointTitle, done && styles.checkpointTitleDone]}>{cp.title}</Text>
-                      <Text style={[styles.checkpointDate, late && { color: '#B91C1C' }]}>
+                      <Text style={[styles.checkpointDate, late && { color: T.danger }]}>
                         {formatShortDate(cp.deadline)}
                         {done && cp.completed_by_name ? ` · отметил ${cp.completed_by_name}` : ''}
                         {missed ? ' · не выполнена' : late ? ' · срок прошёл' : ''}
@@ -815,7 +816,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                     )}
                     {isCreator && task.status_new !== 'archived' && (
                       <TouchableOpacity onPress={() => removeCheckpoint(cp.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Trash2 size={16} color="#BDBDBD" strokeWidth={2} />
+                        <Trash2 size={16} color={T.textMuted} strokeWidth={2} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -828,16 +829,16 @@ export default function TaskDetailScreen({ navigation }: any) {
                     value={newCheckpointTitle}
                     onChangeText={setNewCheckpointTitle}
                     placeholder="Новая контрольная точка"
-                    placeholderTextColor="#BDBDBD"
+                    placeholderTextColor={T.textMuted}
                   />
                   <TouchableOpacity onPress={() => setShowCheckpointPicker(true)} style={styles.checkpointDateBtn}>
-                    <CalendarDays size={16} color="#1F7A52" strokeWidth={2} />
+                    <CalendarDays size={16} color={T.accent} strokeWidth={2} />
                     <Text style={styles.checkpointDateBtnText}>
                       {newCheckpointDate ? formatShortDate(newCheckpointDate.toISOString()) : 'Дата'}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={addCheckpoint} style={styles.checkpointAddBtn} accessibilityLabel="Добавить контрольную точку">
-                    <Plus size={18} color="#FFFFFF" strokeWidth={2.5} />
+                    <Plus size={18} color={T.onAccent} strokeWidth={2.5} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -862,7 +863,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                       value={roleCommentText}
                       onChangeText={setRoleCommentText}
                       placeholder={field === 'executor_comment' ? 'Что сделано, результат, проблемы…' : 'Замечания по выполнению…'}
-                      placeholderTextColor="#BDBDBD"
+                      placeholderTextColor={T.textMuted}
                       multiline
                       autoFocus
                     />
@@ -885,7 +886,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                     <Text style={value ? styles.roleCommentText : styles.roleCommentPlaceholder}>
                       {value || 'Нажмите, чтобы написать'}
                     </Text>
-                    {canEdit && <Pencil size={14} color="#BDBDBD" strokeWidth={2} />}
+                    {canEdit && <Pencil size={14} color={T.textMuted} strokeWidth={2} />}
                   </TouchableOpacity>
                 )}
               </View>
@@ -905,7 +906,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
             {(task.files || []).length === 0 ? (
               <View style={styles.emptyCard}>
-                <Paperclip size={28} color="#BDBDBD" strokeWidth={1.5} />
+                <Paperclip size={28} color={T.textMuted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>Файлы не прикреплены</Text>
                 <Text style={styles.emptySubtitle}>
                   Добавьте документы, изображения или отчёты
@@ -946,7 +947,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                         style={styles.fileDeleteBtn}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
-                        <Trash2 size={16} color="#DC2626" strokeWidth={2} />
+                        <Trash2 size={16} color={T.danger} strokeWidth={2} />
                       </TouchableOpacity>
                     )}
                   </TouchableOpacity>
@@ -961,9 +962,9 @@ export default function TaskDetailScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               {uploadingFile ? (
-                <ActivityIndicator size="small" color="#1F7A52" />
+                <ActivityIndicator size="small" color={T.accent} />
               ) : (
-                <Plus size={18} color="#1F7A52" strokeWidth={2.5} />
+                <Plus size={18} color={T.accent} strokeWidth={2.5} />
               )}
               <Text style={styles.attachBtnText}>
                 {uploadingFile ? 'Загрузка...' : 'Прикрепить файл'}
@@ -982,7 +983,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
             {history.length === 0 ? (
               <View style={styles.emptyCard}>
-                <History size={28} color="#BDBDBD" strokeWidth={1.5} />
+                <History size={28} color={T.textMuted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>История пуста</Text>
               </View>
             ) : (
@@ -1061,16 +1062,16 @@ export default function TaskDetailScreen({ navigation }: any) {
                             <View
                               style={[
                                 styles.timelineStatusPill,
-                                { backgroundColor: '#ECFDF5' },
+                                { backgroundColor: T.accentMuted },
                               ]}
                             >
-                              <Sparkles size={12} color="#1F7A52" strokeWidth={2} />
-                              <Text style={[styles.timelineStatusText, { color: '#1F7A52' }]}>
+                              <Sparkles size={12} color={T.accent} strokeWidth={2} />
+                              <Text style={[styles.timelineStatusText, { color: T.accent }]}>
                                 Создана
                               </Text>
                             </View>
                           )}
-                          <ArrowRight size={14} color="#BDBDBD" strokeWidth={2} />
+                          <ArrowRight size={14} color={T.textMuted} strokeWidth={2} />
                           <View
                             style={[
                               styles.timelineStatusPill,
@@ -1091,7 +1092,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                           <View style={styles.timelineComment}>
                             <MessageCircle
                               size={12}
-                              color="#6F6F73"
+                              color={T.textSecondary}
                               strokeWidth={2}
                             />
                             <Text style={styles.timelineCommentText}>
@@ -1118,7 +1119,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
             {comments.length === 0 ? (
               <View style={styles.emptyCard}>
-                <MessageCircle size={28} color="#BDBDBD" strokeWidth={1.5} />
+                <MessageCircle size={28} color={T.textMuted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>Пока нет комментариев</Text>
                 <Text style={styles.emptySubtitle}>
                   Начните обсуждение задачи
@@ -1132,17 +1133,17 @@ export default function TaskDetailScreen({ navigation }: any) {
                   (a: any) => a.id === comment.author_id,
                 );
 
-                let roleColor = '#6B7280';
+                let roleColor = T.textSecondary;
                 let roleLabel = '';
-                let roleBg = '#F3F4F6';
+                let roleBg = T.inputBg;
                 if (isCommentCreator) {
-                  roleColor = '#1F7A52';
+                  roleColor = T.accent;
                   roleLabel = 'Создатель';
-                  roleBg = '#ECFDF5';
+                  roleBg = T.accentMuted;
                 } else if (isCommentAssignee) {
-                  roleColor = '#3B82F6';
+                  roleColor = T.info;
                   roleLabel = 'Исполнитель';
-                  roleBg = '#DBEAFE';
+                  roleBg = T.infoSoft;
                 }
 
                 return (
@@ -1183,13 +1184,13 @@ export default function TaskDetailScreen({ navigation }: any) {
                             onPress={() => handleEditComment(comment)}
                             style={styles.commentMenuBtn}
                           >
-                            <Pencil size={14} color="#6F6F73" strokeWidth={2} />
+                            <Pencil size={14} color={T.textSecondary} strokeWidth={2} />
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleDeleteComment(comment.id)}
                             style={styles.commentMenuBtn}
                           >
-                            <Trash2 size={14} color="#DC2626" strokeWidth={2} />
+                            <Trash2 size={14} color={T.danger} strokeWidth={2} />
                           </TouchableOpacity>
                         </View>
                       )}
@@ -1241,7 +1242,7 @@ export default function TaskDetailScreen({ navigation }: any) {
             value={newComment}
             onChangeText={setNewComment}
             placeholder="Напишите комментарий..."
-            placeholderTextColor="#BDBDBD"
+            placeholderTextColor={T.textMuted}
             multiline
             maxLength={2000}
           />
@@ -1251,15 +1252,15 @@ export default function TaskDetailScreen({ navigation }: any) {
             style={[
               styles.sendBtn,
               {
-                backgroundColor: newComment.trim() ? '#1F7A52' : '#ECECE8',
+                backgroundColor: newComment.trim() ? T.accent : T.surfaceActive,
               },
             ]}
             activeOpacity={0.85}
           >
             {sendingComment ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={T.onAccent} />
             ) : (
-              <SendHorizonal size={18} color="#FFFFFF" strokeWidth={2.5} />
+              <SendHorizonal size={18} color={T.onAccent} strokeWidth={2.5} />
             )}
           </TouchableOpacity>
         </View>
@@ -1296,10 +1297,11 @@ export default function TaskDetailScreen({ navigation }: any) {
                     <Text style={assigneeStyles.name}>{a.display_name || a.username}</Text>
                     <Text style={assigneeStyles.username}>@{a.username}</Text>
                   </View>
-                  <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+                  <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
+            <SafeBottom />
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1310,13 +1312,14 @@ export default function TaskDetailScreen({ navigation }: any) {
           <View style={assigneeStyles.sheet}>
             <View style={assigneeStyles.handle} />
             <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
-              <Pencil size={20} color="#1F7A52" strokeWidth={2} />
+              <Pencil size={20} color={T.accent} strokeWidth={2} />
               <Text style={assigneeStyles.name}>Редактировать задачу</Text>
             </TouchableOpacity>
             <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
-              <Trash2 size={20} color="#DC2626" strokeWidth={2} />
-              <Text style={[assigneeStyles.name, { color: '#DC2626' }]}>Удалить (в архив)</Text>
+              <Trash2 size={20} color={T.danger} strokeWidth={2} />
+              <Text style={[assigneeStyles.name, { color: T.danger }]}>Удалить (в архив)</Text>
             </TouchableOpacity>
+            <SafeBottom />
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1339,7 +1342,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <XCircle size={24} color="#DC2626" strokeWidth={2} />
+              <XCircle size={24} color={T.danger} strokeWidth={2} />
               <Text style={styles.modalTitle}>{commentTarget?.action || 'Отклонить задачу'}</Text>
             </View>
             <Text style={styles.modalSubtitle}>
@@ -1354,7 +1357,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               value={rejectComment}
               onChangeText={setRejectComment}
               placeholder="Например: Не соответствует ТЗ, нужно переделать..."
-              placeholderTextColor="#BDBDBD"
+              placeholderTextColor={T.textMuted}
               multiline
               numberOfLines={4}
               autoFocus
@@ -1381,9 +1384,9 @@ export default function TaskDetailScreen({ navigation }: any) {
                     backgroundColor:
                       commentTarget?.required === false || rejectComment.trim()
                         ? commentTarget && commentTarget.to !== 'rejected'
-                          ? '#1F7A52'
-                          : '#7F1D1D'
-                        : '#ECECE8',
+                          ? T.accent
+                          : T.danger
+                        : T.disabled,
                   },
                 ]}
                 activeOpacity={0.85}
@@ -1393,6 +1396,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 </Text>
               </TouchableOpacity>
             </View>
+            <SafeBottom />
           </View>
         </View>
       </Modal>
@@ -1400,42 +1404,42 @@ export default function TaskDetailScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  statusCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, gap: 14 },
+const styles = themed(() => ({
+  statusCard: { backgroundColor: T.card, borderRadius: 20, padding: 16, gap: 14 },
   hintBox: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
   hintText: { fontSize: 14, fontWeight: '600', lineHeight: 19 },
   transitionList: { gap: 8 },
   transitionBtn: { height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
-  transitionBtnNeutral: { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' },
+  transitionBtnNeutral: { backgroundColor: T.card, borderColor: T.border },
   transitionText: { fontSize: 15, fontWeight: '700' },
-  overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
-  overdueText: { fontSize: 12, fontWeight: '700', color: '#B91C1C' },
+  overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: T.dangerSoft },
+  overdueText: { fontSize: 12, fontWeight: '700', color: T.danger },
   myRolesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 },
-  myRolesLabel: { fontSize: 12, color: '#6F6F73', fontWeight: '600' },
-  myRoleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: '#F3F4F6' },
-  myRoleText: { fontSize: 12, fontWeight: '600', color: '#141414' },
-  checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, marginBottom: 8 },
-  checkpointBox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' },
-  checkpointBoxDone: { backgroundColor: '#1F7A52', borderColor: '#1F7A52' },
-  checkpointBoxMissed: { backgroundColor: '#B91C1C', borderColor: '#B91C1C' },
-  checkpointTitle: { fontSize: 14, fontWeight: '600', color: '#141414' },
-  checkpointTitleDone: { textDecorationLine: 'line-through', color: '#6F6F73' },
-  checkpointDate: { fontSize: 12, color: '#6F6F73', marginTop: 2 },
-  checkpointAction: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF2F2' },
-  checkpointActionText: { fontSize: 11, fontWeight: '700', color: '#B91C1C' },
+  myRolesLabel: { fontSize: 12, color: T.textSecondary, fontWeight: '600' },
+  myRoleChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: T.inputBg },
+  myRoleText: { fontSize: 12, fontWeight: '600', color: T.textPrimary },
+  checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: T.card, borderRadius: 14, padding: 12, marginBottom: 8 },
+  checkpointBox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
+  checkpointBoxDone: { backgroundColor: T.accent, borderColor: T.accent },
+  checkpointBoxMissed: { backgroundColor: T.danger, borderColor: T.danger },
+  checkpointTitle: { fontSize: 14, fontWeight: '600', color: T.textPrimary },
+  checkpointTitleDone: { textDecorationLine: 'line-through', color: T.textSecondary },
+  checkpointDate: { fontSize: 12, color: T.textSecondary, marginTop: 2 },
+  checkpointAction: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: T.dangerSoft },
+  checkpointActionText: { fontSize: 11, fontWeight: '700', color: T.danger },
   checkpointAdd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  checkpointInput: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#141414' },
-  checkpointDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, backgroundColor: '#ECFDF5' },
-  checkpointDateBtnText: { fontSize: 12, fontWeight: '600', color: '#1F7A52' },
-  checkpointAddBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center', justifyContent: 'center' },
-  roleCommentCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, flexWrap: 'wrap' },
-  roleCommentText: { flex: 1, fontSize: 14, color: '#141414', lineHeight: 20 },
-  roleCommentPlaceholder: { flex: 1, fontSize: 14, color: '#BDBDBD', fontStyle: 'italic' },
-  roleCommentInput: { width: '100%', minHeight: 80, fontSize: 14, color: '#141414', textAlignVertical: 'top' },
-  roleCommentCancel: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F3F4F6', alignItems: 'center' },
-  roleCommentCancelText: { fontSize: 14, fontWeight: '600', color: '#6F6F73' },
-  roleCommentSave: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#1F7A52', alignItems: 'center' },
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  checkpointInput: { flex: 1, backgroundColor: T.card, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: T.textPrimary },
+  checkpointDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, backgroundColor: T.accentMuted },
+  checkpointDateBtnText: { fontSize: 12, fontWeight: '600', color: T.accent },
+  checkpointAddBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center' },
+  roleCommentCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: T.card, borderRadius: 14, padding: 14, flexWrap: 'wrap' },
+  roleCommentText: { flex: 1, fontSize: 14, color: T.textPrimary, lineHeight: 20 },
+  roleCommentPlaceholder: { flex: 1, fontSize: 14, color: T.textMuted, fontStyle: 'italic' },
+  roleCommentInput: { width: '100%', minHeight: 80, fontSize: 14, color: T.textPrimary, textAlignVertical: 'top' },
+  roleCommentCancel: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: T.inputBg, alignItems: 'center' },
+  roleCommentCancelText: { fontSize: 14, fontWeight: '600', color: T.textSecondary },
+  roleCommentSave: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: T.accent, alignItems: 'center' },
+  container: { flex: 1, backgroundColor: T.background },
 
   // ===== LOADING =====
   loadingWrap: {
@@ -1445,7 +1449,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#6F6F73',
+    color: T.textSecondary,
     marginTop: 12,
     fontWeight: '500',
   },
@@ -1457,9 +1461,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
+    borderBottomColor: T.border,
   },
   headerBackBtn: {
     width: 40,
@@ -1475,7 +1479,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 20,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1.5,
   },
 
@@ -1488,10 +1492,10 @@ const styles = StyleSheet.create({
 
   // ===== HERO CARD =====
   heroCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -1531,19 +1535,19 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 40,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: -0.5,
     lineHeight: 44,
   },
   heroDescription: {
     fontSize: 15,
-    color: '#141414',
+    color: T.textPrimary,
     lineHeight: 22,
     fontWeight: '500',
   },
   heroDescriptionMuted: {
     fontSize: 14,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontStyle: 'italic',
   },
 
@@ -1556,10 +1560,10 @@ const styles = StyleSheet.create({
   infoCard: {
     flex: 1,
     minWidth: '46%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 18,
     padding: 16,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 12,
@@ -1570,21 +1574,21 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   infoLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   infoValue: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
   },
   infoValueRow: {
     flexDirection: 'row',
@@ -1592,7 +1596,7 @@ const styles = StyleSheet.create({
   },
   infoValueMuted: {
     fontSize: 14,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontWeight: '600',
   },
   assigneesAvatars: {
@@ -1606,20 +1610,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
   },
   miniAvatarText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   miniAvatarMore: {
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
   },
   miniAvatarMoreText: {
     fontSize: 9,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
   },
 
   // ===== REVIEW DEADLINE =====
@@ -1628,22 +1632,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     padding: 14,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: T.warningSoft,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: T.warning,
   },
   reviewDeadlineLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#92400E',
+    color: T.warning,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   reviewDeadlineValue: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#92400E',
+    color: T.warning,
     marginTop: 2,
   },
 
@@ -1660,11 +1664,11 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 22,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
   },
   sectionBadge: {
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
@@ -1672,12 +1676,12 @@ const styles = StyleSheet.create({
   sectionBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#6F6F73',
+    color: T.textSecondary,
   },
 
   // ===== EMPTY CARD =====
   emptyCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 18,
     padding: 32,
     alignItems: 'center',
@@ -1686,12 +1690,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
     marginTop: 4,
   },
   emptySubtitle: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     textAlign: 'center',
   },
 
@@ -1701,10 +1705,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     paddingVertical: 16,
     borderRadius: 18,
-    shadowColor: '#1F7A52',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
@@ -1713,7 +1717,7 @@ const styles = StyleSheet.create({
   actionBtnPrimaryText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   dualActions: {
     flexDirection: 'row',
@@ -1725,7 +1729,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     paddingVertical: 16,
     borderRadius: 18,
   },
@@ -1735,45 +1739,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#7F1D1D',
+    backgroundColor: T.danger,
     paddingVertical: 16,
     borderRadius: 18,
   },
   actionBtnHalfText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   actionBtnGhost: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     paddingVertical: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
   },
   actionBtnGhostText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
   },
   noActionsBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     padding: 20,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
   },
   noActionsText: {
     fontSize: 13,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontWeight: '500',
     textAlign: 'center',
     flex: 1,
@@ -1784,29 +1788,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     padding: 18,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
   },
   archiveIconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: T.inputBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   archiveTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 2,
   },
   archiveSubtitle: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
 
@@ -1815,10 +1819,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 18,
     padding: 14,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 12,
@@ -1834,12 +1838,12 @@ const styles = StyleSheet.create({
   fileName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 2,
   },
   fileMeta: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
   fileDeleteBtn: {
@@ -1852,15 +1856,15 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 16,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     borderWidth: 1.5,
-    borderColor: '#D1FAE5',
+    borderColor: T.successSoft,
     borderStyle: 'dashed',
   },
   attachBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F7A52',
+    color: T.accent,
   },
 
   // ===== TIMELINE =====
@@ -1885,18 +1889,18 @@ const styles = StyleSheet.create({
   timelineLine: {
     width: 2,
     flex: 1,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     marginVertical: 4,
     minHeight: 20,
   },
   timelineContent: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
     gap: 10,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 8,
@@ -1925,17 +1929,17 @@ const styles = StyleSheet.create({
   timelineAvatarText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   timelineUser: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
     flexShrink: 1,
   },
   timelineDate: {
     fontSize: 11,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
     flexShrink: 0,
   },
@@ -1961,13 +1965,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     padding: 10,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderRadius: 10,
     alignItems: 'flex-start',
   },
   timelineCommentText: {
     fontSize: 13,
-    color: '#141414',
+    color: T.textPrimary,
     lineHeight: 18,
     flex: 1,
     fontWeight: '500',
@@ -1975,11 +1979,11 @@ const styles = StyleSheet.create({
 
   // ===== COMMENTS =====
   commentCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 18,
     padding: 16,
     gap: 10,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 12,
@@ -2001,7 +2005,7 @@ const styles = StyleSheet.create({
   commentAvatarText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   commentNameRow: {
     flexDirection: 'row',
@@ -2012,7 +2016,7 @@ const styles = StyleSheet.create({
   commentAuthor: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
   },
   roleBadge: {
     paddingHorizontal: 8,
@@ -2025,7 +2029,7 @@ const styles = StyleSheet.create({
   },
   commentDate: {
     fontSize: 11,
-    color: '#6F6F73',
+    color: T.textSecondary,
     marginTop: 2,
     fontWeight: '500',
   },
@@ -2042,7 +2046,7 @@ const styles = StyleSheet.create({
   },
   commentText: {
     fontSize: 14,
-    color: '#141414',
+    color: T.textPrimary,
     lineHeight: 20,
     fontWeight: '500',
     paddingLeft: 46,
@@ -2053,12 +2057,12 @@ const styles = StyleSheet.create({
   editInput: {
     padding: 12,
     borderRadius: 12,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
     fontSize: 14,
     minHeight: 80,
-    color: '#141414',
+    color: T.textPrimary,
     textAlignVertical: 'top',
   },
   editButtons: {
@@ -2070,23 +2074,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: T.inputBg,
   },
   editBtnCancelText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
   },
   editBtnSave: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
   },
   editBtnSaveText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
 
   // ===== INPUT BAR =====
@@ -2095,21 +2099,21 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
     padding: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
+    borderTopColor: T.border,
   },
   commentInput: {
     flex: 1,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#141414',
+    color: T.textPrimary,
     maxHeight: 100,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
     fontWeight: '500',
   },
   sendBtn: {
@@ -2123,11 +2127,11 @@ const styles = StyleSheet.create({
   // ===== REJECT MODAL =====
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
@@ -2137,7 +2141,7 @@ const styles = StyleSheet.create({
   modalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 4,
@@ -2151,24 +2155,24 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 26,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 0.5,
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#6F6F73',
+    color: T.textSecondary,
     lineHeight: 18,
     fontWeight: '500',
   },
   rejectInput: {
     padding: 14,
     borderRadius: 14,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
     fontSize: 14,
     minHeight: 100,
-    color: '#141414',
+    color: T.textPrimary,
     fontWeight: '500',
   },
   modalButtons: {
@@ -2179,13 +2183,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 16,
     borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: T.inputBg,
     alignItems: 'center',
   },
   modalBtnCancelText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
   },
   modalBtnReject: {
     flex: 1,
@@ -2196,18 +2200,18 @@ const styles = StyleSheet.create({
   modalBtnRejectText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
-  },
-});
+    color: T.onAccent,
+  }
+}));
 
-const assigneeStyles = StyleSheet.create({
+const assigneeStyles = themed(() => ({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 20,
@@ -2216,7 +2220,7 @@ const assigneeStyles = StyleSheet.create({
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 12,
@@ -2225,7 +2229,7 @@ const assigneeStyles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 22,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
     marginBottom: 12,
   },
@@ -2235,7 +2239,7 @@ const assigneeStyles = StyleSheet.create({
     gap: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F4F4F5',
+    borderBottomColor: T.border,
   },
   avatar: {
     width: 44,
@@ -2244,7 +2248,7 @@ const assigneeStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  name: { fontSize: 15, fontWeight: '700', color: '#141414' },
-  username: { fontSize: 12, color: '#6F6F73', marginTop: 1 },
-});
+  avatarText: { color: T.onAccent, fontWeight: '700', fontSize: 14 },
+  name: { fontSize: 15, fontWeight: '700', color: T.textPrimary },
+  username: { fontSize: 12, color: T.textSecondary, marginTop: 1 }
+}));

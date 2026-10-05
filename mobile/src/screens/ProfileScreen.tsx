@@ -4,14 +4,13 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
   Platform,
   TextInput,
   ActivityIndicator,
   Alert,
   Image,
   Modal,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -29,12 +28,15 @@ import {
   KeyRound,
   MonitorSmartphone,
   Building2,
+  Palette,
 } from 'lucide-react-native';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
 import { getToken, SERVER_URL } from '../utils';
 import { pick } from '@react-native-documents/picker';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from '../components/ui/SafeBottom';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -73,7 +75,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         const data = await res.json();
         setProfile(data);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Не удалось загрузить профиль');
     }
     setLoading(false);
@@ -106,7 +108,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           setAvatarUri(SERVER_URL + data.url);
           return;
         }
-      } catch (e) {}
+      } catch {}
       setAvatarMode('fallback');
       setAvatarUri(null);
     } else if (avatarMode === 'token') {
@@ -185,7 +187,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         const data = await res.json();
         Alert.alert('Ошибка', data.error || 'Не удалось обновить');
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Ошибка', 'Сервер недоступен');
     } finally {
       setSaving(false);
@@ -228,7 +230,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+          <ActivityIndicator size="large" color={T.accent} />
         </View>
       </SafeAreaView>
     );
@@ -239,15 +241,15 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   const isAdmin = !!profile?.is_director;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
         <TouchableOpacity onPress={openEditModal} style={styles.headerEditBtn}>
-          <Pencil size={18} color="#1F7A52" strokeWidth={2} />
+          <Pencil size={18} color={T.accent} strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -275,9 +277,9 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
               style={styles.avatarEditBtn}
             >
               {uploading ? (
-                <ActivityIndicator size={12} color="#FFFFFF" />
+                <ActivityIndicator size={12} color={T.onAccent} />
               ) : (
-                <Camera size={16} color="#FFFFFF" strokeWidth={2.5} />
+                <Camera size={16} color={T.onAccent} strokeWidth={2.5} />
               )}
             </TouchableOpacity>
           </View>
@@ -286,13 +288,13 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           </Text>
           <Text style={styles.heroUsername}>@{profile?.username || '…'}</Text>
           <View style={styles.roleRow}>
-            <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
+            <View style={[styles.roleBadge, { backgroundColor: T.accentMuted }]}>
               {isAdmin ? (
-                <Crown size={10} color="#1F7A52" strokeWidth={2.5} />
+                <Crown size={10} color={T.accent} strokeWidth={2.5} />
               ) : (
-                <Shield size={10} color="#1F7A52" strokeWidth={2.5} />
+                <Shield size={10} color={T.accent} strokeWidth={2.5} />
               )}
-              <Text style={[styles.roleBadgeText, { color: '#1F7A52' }]}>
+              <Text style={[styles.roleBadgeText, { color: T.accent }]}>
                 {roleName === 'director'
                   ? 'Директор'
                   : roleName === 'admin'
@@ -307,18 +309,18 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
-              <AtSign size={18} color="#1F7A52" strokeWidth={2} />
+              <AtSign size={18} color={T.accent} strokeWidth={2} />
             </View>
             <Text style={styles.cardTitle}>Контактная информация</Text>
             <TouchableOpacity onPress={openEditModal} style={styles.cardEditBtn}>
-              <Pencil size={14} color="#6F6F73" strokeWidth={2} />
+              <Pencil size={14} color={T.textSecondary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
 
           {/* Username (только чтение) */}
           <View style={styles.infoRow}>
             <View style={styles.infoIconWrap}>
-              <UserRound size={16} color="#6F6F73" strokeWidth={2} />
+              <UserRound size={16} color={T.textSecondary} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoLabel}>Логин</Text>
@@ -331,21 +333,21 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           {/* Имя */}
           <TouchableOpacity style={styles.infoRow} onPress={openEditModal} activeOpacity={0.7}>
             <View style={styles.infoIconWrap}>
-              <UserRound size={16} color="#1F7A52" strokeWidth={2} />
+              <UserRound size={16} color={T.accent} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoLabel}>Отображаемое имя</Text>
               <Text style={styles.infoValue}>{profile?.display_name || '—'}</Text>
             </View>
-            <ChevronLeft size={16} color="#BDBDBD" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>
 
           <View style={styles.infoDivider} />
 
           {/* Email */}
           <TouchableOpacity style={styles.infoRow} onPress={openEditModal} activeOpacity={0.7}>
-            <View style={[styles.infoIconWrap, { backgroundColor: '#DBEAFE' }]}>
-              <Mail size={16} color="#3B82F6" strokeWidth={2} />
+            <View style={[styles.infoIconWrap, { backgroundColor: T.infoSoft }]}>
+              <Mail size={16} color={T.info} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoLabel}>Email</Text>
@@ -353,7 +355,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
                 {profile?.email || 'Не указан'}
               </Text>
             </View>
-            <ChevronLeft size={16} color="#BDBDBD" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>
         </View>
 
@@ -361,8 +363,8 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         {!!profile?.company_name && (
           <View style={styles.card}>
             <View style={styles.infoRow}>
-              <View style={[styles.infoIconWrap, { backgroundColor: '#E3F1EA' }]}>
-                <Building2 size={16} color="#1F7A52" strokeWidth={2} />
+              <View style={[styles.infoIconWrap, { backgroundColor: T.accentMuted }]}>
+                <Building2 size={16} color={T.accent} strokeWidth={2} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.infoLabel}>Компания</Text>
@@ -372,22 +374,36 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           </View>
         )}
 
+        {/* ===== ОФОРМЛЕНИЕ ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: T.accentMuted }]}>
+              <Palette size={16} color={T.accent} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Оформление</Text>
+              <Text style={styles.infoLabel}>Тёмная тема, цвет, фон чатов, размер текста</Text>
+            </View>
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        </View>
+
         {/* ===== БЕЗОПАСНОСТЬ ===== */}
         <View style={styles.card}>
           <TouchableOpacity style={styles.infoRow} onPress={() => setPasswordOpen(true)} activeOpacity={0.7}>
-            <View style={[styles.infoIconWrap, { backgroundColor: '#FEF3C7' }]}>
-              <KeyRound size={16} color="#D97706" strokeWidth={2} />
+            <View style={[styles.infoIconWrap, { backgroundColor: T.warningSoft }]}>
+              <KeyRound size={16} color={T.warning} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoValue}>Сменить пароль</Text>
               <Text style={styles.infoLabel}>Другие устройства выйдут из аккаунта</Text>
             </View>
-            <ChevronLeft size={16} color="#BDBDBD" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>
           <View style={styles.infoDivider} />
           <TouchableOpacity style={styles.infoRow} onPress={handleLogoutAll} activeOpacity={0.7}>
-            <View style={[styles.infoIconWrap, { backgroundColor: '#FEE2E2' }]}>
-              <MonitorSmartphone size={16} color="#DC2626" strokeWidth={2} />
+            <View style={[styles.infoIconWrap, { backgroundColor: T.dangerSoft }]}>
+              <MonitorSmartphone size={16} color={T.danger} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoValue}>Выйти на всех устройствах</Text>
@@ -399,8 +415,8 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         {/* ===== АККАУНТ ===== */}
         <View style={styles.card}>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutRow} activeOpacity={0.7}>
-            <View style={[styles.cardIconWrap, { backgroundColor: '#FEE2E2' }]}>
-              <LogOut size={18} color="#DC2626" strokeWidth={2} />
+            <View style={[styles.cardIconWrap, { backgroundColor: T.dangerSoft }]}>
+              <LogOut size={18} color={T.danger} strokeWidth={2} />
             </View>
             <Text style={styles.logoutText}>Выйти из аккаунта</Text>
           </TouchableOpacity>
@@ -419,7 +435,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           style={styles.modalOverlay}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior="padding"
             style={{ justifyContent: 'flex-end', flex: 1 }}
           >
             <TouchableOpacity activeOpacity={1} style={styles.modalContent}>
@@ -427,7 +443,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>РЕДАКТИРОВАТЬ ПРОФИЛЬ</Text>
                 <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                  <X size={22} color="#141414" strokeWidth={2} />
+                  <X size={22} color={T.textPrimary} strokeWidth={2} />
                 </TouchableOpacity>
               </View>
 
@@ -438,7 +454,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
                   value={editName}
                   onChangeText={setEditName}
                   placeholder="Ваше имя"
-                  placeholderTextColor="#BDBDBD"
+                  placeholderTextColor={T.textMuted}
                   autoFocus
                 />
 
@@ -448,14 +464,14 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
                   value={editEmail}
                   onChangeText={setEditEmail}
                   placeholder="example@company.com"
-                  placeholderTextColor="#BDBDBD"
+                  placeholderTextColor={T.textMuted}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
 
                 <View style={styles.modalHint}>
-                  <Mail size={14} color="#6F6F73" strokeWidth={2} />
+                  <Mail size={14} color={T.textSecondary} strokeWidth={2} />
                   <Text style={styles.modalHintText}>
                     Email используется для уведомлений и восстановления доступа
                   </Text>
@@ -472,14 +488,15 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
                 activeOpacity={0.85}
               >
                 {saving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={T.onAccent} />
                 ) : (
                   <>
-                    <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
+                    <Check size={18} color={T.onAccent} strokeWidth={2.5} />
                     <Text style={styles.modalSaveBtnText}>Сохранить</Text>
                   </>
                 )}
               </TouchableOpacity>
+              <SafeBottom />
             </TouchableOpacity>
           </KeyboardAvoidingView>
         </TouchableOpacity>
@@ -488,8 +505,8 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
 
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
@@ -501,7 +518,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
+    borderBottomColor: T.border,
   },
   headerBackBtn: {
     width: 40,
@@ -514,7 +531,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 24,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
   },
   headerEditBtn: {
@@ -523,7 +540,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
   },
 
   // ===== SCROLL =====
@@ -531,12 +548,12 @@ const styles = StyleSheet.create({
 
   // ===== HERO =====
   heroCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 28,
     alignItems: 'center',
     gap: 8,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -553,7 +570,7 @@ const styles = StyleSheet.create({
   avatarInitials: {
     fontSize: 30,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: T.onAccent,
   },
   avatarEditBtn: {
     position: 'absolute',
@@ -562,20 +579,20 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
   },
   heroName: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
   },
   heroUsername: {
     fontSize: 14,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
   roleRow: {
@@ -598,10 +615,10 @@ const styles = StyleSheet.create({
 
   // ===== CARD =====
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -618,14 +635,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     flex: 1,
   },
   cardEditBtn: {
@@ -643,14 +660,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: T.inputBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   infoLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 2,
@@ -658,15 +675,15 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#141414',
+    color: T.textPrimary,
   },
   infoValueMuted: {
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontStyle: 'italic',
   },
   infoDivider: {
     height: 1,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     marginLeft: 48,
   },
 
@@ -680,17 +697,17 @@ const styles = StyleSheet.create({
   logoutText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#DC2626',
+    color: T.danger,
   },
 
   // ===== MODAL =====
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: T.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
@@ -700,7 +717,7 @@ const styles = StyleSheet.create({
   modalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 4,
@@ -714,7 +731,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 24,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
   },
   modalBody: {
@@ -723,18 +740,18 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6F6F73',
+    color: T.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginTop: 4,
   },
   modalInput: {
     fontSize: 16,
-    color: '#141414',
+    color: T.textPrimary,
     fontWeight: '500',
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
     borderWidth: 1,
-    borderColor: '#ECECE8',
+    borderColor: T.border,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -747,7 +764,7 @@ const styles = StyleSheet.create({
   },
   modalHintText: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     flex: 1,
     fontWeight: '500',
   },
@@ -758,21 +775,21 @@ const styles = StyleSheet.create({
     gap: 8,
     height: 52,
     borderRadius: 18,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     marginTop: 8,
-    shadowColor: '#1F7A52',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 4,
   },
   modalSaveBtnDisabled: {
-    backgroundColor: '#ECECE8',
+    backgroundColor: T.surfaceActive,
     shadowOpacity: 0,
   },
   modalSaveBtnText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
-  },
-});
+    color: T.onAccent,
+  }
+}));

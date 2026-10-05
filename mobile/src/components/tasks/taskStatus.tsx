@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { Sparkles, PlayCircle, Eye, CheckCircle2, XCircle, Archive, AlertCircle, Check } from 'lucide-react-native';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Единый словарь статусов задачи для всех экранов: подпись, цвет,
  * иконка и этап (для шкалы «Новая → В работе → На проверке → Принята»).
@@ -18,13 +19,13 @@ export interface StatusMeta {
 }
 
 export const TASK_STATUS: Record<string, StatusMeta> = {
-  new: { label: 'Новая', color: '#64748B', soft: '#F1F5F9', icon: Sparkles, step: 0 },
-  in_progress: { label: 'В работе', color: '#2563EB', soft: '#DBEAFE', icon: PlayCircle, step: 1 },
-  on_review: { label: 'На проверке', color: '#D97706', soft: '#FEF3C7', icon: Eye, step: 2 },
-  rejected: { label: 'На доработке', color: '#DC2626', soft: '#FEE2E2', icon: XCircle, step: 1 },
-  done: { label: 'Принята', color: '#16A34A', soft: '#DCFCE7', icon: CheckCircle2, step: 3 },
-  overdue: { label: 'Просрочена', color: '#B91C1C', soft: '#FEE2E2', icon: AlertCircle, step: 1 },
-  archived: { label: 'В архиве', color: '#6B7280', soft: '#F3F4F6', icon: Archive, step: 3 },
+  new: { label: 'Новая', color: T.textSecondary, soft: T.inputBg, icon: Sparkles, step: 0 },
+  in_progress: { label: 'В работе', color: T.info, soft: T.infoSoft, icon: PlayCircle, step: 1 },
+  on_review: { label: 'На проверке', color: T.warning, soft: T.warningSoft, icon: Eye, step: 2 },
+  rejected: { label: 'На доработке', color: T.danger, soft: T.dangerSoft, icon: XCircle, step: 1 },
+  done: { label: 'Принята', color: T.success, soft: T.successSoft, icon: CheckCircle2, step: 3 },
+  overdue: { label: 'Просрочена', color: T.danger, soft: T.dangerSoft, icon: AlertCircle, step: 1 },
+  archived: { label: 'В архиве', color: T.textSecondary, soft: T.inputBg, icon: Archive, step: 3 }
 };
 
 export const statusMeta = (s?: string | null) => TASK_STATUS[s || 'new'] || TASK_STATUS.new;
@@ -35,9 +36,9 @@ const STEPS = ['Новая', 'В работе', 'Проверка', 'Приня�
 export function StatusPill({ status, overdue }: { status: string; overdue?: boolean }) {
   const m = statusMeta(status);
   const late = overdue && status !== 'done' && status !== 'archived';
-  const color = late ? '#B91C1C' : m.color;
+  const color = late ? T.danger : m.color;
   return (
-    <View style={[styles.pill, { backgroundColor: late ? '#FEE2E2' : m.soft }]}>
+    <View style={[styles.pill, { backgroundColor: late ? T.dangerSoft : m.soft }]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
       <Text style={[styles.pillText, { color }]} numberOfLines={1}>
         {late && status !== 'overdue' ? `${m.label} · срок вышел` : m.label}
@@ -53,7 +54,7 @@ export function StatusSegments({ status }: { status: string }) {
   return (
     <View style={styles.segments}>
       {[0, 1, 2, 3].map((i) => (
-        <View key={i} style={[styles.segment, { backgroundColor: i < filled ? m.color : '#E5E7EB' }]} />
+        <View key={i} style={[styles.segment, { backgroundColor: i < filled ? m.color : T.textMuted }]} />
       ))}
     </View>
   );
@@ -74,15 +75,15 @@ export function StatusTrack({ status }: { status: string }) {
       {STEPS.map((label, i) => {
         const done = archived || i < current || (status === 'done' && i === 3);
         const active = !archived && i === current && status !== 'done';
-        const color = active ? m.color : done ? '#16A34A' : '#CBD5E1';
+        const color = active ? m.color : done ? T.success : T.textMuted;
         return (
           <React.Fragment key={label}>
-            {i > 0 && <View style={[styles.line, { backgroundColor: i <= current || archived ? '#16A34A' : '#E2E8F0' }]} />}
+            {i > 0 && <View style={[styles.line, { backgroundColor: i <= current || archived ? T.success : T.surfaceActive }]} />}
             <View style={styles.stepWrap}>
-              <View style={[styles.node, { borderColor: color, backgroundColor: done ? '#16A34A' : active ? m.soft : '#FFFFFF' }]}>
-                {done ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : active ? <Icon size={14} color={m.color} strokeWidth={2.4} /> : null}
+              <View style={[styles.node, { borderColor: color, backgroundColor: done ? T.success : active ? m.soft : T.card }]}>
+                {done ? <Check size={13} color={T.onAccent} strokeWidth={3} /> : active ? <Icon size={14} color={m.color} strokeWidth={2.4} /> : null}
               </View>
-              <Text style={[styles.stepLabel, { color: active ? m.color : done ? '#334155' : '#94A3B8' }, active && styles.stepLabelActive]} numberOfLines={1}>
+              <Text style={[styles.stepLabel, { color: active ? m.color : done ? T.textPrimary : T.textMuted }, active && styles.stepLabelActive]} numberOfLines={1}>
                 {active && (status === 'rejected' || status === 'overdue') ? m.label : label}
               </Text>
             </View>
@@ -117,7 +118,7 @@ export function nextStepHint(status: string, roles: { creator: boolean; assignee
   }
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, height: 26, borderRadius: 13, maxWidth: 190 },
   dot: { width: 7, height: 7, borderRadius: 4 },
   pillText: { fontSize: 12, fontWeight: '700' },
@@ -128,5 +129,5 @@ const styles = StyleSheet.create({
   node: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   line: { flex: 1, height: 2, marginTop: 12, borderRadius: 1 },
   stepLabel: { fontSize: 11, marginTop: 5, fontWeight: '600' },
-  stepLabelActive: { fontWeight: '800' },
-});
+  stepLabelActive: { fontWeight: '800' }
+}));

@@ -1,17 +1,20 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
-  RefreshControl, StatusBar, Animated, Platform,
+  View, Text, ScrollView, TouchableOpacity, TextInput,
+  RefreshControl, StatusBar, Animated, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
   CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound,
+  Target, FileSpreadsheet, UserCheck
 } from 'lucide-react-native';
+import ActionSheet, { SheetAction } from '../../components/chat/ActionSheet';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
 
+import { T, themed } from '../../theme/runtime';
 type Period = 'week' | 'month' | 'quarter';
 const PERIODS: { id: Period; label: string }[] = [
   { id: 'week', label: 'Неделя' },
@@ -32,6 +35,8 @@ const FadeIn: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const o = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(o, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+  // Зависимости указаны осознанно (ref/функции, завязанные на те же значения).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <Animated.View style={{ opacity: o }}>{children}</Animated.View>;
 };
@@ -46,6 +51,7 @@ export default function KpiScreen({ navigation }: any) {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [addMenu, setAddMenu] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -53,8 +59,8 @@ export default function KpiScreen({ navigation }: any) {
         api.getCurrentUser().catch(() => null),
         api.getMyKpi().catch(() => null),
         api.getSalesSummary(period).catch(() => null),
-        api.getSubordinates().catch(() => []),
-        api.getSalesTransactions({ period: period as any }).catch(() => []),
+        api.getSubordinates(period).catch(() => []),
+        api.getSalesTransactions({ period }).catch(() => []),
         api.getTasks({ filter: 'mine' }).catch(() => null),
       ]);
       setCurrentUser(userData);
@@ -83,9 +89,9 @@ export default function KpiScreen({ navigation }: any) {
   }));
 
   const kpis = fact ? [
-    { label: 'Выручка', value: fmt(fact.total_amount), icon: Wallet, color: '#1F7A52', bg: '#D1FAE5' },
-    { label: 'Сделки', value: String(fact.total_transactions), icon: TrendingUp, color: '#3B82F6', bg: '#DBEAFE' },
-    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—', icon: CreditCard, color: '#F59E0B', bg: '#FEF3C7' },
+    { label: 'Выручка', value: fmt(fact.total_amount), icon: Wallet, color: T.accent, bg: T.successSoft },
+    { label: 'Сделки', value: String(fact.total_transactions), icon: TrendingUp, color: T.info, bg: T.infoSoft },
+    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—', icon: CreditCard, color: T.warning, bg: T.warningSoft },
   ] : [];
 
   const taskStats = useMemo(() => {
@@ -101,17 +107,26 @@ export default function KpiScreen({ navigation }: any) {
     return { done, inWork, overdue };
   }, [tasks]);
 
+  // Меню «+»: своя цель, план подчинённому (если есть команда), импорт отчёта.
+  const addActions: SheetAction[] = [
+    { key: 'own', label: 'Добавить свой KPI', icon: <Target size={20} color={T.accent} />, onPress: () => navigation.navigate('AddProductKpi') },
+    ...(subordinates.length > 0 || currentUser?.has_subordinates || currentUser?.is_director
+      ? [{ key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') }]
+      : []),
+    { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('ImportExcel') },
+  ];
+
   const filteredSubs = subordinates.filter((s: any) =>
     (s.display_name || s.username || '').toLowerCase().includes(searchQuery.toLowerCase().trim())
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor="#1F7A52" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={T.accent} />}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -126,7 +141,7 @@ export default function KpiScreen({ navigation }: any) {
             onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}
             activeOpacity={0.7}
           >
-            <UserRound size={20} color="#1F7A52" strokeWidth={2} />
+            <UserRound size={20} color={T.accent} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
@@ -148,8 +163,8 @@ export default function KpiScreen({ navigation }: any) {
           <FadeIn>
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.cardIcon, { backgroundColor: '#D1FAE5' }]}>
-                  <Trophy size={22} color="#1F7A52" />
+                <View style={[styles.cardIcon, { backgroundColor: T.successSoft }]}>
+                  <Trophy size={22} color={T.accent} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>Общий план на месяц</Text>
@@ -171,8 +186,8 @@ export default function KpiScreen({ navigation }: any) {
             {targets.map((t: any) => (
               <View key={String(t.id)} style={[styles.card, { marginBottom: 12 }]}>
                 <View style={styles.cardHeader}>
-                  <View style={[styles.cardIcon, { backgroundColor: '#E0E7FF' }]}>
-                    <Medal size={22} color="#3B82F6" />
+                  <View style={[styles.cardIcon, { backgroundColor: T.violetSoft }]}>
+                    <Medal size={22} color={T.info} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardTitle}>{t.product_name}</Text>
@@ -183,7 +198,7 @@ export default function KpiScreen({ navigation }: any) {
                   <Text style={styles.percentBadge}>{Number(t.progress_percent) || 0}%</Text>
                 </View>
                 <View style={styles.progressBarBg}>
-                  <View style={[styles.progressBarFill, { width: `${Math.min(100, Number(t.progress_percent) || 0)}%`, backgroundColor: '#3B82F6' }]} />
+                  <View style={[styles.progressBarFill, { width: `${Math.min(100, Number(t.progress_percent) || 0)}%`, backgroundColor: T.info }]} />
                 </View>
                 <Text style={styles.progressText}>{t.current_value} / {t.target_value}</Text>
               </View>
@@ -228,17 +243,17 @@ export default function KpiScreen({ navigation }: any) {
               <Text style={styles.cardTitle}>Статистика задач</Text>
               <View style={styles.tasksRow}>
                 <View style={styles.taskCell}>
-                  <CheckCircle2 size={20} color="#10B981" />
+                  <CheckCircle2 size={20} color={T.success} />
                   <Text style={styles.taskValue}>{taskStats.done}</Text>
                   <Text style={styles.taskLabel}>Выполнено</Text>
                 </View>
                 <View style={styles.taskCell}>
-                  <Clock size={20} color="#3B82F6" />
+                  <Clock size={20} color={T.info} />
                   <Text style={styles.taskValue}>{taskStats.inWork}</Text>
                   <Text style={styles.taskLabel}>В работе</Text>
                 </View>
                 <View style={styles.taskCell}>
-                  <AlertCircle size={20} color="#EF4444" />
+                  <AlertCircle size={20} color={T.danger} />
                   <Text style={styles.taskValue}>{taskStats.overdue}</Text>
                   <Text style={styles.taskLabel}>Просрочено</Text>
                 </View>
@@ -255,7 +270,7 @@ export default function KpiScreen({ navigation }: any) {
               {transactions.map((tx: any, idx: number) => (
                 <View key={String(tx.id || idx)} style={[styles.txRow, idx < transactions.length - 1 && styles.txRowBorder]}>
                   <View style={styles.txIconWrap}>
-                    <ShoppingCart size={16} color="#1F7A52" />
+                    <ShoppingCart size={16} color={T.accent} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.txProduct}>{tx.product_name || 'Товар'}</Text>
@@ -276,21 +291,21 @@ export default function KpiScreen({ navigation }: any) {
           <FadeIn>
             <View style={styles.card}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Users size={20} color="#1F7A52" />
+                <Users size={20} color={T.accent} />
                 <Text style={[styles.cardTitle, { marginLeft: 10 }]}>Команда ({filteredSubs.length})</Text>
               </View>
               <View style={styles.searchBar}>
-                <Search size={18} color="#6F6F73" strokeWidth={2} />
+                <Search size={18} color={T.textSecondary} strokeWidth={2} />
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Поиск по имени..."
-                  placeholderTextColor="#BDBDBD"
+                  placeholderTextColor={T.textMuted}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
                 {searchQuery.length > 0 && (
                   <TouchableOpacity onPress={() => setSearchQuery('')}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1F7A52' }}>Сброс</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: T.accent }}>Сброс</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -324,16 +339,23 @@ export default function KpiScreen({ navigation }: any) {
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.85}
-        onPress={() => navigation.navigate('ImportExcel')}
+        onPress={() => setAddMenu(true)}
+        accessibilityLabel="Добавить KPI"
       >
-        <Plus size={26} color="#fff" strokeWidth={2.5} />
+        <Plus size={26} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
+      <ActionSheet
+        visible={addMenu}
+        title="KPI"
+        actions={addActions}
+        onClose={() => setAddMenu(false)}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   scrollContent: { paddingHorizontal: 24, paddingTop: 8 },
 
   // ===== HEADER (премиум) =====
@@ -346,20 +368,20 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
+    fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   subtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: '#6F6F73', marginTop: 4,
+    fontSize: 18, fontStyle: 'italic', color: T.textSecondary, marginTop: 4,
   },
   profileBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -368,102 +390,102 @@ const styles = StyleSheet.create({
 
   // ===== PERIOD SWITCH =====
   periodSwitch: {
-    flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 18, padding: 4, marginBottom: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    flexDirection: 'row', backgroundColor: T.card, borderRadius: 18, padding: 4, marginBottom: 20,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
   periodBtn: { flex: 1, height: 40, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  periodBtnActive: { backgroundColor: '#1F7A52' },
+  periodBtnActive: { backgroundColor: T.accent },
   periodText: {
-    fontSize: 14, fontWeight: '600', color: '#6F6F73',
+    fontSize: 14, fontWeight: '600', color: T.textSecondary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  periodTextActive: { color: '#FFFFFF' },
+  periodTextActive: { color: T.onAccent },
 
   sectionTitle: {
-    fontSize: 20, fontWeight: '800', color: '#141414', marginBottom: 12, marginTop: 4,
+    fontSize: 20, fontWeight: '800', color: T.textPrimary, marginBottom: 12, marginTop: 4,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
   // ===== CARD =====
   card: {
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 20, marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    backgroundColor: T.card, borderRadius: 22, padding: 20, marginBottom: 16,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   cardIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   cardTitle: {
-    fontSize: 17, fontWeight: '700', color: '#141414',
+    fontSize: 17, fontWeight: '700', color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  cardSubtitle: { fontSize: 12, color: '#6F6F73', fontWeight: '500', marginTop: 2 },
+  cardSubtitle: { fontSize: 12, color: T.textSecondary, fontWeight: '500', marginTop: 2 },
   percentBadge: {
-    fontSize: 13, fontWeight: '800', color: '#1F7A52', backgroundColor: '#D1FAE5',
+    fontSize: 13, fontWeight: '800', color: T.accent, backgroundColor: T.successSoft,
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden',
   },
-  progressBarBg: { height: 8, backgroundColor: '#F3F4F6', borderRadius: 4, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: '#1F7A52', borderRadius: 4 },
-  progressText: { fontSize: 12, color: '#6F6F73', fontWeight: '600', marginTop: 8, textAlign: 'right' },
+  progressBarBg: { height: 8, backgroundColor: T.inputBg, borderRadius: 4, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: T.accent, borderRadius: 4 },
+  progressText: { fontSize: 12, color: T.textSecondary, fontWeight: '600', marginTop: 8, textAlign: 'right' },
 
   // ===== STATS GRID =====
   statsGrid: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   statCard: {
-    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 22, padding: 16, alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    flex: 1, backgroundColor: T.card, borderRadius: 22, padding: 16, alignItems: 'center',
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
   statIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   statValue: {
-    fontSize: 18, fontWeight: '800', color: '#141414', marginBottom: 2,
+    fontSize: 18, fontWeight: '800', color: T.textPrimary, marginBottom: 2,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  statLabel: { fontSize: 11, color: '#6F6F73', fontWeight: '600' },
+  statLabel: { fontSize: 11, color: T.textSecondary, fontWeight: '600' },
 
   // ===== TASKS =====
   tasksRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
-  taskCell: { flex: 1, alignItems: 'center', backgroundColor: '#F9FAFB', borderRadius: 16, paddingVertical: 14 },
+  taskCell: { flex: 1, alignItems: 'center', backgroundColor: T.inputBg, borderRadius: 16, paddingVertical: 14 },
   taskValue: {
-    fontSize: 22, fontWeight: '800', color: '#141414', marginTop: 6,
+    fontSize: 22, fontWeight: '800', color: T.textPrimary, marginTop: 6,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  taskLabel: { fontSize: 11, color: '#6F6F73', fontWeight: '600', marginTop: 2 },
+  taskLabel: { fontSize: 11, color: T.textSecondary, fontWeight: '600', marginTop: 2 },
 
   // ===== TRANSACTIONS =====
   txRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 14 },
-  txRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  txIconWrap: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D1FAE5', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  txRowBorder: { borderBottomWidth: 1, borderBottomColor: T.border },
+  txIconWrap: { width: 38, height: 38, borderRadius: 12, backgroundColor: T.successSoft, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   txProduct: {
-    fontSize: 14, fontWeight: '700', color: '#141414', marginBottom: 2,
+    fontSize: 14, fontWeight: '700', color: T.textPrimary, marginBottom: 2,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  txMeta: { fontSize: 11, color: '#6F6F73', fontWeight: '500' },
+  txMeta: { fontSize: 11, color: T.textSecondary, fontWeight: '500' },
   txAmount: {
-    fontSize: 14, fontWeight: '700', color: '#1F7A52',
+    fontSize: 14, fontWeight: '700', color: T.accent,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  txQty: { fontSize: 10, color: '#6F6F73', fontWeight: '500', marginTop: 2 },
+  txQty: { fontSize: 10, color: T.textSecondary, fontWeight: '500', marginTop: 2 },
 
   // ===== SUBORDINATES =====
-  subRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  subAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1F7A52', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  subAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  subRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.border },
+  subAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.accent, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  subAvatarText: { fontSize: 15, fontWeight: '700', color: T.onAccent },
   subName: {
-    fontSize: 14, fontWeight: '700', color: '#141414', marginBottom: 2,
+    fontSize: 14, fontWeight: '700', color: T.textPrimary, marginBottom: 2,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  subRole: { fontSize: 11, color: '#6F6F73', fontWeight: '500' },
+  subRole: { fontSize: 11, color: T.textSecondary, fontWeight: '500' },
   subKpi: {
-    fontSize: 13, fontWeight: '700', color: '#1F7A52', backgroundColor: '#D1FAE5',
+    fontSize: 13, fontWeight: '700', color: T.accent, backgroundColor: T.successSoft,
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, overflow: 'hidden',
   },
   searchBar: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: T.inputBg,
     borderRadius: 14, paddingHorizontal: 12, height: 44, marginBottom: 8,
-    borderWidth: 1, borderColor: '#F3F4F6',
+    borderWidth: 1, borderColor: T.border,
   },
   searchInput: {
-    flex: 1, marginLeft: 8, fontSize: 14, color: '#141414', fontWeight: '500',
+    flex: 1, marginLeft: 8, fontSize: 14, color: T.textPrimary, fontWeight: '500',
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  searchEmpty: { fontSize: 13, color: '#6F6F73', textAlign: 'center', paddingVertical: 12 },
+  searchEmpty: { fontSize: 13, color: T.textSecondary, textAlign: 'center', paddingVertical: 12 },
 
   // ===== FAB =====
   fab: {
@@ -473,13 +495,13 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#1F7A52',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
-  },
-});
+  }
+}));

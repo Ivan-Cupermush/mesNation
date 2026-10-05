@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
-  Platform, Alert, ActivityIndicator, StatusBar,
+  View, Text, ScrollView, KeyboardAvoidingView,
+  Alert, StatusBar
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { SERVER_URL } from '../utils';
-import { setToken } from '../services/http';
+import { request, setToken } from '../services/http';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronLeft } from 'lucide-react-native';
+import { TouchableOpacity } from 'react-native';
 
-export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess: (token: string, user: any) => void }) {
+import { themed } from '../theme/runtime';
+export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetupSuccess: (token: string, user: any) => void; onBack?: () => void }) {
   const { colors, isDark } = useTheme();
   const [companyName, setCompanyName] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -44,20 +47,17 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
 
     setLoading(true);
     try {
-      const res = await fetch(`${SERVER_URL}/api/auth/setup-company`, {
+      const data = await request<{ token: string; user: any; company_name: string }>('/api/auth/setup-company', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        anonymous: true,
+        body: {
           company_name: companyName.trim(),
           username: username.trim(),
           email: email.trim(),
           password,
           display_name: displayName.trim() || username.trim(),
-        }),
+        },
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка создания компании');
 
       // Сохраняем токен локально
       await setToken(data.token);
@@ -75,14 +75,20 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {onBack && (
+        <TouchableOpacity onPress={onBack} style={styles.back} accessibilityLabel="Назад">
+          <ChevronLeft size={26} color={colors.textPrimary} />
+        </TouchableOpacity>
+      )}
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={colors.background}
+        backgroundColor="transparent"
+        translucent
       />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -181,17 +187,18 @@ export default function CompanySetupScreen({ onSetupSuccess }: { onSetupSuccess:
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
+  back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
   scrollContent: { padding: 20, paddingBottom: 40 },
-  hero: { alignItems: 'center', marginTop: 40, marginBottom: 32 },
+  hero: { alignItems: 'center', marginTop: 8, marginBottom: 32 },
   title: { fontSize: 28, fontWeight: '700', marginTop: 16 },
   subtitle: { fontSize: 15, textAlign: 'center', marginTop: 8, lineHeight: 22 },
   form: { marginTop: 8 },
   sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 8 },
-  footerText: { fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 },
-});
+  footerText: { fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 }
+}));

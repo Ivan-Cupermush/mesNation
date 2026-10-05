@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
-  Platform, Alert, ActivityIndicator, StatusBar, TouchableOpacity,
+  View, Text, ScrollView, KeyboardAvoidingView,
+  Alert, ActivityIndicator, StatusBar
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { SERVER_URL } from '../utils';
-import { setToken } from '../services/http';
+import { request, setToken } from '../services/http';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import CompanySetupScreen from './CompanySetupScreen';
 
-type Screen = 'loading' | 'welcome' | 'login' | 'setup';
+import { themed } from '../theme/runtime';
+type Screen = 'loading' | 'offline' | 'welcome' | 'login' | 'setup';
 
 export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token: string, user: any) => void }) {
   const { colors, isDark } = useTheme();
@@ -25,24 +26,20 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
   }, []);
 
   const checkCompany = async () => {
+    setScreen('loading');
     try {
-      const res = await fetch(`${SERVER_URL}/api/auth/has-company`);
-      const data = await res.json();
-
+      const data = await request<{ hasCompany: boolean }>('/api/auth/has-company', { anonymous: true, timeoutMs: 12000 });
       if (!data.hasCompany) {
         setScreen('welcome');
-      } else {
-        // Попробуем получить название компании
-        try {
-          const companyRes = await fetch(`${SERVER_URL}/api/company`);
-          const companyData = await companyRes.json();
-          setCompanyName(companyData.company_name);
-        } catch (e) {}
-        setScreen('login');
+        return;
       }
-    } catch (e: any) {
-      Alert.alert('Ошибка подключения', 'Не удалось связаться с сервером. Проверьте подключение.');
+      request<{ company_name: string | null }>('/api/company', { anonymous: true })
+        .then((c) => setCompanyName(c.company_name))
+        .catch(() => undefined);
       setScreen('login');
+    } catch {
+      // Нет связи: не показываем пустую форму, а даём повторить.
+      setScreen('offline');
     }
   };
 
@@ -54,24 +51,15 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
 
     setLoading(true);
     try {
-      const res = await fetch(`${SERVER_URL}/api/auth/login`, {
+      const data = await request<{ token: string; user: any }>('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: username.trim(),
-          password,
-        }),
+        anonymous: true,
+        body: { username: username.trim(), password },
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Ошибка входа');
-
-      // Сохраняем токен
       await setToken(data.token);
-
       onLoginSuccess(data.token, data.user);
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось войти');
+      Alert.alert('Не удалось войти', e?.message || 'Попробуйте ещё раз');
     } finally {
       setLoading(false);
     }
@@ -87,18 +75,34 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
     );
   }
 
+  // ===== Нет связи с сервером =====
+  if (screen === 'offline') {
+    return (
+      <SafeAreaView style={[styles.centered, { backgroundColor: colors.background, padding: 32 }]}>
+        <Text style={{ fontSize: 64 }}>📡</Text>
+        <Text style={[styles.loginTitle, { color: colors.textPrimary, textAlign: 'center' }]}>Нет связи с сервером</Text>
+        <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>Проверьте интернет или подключение к рабочей сети.</Text>
+        <View style={{ width: '100%', marginTop: 28, gap: 12 }}>
+          <Button title="Повторить" onPress={checkCompany} fullWidth size="lg" />
+          <Button title="Всё равно войти" onPress={() => setScreen('login')} fullWidth size="lg" variant="secondary" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   // ===== Экран создания компании =====
   if (screen === 'setup') {
-    return <CompanySetupScreen onSetupSuccess={onLoginSuccess} />;
+    return <CompanySetupScreen onSetupSuccess={onLoginSuccess} onBack={() => setScreen('welcome')} />;
   }
 
   // ===== Приветственный экран (первый запуск) =====
   if (screen === 'welcome') {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar
           barStyle={isDark ? 'light-content' : 'dark-content'}
-          backgroundColor={colors.background}
+          backgroundColor="transparent"
+          translucent
         />
         <View style={styles.welcomeContent}>
           <Text style={{ fontSize: 100 }}>🚀</Text>
@@ -123,20 +127,21 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
             </Text>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // ===== Экран входа (компания уже создана) =====
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={colors.background}
+        backgroundColor="transparent"
+          translucent
       />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -187,11 +192,11 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { padding: 20, paddingBottom: 40, flexGrow: 1, justifyContent: 'center' },
@@ -203,5 +208,5 @@ const styles = StyleSheet.create({
   loginHero: { alignItems: 'center', marginBottom: 32 },
   loginTitle: { fontSize: 28, fontWeight: '700', marginTop: 16 },
   companyBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginTop: 12 },
-  form: { marginTop: 8 },
-});
+  form: { marginTop: 8 }
+}));

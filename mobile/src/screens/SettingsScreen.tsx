@@ -4,13 +4,12 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
   Platform,
   Alert,
   Image,
   Modal,
   TextInput,
-  ActivityIndicator,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -25,10 +24,13 @@ import {
   Settings as SettingsIcon,
   Building2,
   Pencil,
+  Palette,
+  Target,
 } from 'lucide-react-native';
 import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
 
+import { T, themed } from '../theme/runtime';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -88,8 +90,8 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       icon: FileSpreadsheet,
       title: 'Импорт из Excel',
       description: 'Загрузка KPI и отчётов продаж',
-      color: '#3B82F6',
-      bg: '#DBEAFE',
+      color: T.info,
+      bg: T.infoSoft,
       screen: 'ImportExcel',
     },
     {
@@ -97,8 +99,8 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       icon: TreePine,
       title: 'Дерево ролей',
       description: 'Иерархия и управление правами',
-      color: '#8B5CF6',
-      bg: '#EDE9FE',
+      color: T.violet,
+      bg: T.violetSoft,
       screen: 'RoleTreeEditor',
     },
     {
@@ -106,17 +108,26 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       icon: UserPlus,
       title: 'Новый сотрудник',
       description: 'Добавить пользователя в систему',
-      color: '#F59E0B',
-      bg: '#FEF3C7',
+      color: T.warning,
+      bg: T.warningSoft,
       screen: 'CreateUserRole',
+    },
+    {
+      id: 'assign-kpi',
+      icon: Target,
+      title: 'Назначить KPI',
+      description: 'План продаж для сотрудника',
+      color: T.accent,
+      bg: T.successSoft,
+      screen: 'AssignKpi',
     },
     {
       id: 'employees',
       icon: Users,
       title: 'Сотрудники',
       description: 'Все сотрудники компании',
-      color: '#0EA5E9',
-      bg: '#DBEAFE',
+      color: T.info,
+      bg: T.infoSoft,
       screen: 'Employees',
     },
   ];
@@ -153,7 +164,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                   styles.profileAvatar,
                   {
                     backgroundColor: currentUser.avatar_url
-                      ? '#ECECE8'
+                      ? T.surfaceActive
                       : hashColor(name),
                   },
                 ]}
@@ -172,13 +183,13 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                   {name}
                 </Text>
                 <View style={styles.roleRow}>
-                  <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
+                  <View style={[styles.roleBadge, { backgroundColor: T.accentMuted }]}>
                     {isDirector ? (
-                      <Crown size={10} color="#1F7A52" strokeWidth={2.5} />
+                      <Crown size={10} color={T.accent} strokeWidth={2.5} />
                     ) : (
-                      <Shield size={10} color="#1F7A52" strokeWidth={2.5} />
+                      <Shield size={10} color={T.accent} strokeWidth={2.5} />
                     )}
-                    <Text style={[styles.roleBadgeText, { color: '#1F7A52' }]}>
+                    <Text style={[styles.roleBadgeText, { color: T.accent }]}>
                       {roleName === 'director' ? 'Директор' : roleName === 'admin' ? 'Администратор' : roleName}
                     </Text>
                   </View>
@@ -189,7 +200,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                   </Text>
                 )}
               </View>
-              <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+              <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
             </View>
           </TouchableOpacity>
         )}
@@ -200,8 +211,8 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
             <Text style={styles.sectionTitle}>КОМПАНИЯ</Text>
             <View style={styles.card}>
               <View style={styles.actionRow}>
-                <View style={[styles.actionIconWrap, { backgroundColor: '#E3F1EA' }]}>
-                  <Building2 size={20} color="#1F7A52" strokeWidth={2} />
+                <View style={[styles.actionIconWrap, { backgroundColor: T.accentMuted }]}>
+                  <Building2 size={20} color={T.accent} strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.actionTitle}>{currentUser.company_name}</Text>
@@ -216,7 +227,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                     hitSlop={10}
                     accessibilityLabel="Переименовать компанию"
                   >
-                    <Pencil size={18} color="#6F6F73" strokeWidth={2} />
+                    <Pencil size={18} color={T.textSecondary} strokeWidth={2} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -245,13 +256,28 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                       <Text style={styles.actionTitle}>{a.title}</Text>
                       <Text style={styles.actionSub}>{a.description}</Text>
                     </View>
-                    <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+                    <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
                   </TouchableOpacity>
                 );
               })}
             </View>
           </>
         )}
+
+        {/* ===== ОФОРМЛЕНИЕ ===== */}
+        <Text style={styles.sectionTitle}>ОФОРМЛЕНИЕ</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
+            <View style={[styles.actionIconWrap, { backgroundColor: T.accentMuted }]}>
+              <Palette size={20} color={T.accent} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionTitle}>Тема и фон чатов</Text>
+              <Text style={styles.actionSub}>Светлая/тёмная тема, цвет, фон, размер текста</Text>
+            </View>
+            <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
 
         {/* ===== ОПАСНАЯ ЗОНА ===== */}
         <Text style={styles.sectionTitle}>АККАУНТ</Text>
@@ -261,8 +287,8 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
             onPress={handleLogout}
             activeOpacity={0.7}
           >
-            <View style={[styles.actionIconWrap, { backgroundColor: '#FEE2E2' }]}>
-              <LogOut size={20} color="#DC2626" strokeWidth={2} />
+            <View style={[styles.actionIconWrap, { backgroundColor: T.dangerSoft }]}>
+              <LogOut size={20} color={T.danger} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.dangerTitle}>Выйти из аккаунта</Text>
@@ -270,13 +296,13 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                 Потребуется повторный вход
               </Text>
             </View>
-            <ChevronRight size={18} color="#BDBDBD" strokeWidth={2} />
+            <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
         {/* ===== FOOTER ===== */}
         <View style={styles.footer}>
-          <SettingsIcon size={14} color="#BDBDBD" strokeWidth={2} />
+          <SettingsIcon size={14} color={T.textMuted} strokeWidth={2} />
           <Text style={styles.footerText}>коммуникационный шлюз Dixit</Text>
         </View>
 
@@ -294,7 +320,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
               maxLength={200}
               autoFocus
               placeholder="ООО «Компания»"
-              placeholderTextColor="#BDBDBD"
+              placeholderTextColor={T.textMuted}
             />
             <View style={styles.modalActions}>
               <TouchableOpacity onPress={() => setRenameOpen(false)} style={styles.modalBtn}>
@@ -306,9 +332,9 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
                 style={[styles.modalBtn, styles.modalBtnPrimary]}
               >
                 {renaming ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color={T.onAccent} />
                 ) : (
-                  <Text style={[styles.modalBtnText, { color: '#FFFFFF' }]}>Сохранить</Text>
+                  <Text style={[styles.modalBtnText, { color: T.onAccent }]}>Сохранить</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -319,19 +345,19 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },
-  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#141414', marginBottom: 14 },
+const styles = themed(() => ({
+  modalBackdrop: { flex: 1, backgroundColor: T.overlay, justifyContent: 'center', padding: 24 },
+  modalCard: { backgroundColor: T.card, borderRadius: 20, padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: T.textPrimary, marginBottom: 14 },
   modalInput: {
-    height: 48, borderRadius: 12, borderWidth: 1, borderColor: '#ECECE8',
-    paddingHorizontal: 14, fontSize: 16, color: '#141414', backgroundColor: '#FAFAF8',
+    height: 48, borderRadius: 12, borderWidth: 1, borderColor: T.border,
+    paddingHorizontal: 14, fontSize: 16, color: T.textPrimary, backgroundColor: T.background,
   },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
   modalBtn: { minWidth: 100, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
-  modalBtnPrimary: { backgroundColor: '#1F7A52' },
-  modalBtnText: { fontSize: 15, fontWeight: '700', color: '#141414' },
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  modalBtnPrimary: { backgroundColor: T.accent },
+  modalBtnText: { fontSize: 15, fontWeight: '700', color: T.textPrimary },
+  container: { flex: 1, backgroundColor: T.background },
 
   scrollContent: { padding: 20, gap: 16 },
 
@@ -341,7 +367,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 40,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: -0.5,
     lineHeight: 44,
   },
@@ -349,16 +375,16 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
     fontSize: 16,
     fontStyle: 'italic',
-    color: '#6F6F73',
+    color: T.textSecondary,
     marginTop: 4,
   },
 
   // ===== PROFILE CARD =====
   profileCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -383,14 +409,14 @@ const styles = StyleSheet.create({
     borderRadius: 28,
   },
   profileAvatarText: {
-    color: '#FFFFFF',
+    color: T.onAccent,
     fontWeight: '700',
     fontSize: 18,
   },
   profileName: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 4,
   },
   roleRow: {
@@ -412,7 +438,7 @@ const styles = StyleSheet.create({
   },
   profileEmail: {
     fontSize: 13,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
 
@@ -421,7 +447,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 20,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
     marginTop: 8,
     marginBottom: 4,
@@ -429,10 +455,10 @@ const styles = StyleSheet.create({
 
   // ===== CARD =====
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 8,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -450,7 +476,7 @@ const styles = StyleSheet.create({
   },
   actionRowBorder: {
     borderTopWidth: 1,
-    borderTopColor: '#F4F4F5',
+    borderTopColor: T.border,
     borderRadius: 0,
   },
   actionIconWrap: {
@@ -463,21 +489,21 @@ const styles = StyleSheet.create({
   actionTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#141414',
+    color: T.textPrimary,
     marginBottom: 2,
   },
   actionSub: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
 
   // ===== DANGER CARD =====
   dangerCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 8,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -494,12 +520,12 @@ const styles = StyleSheet.create({
   dangerTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#DC2626',
+    color: T.danger,
     marginBottom: 2,
   },
   dangerSub: {
     fontSize: 12,
-    color: '#6F6F73',
+    color: T.textSecondary,
     fontWeight: '500',
   },
 
@@ -513,7 +539,7 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
-    color: '#BDBDBD',
+    color: T.textMuted,
     fontWeight: '500',
-  },
-});
+  }
+}));

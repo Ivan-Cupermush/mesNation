@@ -14,8 +14,7 @@ import {
   Animated,
   useWindowDimensions,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraRoll, PhotoIdentifier } from '@react-native-camera-roll/camera-roll';
 import { launchCamera } from 'react-native-image-picker';
@@ -23,6 +22,7 @@ import { Camera, Image as ImageIcon, FileText, NotebookPen, SendHorizonal, Check
 import { PollGlyph } from '../PollBubble';
 import { C, formatDuration, requestCameraPermission, requestGalleryPermission } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Меню «скрепки» как в Telegram: снизу выезжает галерея последних фото и
  * видео, можно отметить несколько (с номерами порядка), добавить подпись и
@@ -167,7 +167,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
     if (item === 'camera') {
       return (
         <TouchableOpacity style={[style, styles.cameraCell]} onPress={openCamera} activeOpacity={0.8} accessibilityLabel="Камера">
-          <Camera size={30} color="#FFFFFF" />
+          <Camera size={30} color={T.onAccent} />
           <Text style={styles.cameraText}>Камера</Text>
         </TouchableOpacity>
       );
@@ -190,10 +190,10 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
   };
 
   const tabs = [
-    { key: 'gallery', label: 'Галерея', icon: <ImageIcon size={22} color="#FFFFFF" />, bg: '#3B82F6', onPress: () => undefined },
-    { key: 'file', label: 'Файл', icon: <FileText size={22} color="#FFFFFF" />, bg: '#0EA5E9', onPress: () => { onClose(); onPickFiles(); } },
-    { key: 'poll', label: 'Опрос', icon: <PollGlyph width={20} color="#FFFFFF" />, bg: '#F59E0B', onPress: () => { onClose(); onPoll(); } },
-    { key: 'note', label: 'Заметка', icon: <NotebookPen size={22} color="#FFFFFF" />, bg: C.accent, onPress: () => { onClose(); onNote(); } },
+    { key: 'gallery', label: 'Галерея', icon: <ImageIcon size={22} color={T.onAccent} />, bg: T.info, onPress: () => undefined },
+    { key: 'file', label: 'Файл', icon: <FileText size={22} color={T.onAccent} />, bg: T.info, onPress: () => { onClose(); onPickFiles(); } },
+    { key: 'poll', label: 'Опрос', icon: <PollGlyph width={20} color={T.onAccent} />, bg: T.warning, onPress: () => { onClose(); onPoll(); } },
+    { key: 'note', label: 'Заметка', icon: <NotebookPen size={22} color={T.onAccent} />, bg: C.accent, onPress: () => { onClose(); onNote(); } },
   ];
 
   if (!visible) return null;
@@ -201,7 +201,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.kav} pointerEvents="box-none">
+      <KeyboardAvoidingView behavior="padding" style={styles.kav} pointerEvents="box-none">
         <Animated.View
           style={[
             styles.sheet,
@@ -214,7 +214,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
             <Text style={styles.headerTitle}>{selected.length ? `Выбрано: ${selected.length}` : 'Недавние'}</Text>
             {selected.length > 0 && (
               <TouchableOpacity onPress={() => setCompress((v) => !v)} style={styles.compressBtn} activeOpacity={0.7}>
-                <View style={[styles.box, compress && styles.boxOn]}>{compress && <Check size={12} color="#FFFFFF" strokeWidth={3} />}</View>
+                <View style={[styles.box, compress && styles.boxOn]}>{compress && <Check size={12} color={T.onAccent} strokeWidth={3} />}</View>
                 <Text style={styles.compressText}>Сжать</Text>
               </TouchableOpacity>
             )}
@@ -260,12 +260,12 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
                 value={caption}
                 onChangeText={setCaption}
                 placeholder="Добавить подпись…"
-                placeholderTextColor="#9A9AA0"
+                placeholderTextColor={T.textMuted}
                 multiline
                 maxLength={4000}
               />
               <TouchableOpacity style={styles.sendBtn} onPress={send} accessibilityLabel="Отправить">
-                <SendHorizonal size={20} color="#FFFFFF" />
+                <SendHorizonal size={20} color={T.onAccent} />
                 <View style={styles.sendBadge}>
                   <Text style={styles.sendBadgeText}>{selected.length}</Text>
                 </View>
@@ -287,24 +287,24 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onPickFiles
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
   kav: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     overflow: 'hidden',
   },
-  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', marginTop: 8 },
+  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: T.surfaceActive, marginTop: 8 },
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: C.text },
   compressBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
   compressText: { fontSize: 14, color: C.text },
-  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#C4C4C8', alignItems: 'center', justifyContent: 'center' },
+  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
   boxOn: { backgroundColor: C.accent, borderColor: C.accent },
   cameraCell: { backgroundColor: '#1F2A24', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  cameraText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+  cameraText: { color: T.onAccent, fontSize: 12, fontWeight: '600' },
   cellSelected: { transform: [{ scale: 0.86 }], borderRadius: 6 },
   check: {
     position: 'absolute',
@@ -314,13 +314,13 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
     backgroundColor: 'rgba(0,0,0,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkOn: { backgroundColor: C.accent, borderColor: '#FFFFFF' },
-  checkNum: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  checkOn: { backgroundColor: C.accent, borderColor: T.card },
+  checkNum: { color: T.onAccent, fontSize: 12, fontWeight: '800' },
   durationPill: {
     position: 'absolute',
     bottom: 5,
@@ -328,16 +328,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: T.overlay,
   },
-  durationText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  durationText: { color: T.onAccent, fontSize: 11, fontWeight: '600' },
   empty: { textAlign: 'center', color: C.textMuted, marginTop: 30 },
   denied: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   deniedTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginTop: 12 },
   deniedText: { fontSize: 14, color: C.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 20 },
   deniedActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
   primaryBtn: { backgroundColor: C.accent, paddingHorizontal: 20, height: 42, borderRadius: 12, justifyContent: 'center' },
-  primaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: T.onAccent, fontWeight: '700', fontSize: 15 },
   ghostBtn: { backgroundColor: C.accentSoft, paddingHorizontal: 20, height: 42, borderRadius: 12, justifyContent: 'center' },
   ghostBtnText: { color: C.accent, fontWeight: '700', fontSize: 15 },
   link: { color: C.accent, fontWeight: '600', fontSize: 15 },
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
     minHeight: 42,
     maxHeight: 110,
     borderRadius: 21,
-    backgroundColor: '#F2F3F1',
+    backgroundColor: T.inputBg,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 16,
@@ -381,11 +381,11 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     paddingHorizontal: 5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderWidth: 2,
     borderColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBadgeText: { color: C.accent, fontSize: 11, fontWeight: '800' },
-});
+}));

@@ -1,7 +1,8 @@
 import React, { forwardRef } from 'react';
-import { TextInput, View, Text, StyleSheet, TextInputProps, ViewStyle } from 'react-native';
+import { TextInput, View, Text, TextInputProps, ViewStyle } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { themed } from '../../theme/runtime';
 interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
@@ -30,11 +31,11 @@ export const Input = forwardRef<TextInput, InputProps>(
   },
 );
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: { marginBottom: 12 },
   label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginLeft: 2 },
   wrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14 },
   icon: { fontSize: 18, marginRight: 8 },
   input: { flex: 1, paddingVertical: 12, fontSize: 15 },
-  error: { fontSize: 12, marginTop: 4, marginLeft: 2 },
-});
+  error: { fontSize: 12, marginTop: 4, marginLeft: 2 }
+}));

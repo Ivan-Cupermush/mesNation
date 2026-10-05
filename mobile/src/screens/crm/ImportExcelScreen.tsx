@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, ScrollView, StatusBar, Platform,
+  View, Text, TouchableOpacity, ActivityIndicator,
+  Alert, ScrollView, StatusBar, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pick } from '@react-native-documents/picker';
 import { api, ImportPreview } from '../../services/api';
 import {
   ArrowLeft, FileSpreadsheet, Upload, CheckCircle2, AlertCircle,
-  TrendingUp, FileCheck, XCircle,
+  TrendingUp, FileCheck, XCircle
 } from 'lucide-react-native';
 
+import { T, themed } from '../../theme/runtime';
 type Step = 'pick' | 'preview' | 'importing' | 'done';
 
 export default function ImportExcelScreen({ navigation }: any) {
@@ -67,12 +68,12 @@ export default function ImportExcelScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAFAF8" />
+      <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
 
       {/* Header row с back-кнопкой */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft size={22} color="#141414" strokeWidth={2.2} />
+          <ArrowLeft size={22} color={T.textPrimary} strokeWidth={2.2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>Импорт</Text>
         <View style={{ width: 44 }} />
@@ -92,7 +93,7 @@ export default function ImportExcelScreen({ navigation }: any) {
         {step === 'pick' && (
           <View style={styles.card}>
             <View style={styles.centerIconWrap}>
-              <FileSpreadsheet size={48} color="#1F7A52" strokeWidth={1.8} />
+              <FileSpreadsheet size={48} color={T.accent} strokeWidth={1.8} />
             </View>
             <Text style={styles.mainText}>Выберите файл с продажами</Text>
             <Text style={styles.subText}>
@@ -101,7 +102,7 @@ export default function ImportExcelScreen({ navigation }: any) {
 
             {error && (
               <View style={styles.errorBox}>
-                <AlertCircle size={18} color="#991B1B" />
+                <AlertCircle size={18} color={T.danger} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             )}
@@ -111,7 +112,7 @@ export default function ImportExcelScreen({ navigation }: any) {
               activeOpacity={0.85}
               style={styles.primaryBtn}
             >
-              <Upload size={18} color="#fff" strokeWidth={2.5} />
+              <Upload size={18} color={T.onAccent} strokeWidth={2.5} />
               <Text style={styles.primaryBtnText}>Выбрать файл</Text>
             </TouchableOpacity>
           </View>
@@ -124,7 +125,7 @@ export default function ImportExcelScreen({ navigation }: any) {
             <View style={styles.card}>
               <View style={styles.fileNameRow}>
                 <View style={styles.fileNameIconWrap}>
-                  <FileCheck size={20} color="#1F7A52" strokeWidth={2.2} />
+                  <FileCheck size={20} color={T.accent} strokeWidth={2.2} />
                 </View>
                 <Text style={styles.fileNameText} numberOfLines={1}>
                   {preview.fileName}
@@ -139,14 +140,14 @@ export default function ImportExcelScreen({ navigation }: any) {
                 <View style={styles.miniStatDivider} />
                 <View style={styles.miniStat}>
                   <Text style={styles.miniStatLabel}>Сумма</Text>
-                  <Text style={[styles.miniStatValue, { color: '#1F7A52' }]}>
+                  <Text style={[styles.miniStatValue, { color: T.accent }]}>
                     {formatMoney(preview.totalAmount)}
                   </Text>
                 </View>
                 <View style={styles.miniStatDivider} />
                 <View style={styles.miniStat}>
                   <Text style={styles.miniStatLabel}>Валидно</Text>
-                  <Text style={[styles.miniStatValue, { color: '#10B981' }]}>
+                  <Text style={[styles.miniStatValue, { color: T.success }]}>
                     {preview.validation.valid}
                   </Text>
                 </View>
@@ -189,7 +190,7 @@ export default function ImportExcelScreen({ navigation }: any) {
             {preview.validation.errors.length > 0 && (
               <View style={styles.warningBox}>
                 <View style={styles.warningHeader}>
-                  <AlertCircle size={18} color="#92400E" strokeWidth={2.2} />
+                  <AlertCircle size={18} color={T.warning} strokeWidth={2.2} />
                   <Text style={styles.warningTitle}>Найдены ошибки</Text>
                 </View>
                 {preview.validation.errors.slice(0, 3).map((e, i) => (
@@ -206,7 +207,7 @@ export default function ImportExcelScreen({ navigation }: any) {
               activeOpacity={0.85}
               style={styles.primaryBtn}
             >
-              <CheckCircle2 size={18} color="#fff" strokeWidth={2.5} />
+              <CheckCircle2 size={18} color={T.onAccent} strokeWidth={2.5} />
               <Text style={styles.primaryBtnText}>
                 Импортировать {preview.totalRows} строк
               </Text>
@@ -218,7 +219,7 @@ export default function ImportExcelScreen({ navigation }: any) {
         {step === 'importing' && (
           <View style={styles.card}>
             <View style={styles.centerIconWrap}>
-              <ActivityIndicator size="large" color="#1F7A52" />
+              <ActivityIndicator size="large" color={T.accent} />
             </View>
             <Text style={styles.mainText}>Сохраняем данные...</Text>
             <Text style={styles.subText}>Это займёт несколько секунд</Text>
@@ -229,25 +230,25 @@ export default function ImportExcelScreen({ navigation }: any) {
         {step === 'done' && importResult && (
           <>
             <View style={styles.card}>
-              <View style={[styles.centerIconWrap, { backgroundColor: '#D1FAE5' }]}>
-                <CheckCircle2 size={44} color="#1F7A52" strokeWidth={2} />
+              <View style={[styles.centerIconWrap, { backgroundColor: T.successSoft }]}>
+                <CheckCircle2 size={44} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.mainText}>Импорт завершён!</Text>
               <Text style={styles.subText}>Данные успешно сохранены</Text>
 
               <View style={styles.resultGrid}>
                 <View style={styles.resultCard}>
-                  <CheckCircle2 size={20} color="#1F7A52" />
+                  <CheckCircle2 size={20} color={T.accent} />
                   <Text style={styles.resultValue}>{importResult.imported}</Text>
                   <Text style={styles.resultLabel}>Добавлено</Text>
                 </View>
                 <View style={styles.resultCard}>
-                  <XCircle size={20} color="#6F6F73" />
+                  <XCircle size={20} color={T.textSecondary} />
                   <Text style={styles.resultValue}>{importResult.skipped}</Text>
                   <Text style={styles.resultLabel}>Пропущено</Text>
                 </View>
                 <View style={styles.resultCard}>
-                  <TrendingUp size={20} color="#3B82F6" />
+                  <TrendingUp size={20} color={T.info} />
                   <Text style={styles.resultValue} numberOfLines={1}>
                     {formatMoney(importResult.totalAmount)}
                   </Text>
@@ -272,23 +273,23 @@ export default function ImportExcelScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.background },
   scrollContent: { paddingHorizontal: 24, paddingTop: 4 },
 
   // ===== HEADER =====
   headerRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 20, paddingVertical: 12,
-    backgroundColor: '#FAFAF8',
+    backgroundColor: T.background,
   },
   backBtn: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: '#FFFFFF',
+    width: 44, height: 44, borderRadius: 14, backgroundColor: T.card,
     justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
   },
   headerTitle: {
-    fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center', color: '#141414',
+    fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center', color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
@@ -296,119 +297,119 @@ const styles = StyleSheet.create({
   heroHeader: { marginBottom: 20, paddingTop: 8 },
   bigTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 40, fontWeight: '900', color: '#141414', letterSpacing: -0.5, lineHeight: 44,
+    fontSize: 40, fontWeight: '900', color: T.textPrimary, letterSpacing: -0.5, lineHeight: 44,
   },
   bigSubtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: '#6F6F73', marginTop: 4,
+    fontSize: 18, fontStyle: 'italic', color: T.textSecondary, marginTop: 4,
   },
 
   // ===== CARD =====
   card: {
-    backgroundColor: '#FFFFFF', borderRadius: 22, padding: 24, marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
+    backgroundColor: T.card, borderRadius: 22, padding: 24, marginBottom: 16,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
     alignItems: 'center',
   },
   centerIconWrap: {
-    width: 88, height: 88, borderRadius: 24, backgroundColor: '#E8F5EE',
+    width: 88, height: 88, borderRadius: 24, backgroundColor: T.accentMuted,
     justifyContent: 'center', alignItems: 'center', marginBottom: 20,
   },
   mainText: {
-    fontSize: 20, fontWeight: '700', textAlign: 'center', color: '#141414', marginBottom: 8,
+    fontSize: 20, fontWeight: '700', textAlign: 'center', color: T.textPrimary, marginBottom: 8,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   subText: {
-    fontSize: 14, textAlign: 'center', color: '#6F6F73', marginBottom: 24, fontWeight: '500',
+    fontSize: 14, textAlign: 'center', color: T.textSecondary, marginBottom: 24, fontWeight: '500',
   },
 
   // ===== ERROR / WARNING =====
   errorBox: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#FEE2E2', padding: 14, borderRadius: 14, marginBottom: 16, width: '100%',
+    backgroundColor: T.dangerSoft, padding: 14, borderRadius: 14, marginBottom: 16, width: '100%',
   },
-  errorText: { flex: 1, color: '#991B1B', fontSize: 13, fontWeight: '500' },
+  errorText: { flex: 1, color: T.danger, fontSize: 13, fontWeight: '500' },
   warningBox: {
-    backgroundColor: '#FEF3C7', padding: 16, borderRadius: 16, marginBottom: 16, width: '100%',
+    backgroundColor: T.warningSoft, padding: 16, borderRadius: 16, marginBottom: 16, width: '100%',
   },
   warningHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8,
   },
-  warningTitle: { color: '#92400E', fontWeight: '700', fontSize: 14 },
-  warningLine: { color: '#92400E', fontSize: 12, marginLeft: 26, marginTop: 2 },
-  warningHint: { color: '#92400E', fontSize: 11, marginTop: 8, fontStyle: 'italic' },
+  warningTitle: { color: T.warning, fontWeight: '700', fontSize: 14 },
+  warningLine: { color: T.warning, fontSize: 12, marginLeft: 26, marginTop: 2 },
+  warningHint: { color: T.warning, fontSize: 11, marginTop: 8, fontStyle: 'italic' },
 
   // ===== FILE NAME =====
   fileNameRow: {
     flexDirection: 'row', alignItems: 'center', marginBottom: 18, width: '100%',
   },
   fileNameIconWrap: {
-    width: 40, height: 40, borderRadius: 12, backgroundColor: '#D1FAE5',
+    width: 40, height: 40, borderRadius: 12, backgroundColor: T.successSoft,
     justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
   fileNameText: {
-    fontSize: 15, fontWeight: '700', color: '#141414', flex: 1,
+    fontSize: 15, fontWeight: '700', color: T.textPrimary, flex: 1,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
   // ===== MINI STATS (в превью) =====
   statsRow: {
-    flexDirection: 'row', width: '100%', backgroundColor: '#F9FAFB',
+    flexDirection: 'row', width: '100%', backgroundColor: T.inputBg,
     borderRadius: 16, paddingVertical: 14, paddingHorizontal: 8,
   },
   miniStat: { flex: 1, alignItems: 'center' },
-  miniStatLabel: { fontSize: 11, color: '#6F6F73', fontWeight: '600', marginBottom: 4 },
+  miniStatLabel: { fontSize: 11, color: T.textSecondary, fontWeight: '600', marginBottom: 4 },
   miniStatValue: {
-    fontSize: 14, fontWeight: '800', color: '#141414',
+    fontSize: 14, fontWeight: '800', color: T.textPrimary,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  miniStatDivider: { width: 1, backgroundColor: '#E5E7EB' },
+  miniStatDivider: { width: 1, backgroundColor: T.surfaceActive },
 
   // ===== SECTION TITLE =====
   sectionTitle: {
-    fontSize: 18, fontWeight: '700', color: '#141414', marginBottom: 12,
+    fontSize: 18, fontWeight: '700', color: T.textPrimary, marginBottom: 12,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
   // ===== TABLE =====
   tableCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 18, padding: 8, marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
+    backgroundColor: T.card, borderRadius: 18, padding: 8, marginBottom: 16,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 3,
     overflow: 'hidden',
   },
   table: { borderRadius: 12, overflow: 'hidden' },
-  tableRow: { flexDirection: 'row', backgroundColor: '#F9FAFB' },
-  tableRowAlt: { backgroundColor: '#FFFFFF' },
+  tableRow: { flexDirection: 'row', backgroundColor: T.inputBg },
+  tableRowAlt: { backgroundColor: T.card },
   tableHeaderCell: {
     padding: 12, minWidth: 110, fontWeight: '700', fontSize: 12,
-    color: '#141414', backgroundColor: '#F3F4F6',
-    borderRightWidth: 1, borderRightColor: '#E5E7EB',
+    color: T.textPrimary, backgroundColor: T.inputBg,
+    borderRightWidth: 1, borderRightColor: T.border,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
   tableCell: {
-    padding: 12, minWidth: 110, fontSize: 12, color: '#6F6F73',
-    borderRightWidth: 1, borderRightColor: '#F3F4F6',
+    padding: 12, minWidth: 110, fontSize: 12, color: T.textSecondary,
+    borderRightWidth: 1, borderRightColor: T.border,
   },
 
   // ===== PRIMARY BUTTON =====
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     width: '100%', paddingVertical: 16, borderRadius: 18,
-    backgroundColor: '#1F7A52', marginTop: 8,
-    shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 5,
+    backgroundColor: T.accent, marginTop: 8,
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 5,
   },
   primaryBtnText: {
-    fontSize: 15, fontWeight: '700', color: '#FFFFFF',
+    fontSize: 15, fontWeight: '700', color: T.onAccent,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
 
   // ===== RESULT GRID (после импорта) =====
   resultGrid: { flexDirection: 'row', gap: 8, width: '100%', marginTop: 16 },
   resultCard: {
-    flex: 1, backgroundColor: '#F9FAFB', borderRadius: 14, padding: 12, alignItems: 'center',
+    flex: 1, backgroundColor: T.inputBg, borderRadius: 14, padding: 12, alignItems: 'center',
   },
   resultValue: {
-    fontSize: 16, fontWeight: '800', color: '#141414', marginTop: 6,
+    fontSize: 16, fontWeight: '800', color: T.textPrimary, marginTop: 6,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
   },
-  resultLabel: { fontSize: 10, color: '#6F6F73', fontWeight: '600', marginTop: 2 },
-});
+  resultLabel: { fontSize: 10, color: T.textSecondary, fontWeight: '600', marginTop: 2 }
+}));

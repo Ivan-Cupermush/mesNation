@@ -11,12 +11,12 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Check, Lightbulb } from 'lucide-react-native';
 import { C, plural } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * «Новый опрос» как в Telegram: вопрос, до 10 вариантов (новое поле
  * появляется само, когда заполняете последнее), анонимность, несколько
@@ -124,7 +124,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
               <Text style={styles.headerBtnText}>Отмена</Text>
@@ -147,7 +147,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
                 value={question}
                 onChangeText={setQuestion}
                 placeholder="Задайте вопрос"
-                placeholderTextColor="#A1A1AA"
+                placeholderTextColor={T.textMuted}
                 multiline
                 maxLength={255}
                 autoFocus
@@ -167,7 +167,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
                         hitSlop={8}
                         accessibilityLabel="Правильный ответ"
                       >
-                        {correct === i && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                        {correct === i && <Check size={13} color={T.onAccent} strokeWidth={3} />}
                       </TouchableOpacity>
                     )}
                     <TextInput
@@ -178,7 +178,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
                       value={o}
                       onChangeText={(v) => setOption(i, v)}
                       placeholder={i < 2 ? `Вариант ${i + 1}` : 'Добавить вариант'}
-                      placeholderTextColor="#A1A1AA"
+                      placeholderTextColor={T.textMuted}
                       maxLength={100}
                       returnKeyType="next"
                       onSubmitEditing={() => inputs.current[i + 1]?.focus()}
@@ -186,7 +186,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
                     />
                     {!isLastEmpty && options.length > 2 && (
                       <TouchableOpacity onPress={() => removeOption(i)} hitSlop={10} accessibilityLabel="Удалить вариант">
-                        <X size={18} color="#A1A1AA" />
+                        <X size={18} color={T.textMuted} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -226,13 +226,13 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
               <>
                 <Text style={styles.section}>ПОЯСНЕНИЕ</Text>
                 <View style={[styles.card, styles.explainRow]}>
-                  <Lightbulb size={18} color="#F59E0B" />
+                  <Lightbulb size={18} color={T.warning} />
                   <TextInput
                     style={styles.explainInput}
                     value={explanation}
                     onChangeText={setExplanation}
                     placeholder="Покажется после ответа (необязательно)"
-                    placeholderTextColor="#A1A1AA"
+                    placeholderTextColor={T.textMuted}
                     multiline
                     maxLength={200}
                   />
@@ -271,22 +271,22 @@ function SettingRow({
         value={value}
         onValueChange={onChange}
         disabled={disabled}
-        trackColor={{ false: '#E4E4E7', true: C.accent }}
-        thumbColor="#FFFFFF"
+        trackColor={{ false: T.surfaceActive, true: C.accent }}
+        thumbColor={T.onAccent}
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F3F1' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.inputBg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
     height: 52,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
@@ -296,17 +296,17 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
   body: { padding: 16, paddingBottom: 40 },
   section: { fontSize: 13, fontWeight: '600', color: C.textMuted, marginTop: 14, marginBottom: 6, marginLeft: 12 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14 },
+  card: { backgroundColor: T.card, borderRadius: 14, paddingHorizontal: 14 },
   questionInput: { fontSize: 17, color: C.text, minHeight: 50, paddingVertical: 12 },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 50 },
   optionDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border },
   optionInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 12 },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#C4C4C8', alignItems: 'center', justifyContent: 'center' },
-  radioOn: { backgroundColor: '#22C55E', borderColor: '#22C55E' },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
+  radioOn: { backgroundColor: T.success, borderColor: T.success },
   hint: { fontSize: 13, color: C.textMuted, marginTop: 6, marginHorizontal: 12, lineHeight: 18 },
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   settingTitle: { fontSize: 16, color: C.text },
   settingHint: { fontSize: 12, color: C.textMuted, marginTop: 2 },
   explainRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   explainInput: { flex: 1, fontSize: 15, color: C.text, minHeight: 48, paddingVertical: 12 },
-});
+}));

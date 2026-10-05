@@ -6,6 +6,7 @@ import { request } from '../services/http';
 import { SERVER_URL } from '../config';
 import { C, hashColor, initials, plural } from './chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
 /**
  * Опрос в ленте — как в Telegram:
  * до голосования — кружки (или квадраты при нескольких ответах),
@@ -15,7 +16,7 @@ import { C, hashColor, initials, plural } from './chat/chatUtils';
  */
 
 // ===== Иконка опроса (полоски-диаграмма) =====
-export const PollGlyph = ({ width = 16, color = '#1F7A52' }: { width?: number; color?: string }) => (
+export const PollGlyph = ({ width = 16, color = T.accent }: { width?: number; color?: string }) => (
   <View style={{ width, alignItems: 'flex-start', justifyContent: 'center' }}>
     <View style={{ width, height: 2.5, backgroundColor: color, borderRadius: 2, marginBottom: 3 }} />
     <View style={{ width: width * 0.66, height: 2.5, backgroundColor: color, borderRadius: 2, marginBottom: 3, opacity: 0.7 }} />
@@ -23,7 +24,7 @@ export const PollGlyph = ({ width = 16, color = '#1F7A52' }: { width?: number; c
   </View>
 );
 
-export const PollIcon = ({ size = 30, color = '#1F7A52', bg = '#ECFDF5' }: { size?: number; color?: string; bg?: string }) => (
+export const PollIcon = ({ size = 30, color = T.accent, bg = T.accentMuted }: { size?: number; color?: string; bg?: string }) => (
   <View style={{ width: size, height: size, borderRadius: size * 0.3, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
     <PollGlyph width={size * 0.52} color={color} />
   </View>
@@ -50,7 +51,7 @@ function MiniAvatar({ user, size = 20, border }: { user?: any; size?: number; bo
       {user?.avatar_url ? (
         <Image source={{ uri: SERVER_URL + user.avatar_url }} style={{ width: size - 3, height: size - 3, borderRadius: size / 2 }} />
       ) : (
-        <Text style={{ color: '#FFFFFF', fontSize: size * 0.4, fontWeight: '700' }}>{initials(name)}</Text>
+        <Text style={{ color: T.onAccent, fontSize: size * 0.4, fontWeight: '700' }}>{initials(name)}</Text>
       )}
     </View>
   );
@@ -98,10 +99,10 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
   const showResults = voted || data.is_closed;
   const total: number = data.total_votes || 0;
 
-  const fg = isMine ? '#FFFFFF' : C.text;
+  const fg = isMine ? T.myMessageText : C.text;
   const sub = isMine ? C.textOutMuted : C.textMuted;
   const accent = isMine ? '#FFFFFF' : C.accent;
-  const track = isMine ? 'rgba(255,255,255,0.25)' : '#E7EBE6';
+  const track = isMine ? 'rgba(255,255,255,0.25)' : T.inputBg;
   const bubbleBg = isMine ? C.bubbleOut : C.bubbleIn;
 
   const vote = async (optionIds: number[]) => {
@@ -155,7 +156,7 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
         )}
         {data.is_quiz && data.explanation && showResults && (
           <TouchableOpacity onPress={() => Alert.alert('Пояснение', data.explanation)} hitSlop={10} style={{ marginLeft: 'auto' }}>
-            <Lightbulb size={18} color={isMine ? '#FDE68A' : '#F59E0B'} />
+            <Lightbulb size={18} color={isMine ? '#FDE68A' : T.warning} />
           </TouchableOpacity>
         )}
       </View>
@@ -181,12 +182,12 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
                 <View
                   style={[
                     styles.radio,
-                    { borderColor: isMine ? 'rgba(255,255,255,0.7)' : '#B8BDB7' },
+                    { borderColor: isMine ? 'rgba(255,255,255,0.7)' : T.border },
                     data.allows_multiple && styles.radioSquare,
                     selected && { backgroundColor: accent, borderColor: accent },
                   ]}
                 >
-                  {selected && <Check size={12} color={isMine ? C.accent : '#FFFFFF'} strokeWidth={3} />}
+                  {selected && <Check size={12} color={isMine ? C.accent : T.onAccent} strokeWidth={3} />}
                 </View>
                 <Text style={[styles.optionText, { color: fg }]}>{opt.text}</Text>
               </TouchableOpacity>
@@ -205,16 +206,16 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
               <View style={styles.barRow}>
                 <View style={styles.markSlot}>
                   {correct ? (
-                    <View style={[styles.mark, { backgroundColor: '#22C55E' }]}>
-                      <Check size={10} color="#FFFFFF" strokeWidth={3.5} />
+                    <View style={[styles.mark, { backgroundColor: T.success }]}>
+                      <Check size={10} color={T.onAccent} strokeWidth={3.5} />
                     </View>
                   ) : wrongMine ? (
-                    <View style={[styles.mark, { backgroundColor: '#EF4444' }]}>
-                      <X size={10} color="#FFFFFF" strokeWidth={3.5} />
+                    <View style={[styles.mark, { backgroundColor: T.danger }]}>
+                      <X size={10} color={T.onAccent} strokeWidth={3.5} />
                     </View>
                   ) : mine ? (
                     <View style={[styles.mark, { backgroundColor: accent }]}>
-                      <Check size={10} color={isMine ? C.accent : '#FFFFFF'} strokeWidth={3.5} />
+                      <Check size={10} color={isMine ? C.accent : T.onAccent} strokeWidth={3.5} />
                     </View>
                   ) : null}
                 </View>
@@ -289,7 +290,7 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
                     ) : (
                       list.map((v) => (
                         <View key={`${v.option_id}-${v.user_id}`} style={styles.voterRow}>
-                          <MiniAvatar user={v} size={36} border="#FFFFFF" />
+                          <MiniAvatar user={v} size={36} border={T.card} />
                           <Text style={styles.voterName} numberOfLines={1}>
                             {v.display_name || v.username}
                           </Text>
@@ -310,7 +311,7 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   wrap: { minWidth: 240, maxWidth: 300, paddingTop: 2 },
   question: { fontSize: 16, fontWeight: '700', lineHeight: 21 },
   kindRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3, marginBottom: 8 },
@@ -333,13 +334,13 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', paddingTop: 10, paddingBottom: 2, minHeight: 30, justifyContent: 'center' },
   footerAction: { fontSize: 15, fontWeight: '700' },
   footerText: { fontSize: 13 },
-  resultsScreen: { flex: 1, backgroundColor: '#F2F3F1' },
-  resultsHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, height: 56, backgroundColor: '#FFFFFF' },
+  resultsScreen: { flex: 1, backgroundColor: T.inputBg },
+  resultsHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, height: 56, backgroundColor: T.card },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   resultsTitle: { fontSize: 17, fontWeight: '700', color: C.text },
   resultsSub: { fontSize: 13, color: C.textMuted },
   resultsQuestion: { fontSize: 18, fontWeight: '700', color: C.text, marginBottom: 12 },
-  group: { backgroundColor: '#FFFFFF', borderRadius: 14, marginBottom: 12, overflow: 'hidden' },
+  group: { backgroundColor: T.card, borderRadius: 14, marginBottom: 12, overflow: 'hidden' },
   groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   groupTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: C.text },
   groupPercent: { fontSize: 13, color: C.textMuted, fontWeight: '600' },
@@ -347,4 +348,4 @@ const styles = StyleSheet.create({
   voterRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 8 },
   voterName: { flex: 1, fontSize: 15, color: C.text },
   voterTime: { fontSize: 12, color: C.textMuted },
-});
+}));

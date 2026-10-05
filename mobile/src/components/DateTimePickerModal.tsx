@@ -4,6 +4,8 @@ import {
 } from 'react-native';
 import { ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react-native';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from './ui/SafeBottom';
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 const MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
 const WEEKDAYS = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
@@ -48,7 +50,7 @@ function Wheel({ items, value, onChange }: { items: number[]; value: number; onC
           const active = it === center;
           return (
             <View key={it} style={{ height: ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontSize: active ? 20 : 15, fontWeight: active ? '700' : '500', color: active ? '#141414' : '#C9C9CE' }}>
+              <Text style={{ fontSize: active ? 20 : 15, fontWeight: active ? '700' : '500', color: active ? T.textPrimary : T.textMuted }}>
                 {pad2(it)}
               </Text>
             </View>
@@ -56,7 +58,7 @@ function Wheel({ items, value, onChange }: { items: number[]; value: number; onC
         })}
       </ScrollView>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
-        <View style={{ height: ITEM_H, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#E5E5EA', backgroundColor: 'rgba(31,122,82,0.05)', borderRadius: 8 }} />
+        <View style={{ height: ITEM_H, borderTopWidth: 1, borderBottomWidth: 1, borderColor: T.border, backgroundColor: 'rgba(31,122,82,0.05)', borderRadius: 8 }} />
       </View>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'space-between' }]}>
         <View style={{ height: WHEEL_PAD }}>
@@ -142,7 +144,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
           <View style={styles.headerRow}>
             <Text style={styles.title}>{title || 'Дата и время'}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <X size={22} color="#6F6F73" strokeWidth={2} />
+              <X size={22} color={T.textSecondary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
 
@@ -150,14 +152,14 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
             {/* ===== Календарь ===== */}
             <View style={styles.calHeader}>
               <TouchableOpacity style={styles.calNavBtn} onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
-                <ChevronLeft size={20} color="#1F7A52" strokeWidth={2} />
+                <ChevronLeft size={20} color={T.accent} strokeWidth={2} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.calTitleBtn} onPress={openMonthYear} activeOpacity={0.7}>
                 <Text style={styles.calTitle}>{MONTHS[month.getMonth()]} {month.getFullYear()}</Text>
-                <ChevronDown size={16} color="#6F6F73" strokeWidth={2} />
+                <ChevronDown size={16} color={T.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.calNavBtn} onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
-                <ChevronRight size={20} color="#1F7A52" strokeWidth={2} />
+                <ChevronRight size={20} color={T.accent} strokeWidth={2} />
               </TouchableOpacity>
             </View>
 
@@ -202,6 +204,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
               <Text style={styles.saveBtnText}>Готово</Text>
             </TouchableOpacity>
           </View>
+          <SafeBottom />
         </View>
       </TouchableOpacity>
 
@@ -212,7 +215,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
             <View style={styles.myHeader}>
               <Text style={styles.myTitle}>Выбор периода</Text>
               <TouchableOpacity onPress={() => setShowMonthYear(false)}>
-                <X size={20} color="#6F6F73" strokeWidth={2} />
+                <X size={20} color={T.textSecondary} strokeWidth={2} />
               </TouchableOpacity>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
@@ -241,55 +244,55 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 24, maxHeight: '88%' },
-  handle: { width: 40, height: 4, backgroundColor: '#ECECE8', borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
+const styles = themed(() => ({
+  overlay: { flex: 1, backgroundColor: T.overlay, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 24, maxHeight: '88%' },
+  handle: { width: 40, height: 4, backgroundColor: T.surfaceActive, borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  title: { fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed', fontSize: 22, fontWeight: '900', color: '#141414', letterSpacing: 1 },
+  title: { fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed', fontSize: 22, fontWeight: '900', color: T.textPrimary, letterSpacing: 1 },
   closeBtn: { padding: 4 },
 
   calHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  calNavBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' },
-  calTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: '#FAFAF8' },
-  calTitle: { fontSize: 16, fontWeight: '700', color: '#141414' },
+  calNavBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: T.accentMuted, alignItems: 'center', justifyContent: 'center' },
+  calTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: T.background },
+  calTitle: { fontSize: 16, fontWeight: '700', color: T.textPrimary },
 
   weekRow: { flexDirection: 'row', marginBottom: 4 },
-  weekText: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', textAlign: 'center' },
+  weekText: { fontSize: 11, fontWeight: '700', color: T.textMuted, textAlign: 'center' },
   daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   dayBox: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  dayBoxSelected: { backgroundColor: '#1F7A52', shadowColor: '#1F7A52', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 4 },
-  dayBoxToday: { borderWidth: 1.5, borderColor: '#1F7A52' },
-  dayText: { fontSize: 15, fontWeight: '600', color: '#141414', textAlign: 'center' },
-  dayTextSelected: { color: '#FFFFFF', fontWeight: '700' },
-  dayTextToday: { color: '#1F7A52', fontWeight: '700' },
-  dayTextDisabled: { color: '#E5E5EA' },
+  dayBoxSelected: { backgroundColor: T.accent, shadowColor: T.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 4 },
+  dayBoxToday: { borderWidth: 1.5, borderColor: T.accent },
+  dayText: { fontSize: 15, fontWeight: '600', color: T.textPrimary, textAlign: 'center' },
+  dayTextSelected: { color: T.onAccent, fontWeight: '700' },
+  dayTextToday: { color: T.accent, fontWeight: '700' },
+  dayTextDisabled: { color: T.disabled },
 
-  timeLabel: { fontSize: 11, fontWeight: '700', color: '#6F6F73', letterSpacing: 0.5, marginTop: 10, marginBottom: 4, textAlign: 'center' },
+  timeLabel: { fontSize: 11, fontWeight: '700', color: T.textSecondary, letterSpacing: 0.5, marginTop: 10, marginBottom: 4, textAlign: 'center' },
   wheelsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 30 },
-  wheelColon: { fontSize: 22, fontWeight: '700', color: '#141414', marginHorizontal: 10 },
+  wheelColon: { fontSize: 22, fontWeight: '700', color: T.textPrimary, marginHorizontal: 10 },
 
   footer: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#F3F4F6', alignItems: 'center' },
-  cancelBtnText: { fontSize: 15, fontWeight: '600', color: '#141414' },
-  saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: '#1F7A52', alignItems: 'center' },
-  saveBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: T.inputBg, alignItems: 'center' },
+  cancelBtnText: { fontSize: 15, fontWeight: '600', color: T.textPrimary },
+  saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 16, backgroundColor: T.accent, alignItems: 'center' },
+  saveBtnText: { fontSize: 15, fontWeight: '700', color: T.onAccent },
 
-  myOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  myCard: { width: '86%', backgroundColor: '#FFFFFF', borderRadius: 22, padding: 20 },
+  myOverlay: { flex: 1, backgroundColor: T.overlay, justifyContent: 'center', alignItems: 'center' },
+  myCard: { width: '86%', backgroundColor: T.card, borderRadius: 22, padding: 20 },
   myHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  myTitle: { fontSize: 17, fontWeight: '700', color: '#141414' },
+  myTitle: { fontSize: 17, fontWeight: '700', color: T.textPrimary },
   yearsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 4 },
-  yearChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, backgroundColor: '#FAFAF8', borderWidth: 1, borderColor: '#ECECE8' },
-  yearChipActive: { backgroundColor: '#1F7A52', borderColor: '#1F7A52' },
-  yearChipText: { fontSize: 14, fontWeight: '600', color: '#141414' },
-  yearChipTextActive: { color: '#FFFFFF', fontWeight: '700' },
+  yearChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, backgroundColor: T.background, borderWidth: 1, borderColor: T.border },
+  yearChipActive: { backgroundColor: T.accent, borderColor: T.accent },
+  yearChipText: { fontSize: 14, fontWeight: '600', color: T.textPrimary },
+  yearChipTextActive: { color: T.onAccent, fontWeight: '700' },
   monthsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  monthCell: { width: '22%', paddingVertical: 12, borderRadius: 12, backgroundColor: '#FAFAF8', borderWidth: 1, borderColor: '#ECECE8', alignItems: 'center' },
-  monthCellActive: { backgroundColor: '#ECFDF5', borderColor: '#1F7A52' },
-  monthCellText: { fontSize: 13, fontWeight: '600', color: '#141414' },
-  monthCellTextActive: { color: '#1F7A52', fontWeight: '700' },
-  myDone: { marginTop: 16, paddingVertical: 14, borderRadius: 16, backgroundColor: '#1F7A52', alignItems: 'center' },
-  myDoneText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-});
+  monthCell: { width: '22%', paddingVertical: 12, borderRadius: 12, backgroundColor: T.background, borderWidth: 1, borderColor: T.border, alignItems: 'center' },
+  monthCellActive: { backgroundColor: T.accentMuted, borderColor: T.accent },
+  monthCellText: { fontSize: 13, fontWeight: '600', color: T.textPrimary },
+  monthCellTextActive: { color: T.accent, fontWeight: '700' },
+  myDone: { marginTop: 16, paddingVertical: 14, borderRadius: 16, backgroundColor: T.accent, alignItems: 'center' },
+  myDoneText: { fontSize: 15, fontWeight: '700', color: T.onAccent },
+}));

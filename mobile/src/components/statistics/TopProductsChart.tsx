@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 
+import { themed } from '../../theme/runtime';
 interface Product {
   product_name: string;
   total_amount: number | string;
@@ -48,12 +49,12 @@ export const TopProductsChart: React.FC<{ products: Product[] }> = ({ products }
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   row: { marginBottom: 16 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   name: { fontSize: 14, fontWeight: '600', flex: 1, marginRight: 8 },
   amount: { fontSize: 14, fontWeight: '800' },
   track: { height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 5 },
   fill: { height: '100%', borderRadius: 4 },
-  meta: { fontSize: 12 },
-});
+  meta: { fontSize: 12 }
+}));

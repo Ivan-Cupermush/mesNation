@@ -11,6 +11,7 @@ import { publicFileUrl } from '../../services/http';
 import { ChevronLeft, Search, Users, X, SearchX, TreePine } from 'lucide-react-native';
 import { fuzzyMatch, translit } from '../../utils/fuzzySearch';
 
+import { T, themed } from '../../theme/runtime';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -112,14 +113,14 @@ export default function EmployeesScreen({ navigation }: any) {
       // для безопасности просто подсветим всю строку
       return (
         <Text style={baseStyle}>
-          <Text style={{ backgroundColor: '#FDE68A', color: '#141414' }}>{text}</Text>
+          <Text style={{ backgroundColor: T.warningSoft, color: T.textPrimary }}>{text}</Text>
         </Text>
       );
     }
     return (
       <Text style={baseStyle}>
         {text.slice(0, idx)}
-        <Text style={{ backgroundColor: '#FDE68A', color: '#141414' }}>
+        <Text style={{ backgroundColor: T.warningSoft, color: T.textPrimary }}>
           {text.slice(idx, idx + debounced.length)}
         </Text>
         {text.slice(idx + debounced.length)}
@@ -146,7 +147,7 @@ export default function EmployeesScreen({ navigation }: any) {
         activeOpacity={0.7}
         onPress={() => openProfile(emp)}
       >
-        <View style={[styles.avatar, { backgroundColor: emp.avatar_url ? '#ECECE8' : hashColor(name) }]}>
+        <View style={[styles.avatar, { backgroundColor: emp.avatar_url ? T.surfaceActive : hashColor(name) }]}>
           {emp.avatar_url ? (
             <Image source={{ uri: publicFileUrl(emp.avatar_url)! }} style={styles.avatarImg} />
           ) : (
@@ -156,12 +157,12 @@ export default function EmployeesScreen({ navigation }: any) {
         <View style={{ flex: 1 }}>
           {highlight(name, [styles.employeeName, { color: colors.textPrimary }])}
           <View style={styles.badgesRow}>
-            <View style={[styles.roleBadge, { backgroundColor: '#ECFDF5' }]}>
-              {highlight(role, [styles.roleBadgeText, { color: '#1F7A52' }])}
+            <View style={[styles.roleBadge, { backgroundColor: T.accentMuted }]}>
+              {highlight(role, [styles.roleBadgeText, { color: T.accent }])}
             </View>
             {!emp.is_active && (
-              <View style={[styles.roleBadge, { backgroundColor: '#FEE2E2' }]}>
-                <Text style={[styles.roleBadgeText, { color: '#DC2626' }]}>неактивен</Text>
+              <View style={[styles.roleBadge, { backgroundColor: T.dangerSoft }]}>
+                <Text style={[styles.roleBadgeText, { color: T.danger }]}>неактивен</Text>
               </View>
             )}
           </View>
@@ -173,7 +174,7 @@ export default function EmployeesScreen({ navigation }: any) {
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <TreePine size={18} color="#8B5CF6" strokeWidth={2.2} />
+          <TreePine size={18} color={T.violet} strokeWidth={2.2} />
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -183,19 +184,19 @@ export default function EmployeesScreen({ navigation }: any) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+          <ActivityIndicator size="large" color={T.accent} />
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <StatusBar barStyle={T.statusBar} backgroundColor={colors.background} />
 
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
-          <ChevronLeft size={22} color="#1F7A52" strokeWidth={2.5} />
+          <ChevronLeft size={22} color={T.accent} strokeWidth={2.5} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>СОТРУДНИКИ</Text>
@@ -204,8 +205,8 @@ export default function EmployeesScreen({ navigation }: any) {
       </View>
 
       <View style={styles.searchContainer}>
-        <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: debounced ? '#1F7A52' : colors.border }]}>
-          <Search size={18} color={debounced ? '#1F7A52' : colors.textMuted} strokeWidth={2} />
+        <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: debounced ? T.accent : colors.border }]}>
+          <Search size={18} color={debounced ? T.accent : colors.textMuted} strokeWidth={2} />
           <TextInput
             style={[styles.searchInput, { color: colors.textPrimary }]}
             value={query}
@@ -290,17 +291,17 @@ export default function EmployeesScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   inactiveCard: { opacity: 0.6 },
   badgesRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   emailText: { fontSize: 12, marginTop: 4 },
   statusChips: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingBottom: 10 },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#F3F4F6' },
-  statusChipActive: { backgroundColor: '#1F7A52' },
-  statusChipText: { fontSize: 13, fontWeight: '600', color: '#6F6F73' },
-  statusChipTextActive: { color: '#FFFFFF' },
-  errorBox: { marginHorizontal: 20, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2' },
-  errorText: { color: '#DC2626', fontSize: 13, fontWeight: '600' },
+  statusChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: T.inputBg },
+  statusChipActive: { backgroundColor: T.accent },
+  statusChipText: { fontSize: 13, fontWeight: '600', color: T.textSecondary },
+  statusChipTextActive: { color: T.onAccent },
+  errorBox: { marginHorizontal: 20, marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: T.dangerSoft },
+  errorText: { color: T.danger, fontSize: 13, fontWeight: '600' },
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
@@ -309,18 +310,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFFFFF',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: T.card,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
   },
   headerTitle: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
-    fontSize: 24, fontWeight: '900', color: '#141414', letterSpacing: 0.3, lineHeight: 28,
+    fontSize: 24, fontWeight: '900', color: T.textPrimary, letterSpacing: 0.3, lineHeight: 28,
   },
   headerSubtitle: {
     fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 13, fontStyle: 'italic', color: '#6F6F73', marginTop: 1,
+    fontSize: 13, fontStyle: 'italic', color: T.textSecondary, marginTop: 1,
   },
   searchContainer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   searchBox: {
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, borderWidth: 1,
   },
   searchInput: { flex: 1, fontSize: 15, fontWeight: '500', padding: 0 },
-  searchHint: { fontSize: 11, color: '#9CA3AF', marginTop: 6, fontStyle: 'italic' },
+  searchHint: { fontSize: 11, color: T.textMuted, marginTop: 6, fontStyle: 'italic' },
   countBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingBottom: 12 },
   countText: { fontSize: 13, fontWeight: '600' },
   listContent: { paddingHorizontal: 20, gap: 12 },
@@ -338,12 +339,12 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13 },
   employeeCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
   },
   avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImg: { width: 48, height: 48, borderRadius: 24 },
-  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  avatarText: { color: T.onAccent, fontWeight: '700', fontSize: 16 },
   employeeName: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   roleBadge: {
     flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
@@ -351,7 +352,7 @@ const styles = StyleSheet.create({
   },
   roleBadgeText: { fontSize: 11, fontWeight: '700' },
   treeBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#EDE9FE',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: T.violetSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-});
+}));

@@ -23,6 +23,7 @@ import { fuzzyMatch } from '../utils/fuzzySearch';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import { C, hashColor, initials, messagePreview } from '../components/chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
 /**
  * Список чатов как в Telegram: закреплённые сверху, счётчики непрочитанных,
  * галочки прочтения своего последнего сообщения, «в сети» у собеседников,
@@ -273,7 +274,7 @@ export default function ChatListScreen({ navigation }: any) {
                 <Text style={styles.badgeText}>{item.unread_count > 99 ? '99+' : item.unread_count}</Text>
               </View>
             ) : item.pinned_at ? (
-              <Pin size={15} color="#A1A1AA" style={{ transform: [{ rotate: '45deg' }] }} />
+              <Pin size={15} color={T.textMuted} style={{ transform: [{ rotate: '45deg' }] }} />
             ) : null}
           </View>
         </View>
@@ -332,7 +333,7 @@ export default function ChatListScreen({ navigation }: any) {
         <TextInput
           style={styles.searchInput}
           placeholder="Поиск чатов и сотрудников"
-          placeholderTextColor="#A1A1AA"
+          placeholderTextColor={T.textMuted}
           value={query}
           onChangeText={setQuery}
         />
@@ -381,7 +382,7 @@ export default function ChatListScreen({ navigation }: any) {
           ListEmptyComponent={
             peopleResults.length ? null : (
               <View style={styles.empty}>
-                <MessageCircle size={44} color="#C4C4C8" strokeWidth={1.5} />
+                <MessageCircle size={44} color={T.textMuted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>
                   {error ? 'Нет связи' : query.trim() ? 'Ничего не найдено' : filter === 'unread' ? 'Всё прочитано' : 'Пока нет чатов'}
                 </Text>
@@ -395,7 +396,7 @@ export default function ChatListScreen({ navigation }: any) {
       )}
 
       <TouchableOpacity onPress={() => navigation.navigate('CreateChat')} activeOpacity={0.85} style={styles.fab} accessibilityLabel="Новый чат">
-        <Plus size={26} color="#FFFFFF" strokeWidth={2.5} />
+        <Plus size={26} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
 
       <ActionSheet
@@ -408,8 +409,8 @@ export default function ChatListScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.card },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
   title: {
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
@@ -429,20 +430,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 42,
     borderRadius: 12,
-    backgroundColor: '#F2F3F1',
+    backgroundColor: T.inputBg,
   },
   searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
   filtersWrap: { flexGrow: 0 },
   filters: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  chip: { paddingHorizontal: 14, height: 32, borderRadius: 16, backgroundColor: '#F2F3F1', justifyContent: 'center' },
+  chip: { paddingHorizontal: 14, height: 32, borderRadius: 16, backgroundColor: T.inputBg, justifyContent: 'center' },
   chipActive: { backgroundColor: C.accent },
   chipText: { fontSize: 14, color: C.textMuted, fontWeight: '600' },
-  chipTextActive: { color: '#FFFFFF' },
-  sectionLabel: { fontSize: 12, fontWeight: '700', color: C.textMuted, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, backgroundColor: '#FAFAF9' },
+  chipTextActive: { color: T.onAccent },
+  sectionLabel: { fontSize: 12, fontWeight: '700', color: C.textMuted, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, backgroundColor: T.background },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 9, gap: 12 },
   avatar: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImg: { width: 54, height: 54, borderRadius: 27 },
-  avatarText: { color: '#FFFFFF', fontSize: 19, fontWeight: '700' },
+  avatarText: { color: T.onAccent, fontSize: 19, fontWeight: '700' },
   onlineDot: {
     position: 'absolute',
     right: 1,
@@ -450,9 +451,9 @@ const styles = StyleSheet.create({
     width: 15,
     height: 15,
     borderRadius: 8,
-    backgroundColor: '#22C55E',
+    backgroundColor: T.success,
     borderWidth: 2.5,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
   },
   rowBody: { flex: 1, minHeight: 54, justifyContent: 'center' },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
@@ -462,7 +463,7 @@ const styles = StyleSheet.create({
   preview: { flex: 1, fontSize: 15, color: C.textMuted, lineHeight: 20 },
   previewPrefix: { color: C.text },
   badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  badgeText: { color: T.onAccent, fontSize: 12, fontWeight: '800' },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 80 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', paddingTop: 70, paddingHorizontal: 40, gap: 6 },
@@ -484,4 +485,4 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-});
+}));

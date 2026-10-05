@@ -12,9 +12,8 @@ import {
   ScrollView,
   Switch,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { ChevronLeft, Users, Search, Check, Layers, ArrowRight, Camera, X } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
@@ -22,6 +21,7 @@ import { request, upload } from '../services/http';
 import { fuzzyMatch } from '../utils/fuzzySearch';
 import { C, hashColor, initials, plural } from '../components/chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
 /**
  * Новый чат как в Telegram:
  *  1. «Новое сообщение» — список сотрудников; нажатие сразу открывает
@@ -39,12 +39,13 @@ function Avatar({ user, size = 46 }: { user: any; size?: number }) {
     <Image source={{ uri: SERVER_URL + user.avatar_url }} style={{ width: size, height: size, borderRadius: size / 2 }} />
   ) : (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: hashColor(name), alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: size * 0.36 }}>{initials(name)}</Text>
+      <Text style={{ color: T.onAccent, fontWeight: '700', fontSize: size * 0.36 }}>{initials(name)}</Text>
     </View>
   );
 }
 
 export default function CreateChatScreen({ navigation, route }: any) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>(route?.params?.mode === 'group' ? 'members' : 'contacts');
   const [users, setUsers] = useState<any[]>([]);
   const [meId, setMeId] = useState<number | null>(null);
@@ -152,7 +153,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
           <Avatar user={item} />
           {step === 'members' && isSel && (
             <View style={styles.selBadge}>
-              <Check size={12} color="#FFFFFF" strokeWidth={3.5} />
+              <Check size={12} color={T.onAccent} strokeWidth={3.5} />
             </View>
           )}
         </View>
@@ -165,7 +166,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
           </Text>
         </View>
         {step === 'members' && (
-          <View style={[styles.checkbox, isSel && styles.checkboxOn]}>{isSel && <Check size={14} color="#FFFFFF" strokeWidth={3} />}</View>
+          <View style={[styles.checkbox, isSel && styles.checkboxOn]}>{isSel && <Check size={14} color={T.onAccent} strokeWidth={3} />}</View>
         )}
       </TouchableOpacity>
     );
@@ -184,18 +185,18 @@ export default function CreateChatScreen({ navigation, route }: any) {
       </View>
 
       {step === 'details' ? (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
             <View style={styles.detailsTop}>
               <TouchableOpacity onPress={pickPhoto} style={styles.photoBtn} activeOpacity={0.8} accessibilityLabel="Фото группы">
-                {photo ? <Image source={{ uri: photo.uri }} style={styles.photo} /> : <Camera size={28} color="#FFFFFF" />}
+                {photo ? <Image source={{ uri: photo.uri }} style={styles.photo} /> : <Camera size={28} color={T.onAccent} />}
               </TouchableOpacity>
               <TextInput
                 style={styles.nameInput}
                 value={name}
                 onChangeText={setName}
                 placeholder="Название группы"
-                placeholderTextColor="#A1A1AA"
+                placeholderTextColor={T.textMuted}
                 maxLength={255}
                 autoFocus
               />
@@ -207,7 +208,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
                   <Text style={styles.settingTitle}>Темы</Text>
                   <Text style={styles.settingHint}>Разделить переписку на темы (супергруппа). Можно включить и позже.</Text>
                 </View>
-                <Switch value={withTopics} onValueChange={setWithTopics} trackColor={{ false: '#E4E4E7', true: C.accent }} thumbColor="#FFFFFF" />
+                <Switch value={withTopics} onValueChange={setWithTopics} trackColor={{ false: T.surfaceActive, true: C.accent }} thumbColor={T.onAccent} />
               </View>
             </View>
             <Text style={styles.sectionLabel}>
@@ -247,7 +248,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
               value={search}
               onChangeText={setSearch}
               placeholder="Поиск сотрудников"
-              placeholderTextColor="#A1A1AA"
+              placeholderTextColor={T.textMuted}
             />
           </View>
 
@@ -291,12 +292,12 @@ export default function CreateChatScreen({ navigation, route }: any) {
 
       {step !== 'contacts' && (
         <TouchableOpacity
-          style={[styles.fab, (step === 'members' ? !selected.length : !name.trim() || busy) && styles.fabDisabled]}
+          style={[styles.fab, { bottom: 24 + insets.bottom }, (step === 'members' ? !selected.length : !name.trim() || busy) && styles.fabDisabled]}
           onPress={() => (step === 'members' ? selected.length && setStep('details') : createGroup())}
           disabled={step === 'members' ? !selected.length : busy}
           accessibilityLabel={step === 'members' ? 'Далее' : 'Создать группу'}
         >
-          {busy ? <ActivityIndicator color="#FFFFFF" /> : step === 'members' ? <ArrowRight size={26} color="#FFFFFF" /> : <Check size={26} color="#FFFFFF" strokeWidth={3} />}
+          {busy ? <ActivityIndicator color={T.onAccent} /> : step === 'members' ? <ArrowRight size={26} color={T.onAccent} /> : <Check size={26} color={T.onAccent} strokeWidth={3} />}
         </TouchableOpacity>
       )}
       {busy && step === 'contacts' && (
@@ -308,8 +309,8 @@ export default function CreateChatScreen({ navigation, route }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.card },
   header: { flexDirection: 'row', alignItems: 'center', height: 58, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: C.text },
@@ -322,7 +323,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 42,
     borderRadius: 12,
-    backgroundColor: '#F2F3F1',
+    backgroundColor: T.inputBg,
   },
   searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
   chips: { paddingHorizontal: 12, paddingTop: 10, gap: 8 },
@@ -345,18 +346,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: C.accent,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#C4C4C8', alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: T.border, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: C.accent, borderColor: C.accent },
   empty: { textAlign: 'center', color: C.textMuted, marginTop: 40 },
   detailsTop: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
   photoBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photo: { width: 72, height: 72 },
   nameInput: { flex: 1, fontSize: 18, color: C.text, borderBottomWidth: 2, borderBottomColor: C.accent, paddingVertical: 8 },
-  card: { marginHorizontal: 12, borderRadius: 14, backgroundColor: '#F7F8F6', overflow: 'hidden' },
+  card: { marginHorizontal: 12, borderRadius: 14, backgroundColor: T.inputBg, overflow: 'hidden' },
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   settingTitle: { fontSize: 16, color: C.text, fontWeight: '600' },
   settingHint: { fontSize: 13, color: C.textMuted, marginTop: 2 },
@@ -376,6 +377,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
   },
-  fabDisabled: { backgroundColor: '#B8C5BE' },
+  fabDisabled: { backgroundColor: T.disabled },
   busyOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' },
-});
+}));

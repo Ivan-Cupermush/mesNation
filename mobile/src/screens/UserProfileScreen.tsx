@@ -4,13 +4,12 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
   Platform,
   ActivityIndicator,
   Image,
   Alert,
   Share,
-  TextInput,
+  TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -21,11 +20,12 @@ import {
   AtSign,
   Mail,
   ChevronRight,
-  KeyRound,
+  KeyRound
 } from 'lucide-react-native';
 import { api, CurrentUser } from '../services/api';
 import { publicFileUrl, request } from '../services/http';
 
+import { T, themed } from '../theme/runtime';
 type ProfileRouteProp = RouteProp<{ params: { userId: number } }, 'params'>;
 
 const AVATAR_COLORS = [
@@ -183,11 +183,11 @@ export default function UserProfileScreen({ navigation }: any) {
   const name = user?.display_name || user?.username || '';
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color="#141414" strokeWidth={2} />
+          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
         <View style={{ width: 40 }} />
@@ -195,7 +195,7 @@ export default function UserProfileScreen({ navigation }: any) {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1F7A52" />
+          <ActivityIndicator size="large" color={T.accent} />
         </View>
       ) : error ? (
         <View style={styles.loadingWrap}>
@@ -236,17 +236,17 @@ export default function UserProfileScreen({ navigation }: any) {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.cardIconWrap}>
-                <AtSign size={18} color="#1F7A52" strokeWidth={2} />
+                <AtSign size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.cardTitle}>Контакты</Text>
             </View>
 
             <View style={styles.contactRow}>
-              <AtSign size={16} color="#6F6F73" strokeWidth={2} />
+              <AtSign size={16} color={T.textSecondary} strokeWidth={2} />
               <Text style={styles.contactText}>@{user?.username || '—'}</Text>
             </View>
             <View style={styles.contactRow}>
-              <Mail size={16} color="#6F6F73" strokeWidth={2} />
+              <Mail size={16} color={T.textSecondary} strokeWidth={2} />
               <Text style={styles.contactText}>{user?.email || 'email не указан'}</Text>
             </View>
           </View>
@@ -256,7 +256,7 @@ export default function UserProfileScreen({ navigation }: any) {
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardIconWrap}>
-                  <KeyRound size={18} color="#1F7A52" strokeWidth={2} />
+                  <KeyRound size={18} color={T.accent} strokeWidth={2} />
                 </View>
                 <Text style={styles.cardTitle}>Учётная запись</Text>
               </View>
@@ -275,7 +275,7 @@ export default function UserProfileScreen({ navigation }: any) {
                     value={newPassword}
                     onChangeText={setNewPassword}
                     placeholder="Новый пароль (мин. 6 символов)"
-                    placeholderTextColor="#BDBDBD"
+                    placeholderTextColor={T.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
@@ -303,7 +303,7 @@ export default function UserProfileScreen({ navigation }: any) {
                 style={[styles.accountBtn, styles.accountBtnWide, !user.is_active ? styles.activateBtn : styles.deactivateBtn]}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.accountBtnText, { color: user.is_active ? '#DC2626' : '#1F7A52' }]}>
+                <Text style={[styles.accountBtnText, { color: user.is_active ? T.danger : T.accent }]}>
                   {user.is_active ? 'Деактивировать сотрудника' : 'Активировать сотрудника'}
                 </Text>
               </TouchableOpacity>
@@ -314,7 +314,7 @@ export default function UserProfileScreen({ navigation }: any) {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.cardIconWrap}>
-                <Users size={18} color="#1F7A52" strokeWidth={2} />
+                <Users size={18} color={T.accent} strokeWidth={2} />
               </View>
               <Text style={styles.cardTitle}>Общие группы</Text>
               <View style={styles.countBadge}>
@@ -338,7 +338,7 @@ export default function UserProfileScreen({ navigation }: any) {
                   <Text style={styles.commonName} numberOfLines={1}>
                     {c.name}
                   </Text>
-                  <ChevronRight size={16} color="#BDBDBD" strokeWidth={2} />
+                  <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
                 </TouchableOpacity>
               ))
             )}
@@ -356,7 +356,7 @@ export default function UserProfileScreen({ navigation }: any) {
           style={[styles.writeBtn, user && !user.is_active && { opacity: 0.5 }]}
           activeOpacity={0.85}
         >
-          <MessageCircle size={20} color="#FFFFFF" strokeWidth={2} />
+          <MessageCircle size={20} color={T.onAccent} strokeWidth={2} />
           <Text style={styles.writeBtnText}>Написать сообщение</Text>
         </TouchableOpacity>
       </View>
@@ -364,22 +364,22 @@ export default function UserProfileScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  heroRole: { marginTop: 6, fontSize: 13, fontWeight: '700', color: '#1F7A52' },
-  inactiveBadge: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: '#FEE2E2' },
-  inactiveBadgeText: { fontSize: 12, fontWeight: '700', color: '#DC2626' },
-  accountLabel: { width: 70, fontSize: 13, fontWeight: '600', color: '#6F6F73' },
-  accountHint: { flex: 1, fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' },
+const styles = themed(() => ({
+  heroRole: { marginTop: 6, fontSize: 13, fontWeight: '700', color: T.accent },
+  inactiveBadge: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: T.dangerSoft },
+  inactiveBadgeText: { fontSize: 12, fontWeight: '700', color: T.danger },
+  accountLabel: { width: 70, fontSize: 13, fontWeight: '600', color: T.textSecondary },
+  accountHint: { flex: 1, fontSize: 12, color: T.textMuted, fontStyle: 'italic' },
   accountActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  accountBtn: { flex: 1, paddingVertical: 11, borderRadius: 12, backgroundColor: '#ECFDF5', alignItems: 'center' },
+  accountBtn: { flex: 1, paddingVertical: 11, borderRadius: 12, backgroundColor: T.accentMuted, alignItems: 'center' },
   accountBtnWide: { flex: 0, marginTop: 8 },
-  accountBtnSmall: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: '#ECFDF5' },
-  accountBtnText: { fontSize: 13, fontWeight: '700', color: '#1F7A52' },
-  deactivateBtn: { backgroundColor: '#FEF2F2' },
-  activateBtn: { backgroundColor: '#ECFDF5' },
+  accountBtnSmall: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: T.accentMuted },
+  accountBtnText: { fontSize: 13, fontWeight: '700', color: T.accent },
+  deactivateBtn: { backgroundColor: T.dangerSoft },
+  activateBtn: { backgroundColor: T.accentMuted },
   passwordRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
-  passwordInput: { flex: 1, borderWidth: 1, borderColor: '#ECECE8', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: '#141414' },
-  container: { flex: 1, backgroundColor: '#FAFAF8' },
+  passwordInput: { flex: 1, borderWidth: 1, borderColor: T.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: T.textPrimary },
+  container: { flex: 1, backgroundColor: T.background },
 
   header: {
     flexDirection: 'row',
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#ECECE8',
+    borderBottomColor: T.border,
   },
   headerBackBtn: {
     width: 40,
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Bebas Neue' : 'sans-serif-condensed',
     fontSize: 24,
     fontWeight: '900',
-    color: '#141414',
+    color: T.textPrimary,
     letterSpacing: 1,
   },
 
@@ -409,12 +409,12 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 20, gap: 20 },
 
   heroCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 28,
     alignItems: 'center',
     gap: 8,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -428,15 +428,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarInitials: { fontSize: 30, fontWeight: '700', color: '#FFFFFF' },
-  heroName: { fontSize: 20, fontWeight: '700', color: '#141414' },
-  heroUsername: { fontSize: 14, color: '#6F6F73', fontWeight: '500' },
+  avatarInitials: { fontSize: 30, fontWeight: '700', color: T.onAccent },
+  heroName: { fontSize: 20, fontWeight: '700', color: T.textPrimary },
+  heroUsername: { fontSize: 14, color: T.textSecondary, fontWeight: '500' },
 
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderRadius: 22,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 16,
@@ -448,22 +448,22 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: T.accentMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardTitle: { fontSize: 17, fontWeight: '700', color: '#141414', flex: 1 },
+  cardTitle: { fontSize: 17, fontWeight: '700', color: T.textPrimary, flex: 1 },
   countBadge: {
-    backgroundColor: '#1F7A52',
+    backgroundColor: T.accent,
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 999,
   },
-  countBadgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  countBadgeText: { color: T.onAccent, fontSize: 12, fontWeight: '700' },
 
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  contactText: { fontSize: 15, fontWeight: '500', color: '#141414' },
-  emptyText: { fontSize: 13, color: '#BDBDBD', fontWeight: '500' },
+  contactText: { fontSize: 15, fontWeight: '500', color: T.textPrimary },
+  emptyText: { fontSize: 13, color: T.textMuted, fontWeight: '500' },
 
   commonRow: {
     flexDirection: 'row',
@@ -471,7 +471,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#F4F4F5',
+    borderBottomColor: T.border,
   },
   commonAvatar: {
     width: 40,
@@ -480,14 +480,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  commonAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-  commonName: { flex: 1, fontSize: 15, fontWeight: '600', color: '#141414' },
+  commonAvatarText: { color: T.onAccent, fontWeight: '700', fontSize: 13 },
+  commonName: { flex: 1, fontSize: 15, fontWeight: '600', color: T.textPrimary },
 
   bottomBar: {
     padding: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopWidth: 1,
-    borderTopColor: '#ECECE8',
+    borderTopColor: T.border,
   },
   writeBtn: {
     flexDirection: 'row',
@@ -496,12 +496,12 @@ const styles = StyleSheet.create({
     gap: 10,
     height: 52,
     borderRadius: 18,
-    backgroundColor: '#1F7A52',
-    shadowColor: '#1F7A52',
+    backgroundColor: T.accent,
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 4,
   },
-  writeBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-});
+  writeBtnText: { fontSize: 16, fontWeight: '700', color: T.onAccent }
+}));

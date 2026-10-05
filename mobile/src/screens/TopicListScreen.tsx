@@ -13,9 +13,8 @@ import {
   Image,
   ScrollView,
   KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, MessageSquare, Plus, Info, Check } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
@@ -24,6 +23,8 @@ import { subscribe } from '../services/socket';
 import { TOPIC_ICONS, TOPIC_COLORS, hexToRgba } from '../theme/topicIcons';
 import { C, hashColor, initials, messagePreview, plural } from '../components/chat/chatUtils';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from '../components/ui/SafeBottom';
 /**
  * Группа с темами (как форумы в Telegram): сверху группа, ниже «Общий»
  * чат и темы с последним сообщением. Тему может создать любой участник;
@@ -42,6 +43,7 @@ const formatTime = (iso?: string) => {
 };
 
 export default function TopicListScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const route = useRoute<RouteP>();
   const chatId = route.params.chatId;
   const [chat, setChat] = useState<any>(null);
@@ -155,7 +157,7 @@ export default function TopicListScreen({ navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
           <ChevronLeft size={26} color={C.text} />
@@ -197,13 +199,13 @@ export default function TopicListScreen({ navigation }: any) {
         />
       )}
 
-      <TouchableOpacity onPress={() => setCreateOpen(true)} style={styles.fab} activeOpacity={0.85} accessibilityLabel="Новая тема">
-        <Plus size={26} color="#FFFFFF" strokeWidth={2.5} />
+      <TouchableOpacity onPress={() => setCreateOpen(true)} style={[styles.fab, { bottom: 24 + insets.bottom }]} activeOpacity={0.85} accessibilityLabel="Новая тема">
+        <Plus size={26} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setCreateOpen(false)} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap} pointerEvents="box-none">
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetWrap} pointerEvents="box-none">
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <Text style={styles.sheetTitle}>Новая тема</Text>
@@ -216,7 +218,7 @@ export default function TopicListScreen({ navigation }: any) {
                 value={title}
                 onChangeText={setTitle}
                 placeholder="Название темы"
-                placeholderTextColor="#A1A1AA"
+                placeholderTextColor={T.textMuted}
                 autoFocus
                 maxLength={255}
               />
@@ -224,7 +226,7 @@ export default function TopicListScreen({ navigation }: any) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickRow}>
               {TOPIC_COLORS.map((c) => (
                 <TouchableOpacity key={c} onPress={() => setColor(c)} style={[styles.colorDot, { backgroundColor: c }]}>
-                  {color === c && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                  {color === c && <Check size={14} color={T.onAccent} strokeWidth={3} />}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -238,10 +240,11 @@ export default function TopicListScreen({ navigation }: any) {
             <TouchableOpacity
               onPress={create}
               disabled={creating || !title.trim()}
-              style={[styles.createBtn, (!title.trim() || creating) && { backgroundColor: '#B8C5BE' }]}
+              style={[styles.createBtn, (!title.trim() || creating) && { backgroundColor: T.disabled }]}
             >
-              {creating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.createText}>Создать тему</Text>}
+              {creating ? <ActivityIndicator color={T.onAccent} /> : <Text style={styles.createText}>Создать тему</Text>}
             </TouchableOpacity>
+            <SafeBottom />
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -249,13 +252,13 @@ export default function TopicListScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.card },
   header: { flexDirection: 'row', alignItems: 'center', height: 58, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  headerAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  headerAvatarText: { color: T.onAccent, fontWeight: '700', fontSize: 15 },
   headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
   headerSub: { fontSize: 13, color: C.textMuted },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10 },
@@ -284,8 +287,8 @@ const styles = StyleSheet.create({
   },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: C.overlay },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 28, gap: 12 },
-  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8' },
+  sheet: { backgroundColor: T.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 28, gap: 12 },
+  handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: T.surfaceActive },
   sheetTitle: { fontSize: 18, fontWeight: '700', color: C.text },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   titleInput: { flex: 1, fontSize: 17, color: C.text, borderBottomWidth: 2, borderBottomColor: C.accent, paddingVertical: 8 },
@@ -293,5 +296,5 @@ const styles = StyleSheet.create({
   colorDot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   iconPick: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   createBtn: { height: 50, borderRadius: 14, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  createText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-});
+  createText: { color: T.onAccent, fontSize: 16, fontWeight: '700' },
+}));

@@ -51,9 +51,13 @@ import NotePickerModal from '../components/chat/NotePickerModal';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
+import { WallpaperView } from '../components/chat/ChatWallpaper';
+import { useChatWallpaper } from '../theme/wallpapers';
 import { C, dayLabel, hashColor, initials, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
+import { T, themed } from '../theme/runtime';
+import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
   'params'
@@ -133,6 +137,7 @@ export default function ChatScreen({ navigation }: any) {
   const meRef = useRef<number | null>(null);
   meRef.current = currentUserId;
 
+  const { wallpaper } = useChatWallpaper(chatId);
   const isGroup = chat ? chat.type === 'group' : false;
   const rights = chat?.my_rights || {};
 
@@ -902,7 +907,7 @@ export default function ChatScreen({ navigation }: any) {
   const canSend = !!text.trim();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== ШАПКА ===== */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityLabel="Назад">
@@ -950,8 +955,9 @@ export default function ChatScreen({ navigation }: any) {
         </TouchableOpacity>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         <View style={styles.listWrap}>
+          <WallpaperView wallpaper={wallpaper} />
           {loading ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color={C.accent} />
@@ -1056,14 +1062,14 @@ export default function ChatScreen({ navigation }: any) {
         {/* ===== ВВОД ===== */}
         <View style={styles.inputBar}>
           <TouchableOpacity onPress={() => setShowAttach(true)} style={styles.attachBtn} accessibilityLabel="Вложения" disabled={!!editingMessage}>
-            <Paperclip size={24} color={editingMessage ? '#C4C4C8' : C.textMuted} strokeWidth={2} />
+            <Paperclip size={24} color={editingMessage ? T.textMuted : C.textMuted} strokeWidth={2} />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
             value={text}
             onChangeText={onChangeText}
             placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
-            placeholderTextColor="#9A9AA0"
+            placeholderTextColor={T.textMuted}
             multiline
             maxLength={4000}
           />
@@ -1072,13 +1078,13 @@ export default function ChatScreen({ navigation }: any) {
             onLongPress={() => canSend && !editingMessage && setShowSchedulePicker(true)}
             delayLongPress={350}
             disabled={!canSend && !editingMessage}
-            style={[styles.sendBtn, { backgroundColor: canSend || editingMessage ? C.accent : '#E4E6E3' }]}
+            style={[styles.sendBtn, { backgroundColor: canSend || editingMessage ? C.accent : T.surfaceActive }]}
             accessibilityLabel="Отправить. Удерживайте, чтобы запланировать"
           >
             {editingMessage ? (
-              <Pencil size={18} color="#FFFFFF" strokeWidth={2.5} />
+              <Pencil size={18} color={T.onAccent} strokeWidth={2.5} />
             ) : (
-              <SendHorizonal size={19} color={canSend ? '#FFFFFF' : '#A1A1AA'} strokeWidth={2.4} />
+              <SendHorizonal size={19} color={canSend ? T.onAccent : T.textMuted} strokeWidth={2.4} />
             )}
           </TouchableOpacity>
         </View>
@@ -1166,28 +1172,29 @@ export default function ChatScreen({ navigation }: any) {
             )}
           />
           <Text style={styles.sheetHint}>Чтобы запланировать: напишите текст и удерживайте кнопку отправки.</Text>
+          <SafeBottom />
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const styles = themed(() => ({
+  container: { flex: 1, backgroundColor: T.card },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
     height: 58,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
   headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  headerAvatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  headerAvatarText: { color: T.onAccent, fontSize: 15, fontWeight: '700' },
   onlineDot: {
     position: 'absolute',
     right: 0,
@@ -1195,9 +1202,9 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#22C55E',
+    backgroundColor: T.success,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: T.card,
   },
   headerCenter: { flex: 1 },
   headerTitle: { fontSize: 17, fontWeight: '700', color: C.text },
@@ -1209,7 +1216,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
@@ -1224,7 +1231,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 4 },
   emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center' },
   retryBtn: { marginTop: 12, paddingHorizontal: 18, height: 40, borderRadius: 12, backgroundColor: C.accent, justifyContent: 'center' },
-  retryText: { color: '#FFFFFF', fontWeight: '700' },
+  retryText: { color: T.onAccent, fontWeight: '700' },
   unreadBar: { marginVertical: 8, paddingVertical: 5, backgroundColor: 'rgba(255,255,255,0.75)', alignItems: 'center' },
   unreadText: { fontSize: 13, color: C.accent, fontWeight: '700' },
 
@@ -1235,10 +1242,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOpacity: 0.15,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
@@ -1255,7 +1262,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scrollBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  scrollBadgeText: { color: T.onAccent, fontSize: 11, fontWeight: '800' },
 
   plate: {
     flexDirection: 'row',
@@ -1264,7 +1271,7 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 4,
     paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.border,
   },
@@ -1279,7 +1286,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 6,
     gap: 4,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.border,
   },
@@ -1292,7 +1299,7 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 11 : 9,
     paddingBottom: Platform.OS === 'ios' ? 11 : 9,
     borderRadius: 21,
-    backgroundColor: '#F2F3F1',
+    backgroundColor: T.inputBg,
     fontSize: 16,
     color: C.text,
   },
@@ -1304,17 +1311,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.card,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     padding: 16,
     paddingBottom: 28,
   },
-  sheetHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#D4D4D8', marginBottom: 12 },
+  sheetHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: T.surfaceActive, marginBottom: 12 },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 8 },
   sheetHint: { fontSize: 13, color: C.textMuted, marginTop: 10 },
   scheduledRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   scheduledTime: { fontSize: 12, fontWeight: '700', color: C.accent, marginBottom: 2 },
   scheduledText: { fontSize: 15, color: C.text },
-  scheduledBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' },
-});
+  scheduledBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: T.inputBg },
+}));

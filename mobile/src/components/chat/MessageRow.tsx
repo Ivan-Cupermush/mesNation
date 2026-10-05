@@ -1,12 +1,14 @@
 import React, { memo, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
 import { Check, CheckCheck, Clock, AlertCircle, FileText, CornerUpLeft, Download } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import MediaAlbum from './MediaAlbum';
+import { useTheme } from '../../theme/ThemeContext';
 import { C, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
 
+import { T, themed } from '../../theme/runtime';
 /**
  * Одна строка ленты: служебное сообщение, обычный пузырь или альбом.
  * Пузыри одного отправителя подряд «склеиваются»: имя показывается у
@@ -42,12 +44,12 @@ interface Props {
 }
 
 function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: number; onMedia?: boolean }) {
-  const color = onMedia ? '#FFFFFF' : C.textOutMuted;
+  const color = onMedia ? T.onAccent : C.textOutMuted;
   if (msg.status === 'sending') return <Clock size={12} color={color} style={styles.tick} />;
   if (msg.status === 'failed') return <AlertCircle size={13} color="#FECACA" style={styles.tick} />;
   const read = typeof msg.id === 'number' && msg.id <= peerLastReadId;
   return read ? (
-    <CheckCheck size={15} color={onMedia ? '#FFFFFF' : C.readTick} style={styles.tick} />
+    <CheckCheck size={15} color={onMedia ? T.onAccent : C.readTick} style={styles.tick} />
   ) : (
     <Check size={14} color={color} style={styles.tick} />
   );
@@ -56,6 +58,7 @@ function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: num
 function MessageRow(props: Props) {
   const { row, mine, showName, showAvatar, isGroup, senderName, senderAvatar, replied, repliedName, peerLastReadId, currentUserId } = props;
   const { width: screenW } = useWindowDimensions();
+  const { messageFontSize } = useTheme();
   const msgs = row.type === 'album' ? row.msgs : [row.msg];
   const main = row.type === 'album' ? row.msgs.find((m) => m.text) || row.msgs[0] : row.msg;
   const showSideAvatar = isGroup && !mine;
@@ -78,7 +81,7 @@ function MessageRow(props: Props) {
     }),
   ).current;
 
-  const fg = mine ? '#FFFFFF' : C.text;
+  const fg = mine ? T.myMessageText : C.text;
   const sub = mine ? C.textOutMuted : C.textMuted;
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
@@ -89,8 +92,8 @@ function MessageRow(props: Props) {
 
   const meta = (onMedia = false) => (
     <View style={[styles.meta, onMedia && styles.metaOnMedia]}>
-      {main.edited_at ? <Text style={[styles.metaText, { color: onMedia ? '#FFFFFF' : sub }]}>изм. </Text> : null}
-      <Text style={[styles.metaText, { color: onMedia ? '#FFFFFF' : sub }]}>{formatTime(main.created_at)}</Text>
+      {main.edited_at ? <Text style={[styles.metaText, { color: onMedia ? T.onAccent : sub }]}>изм. </Text> : null}
+      <Text style={[styles.metaText, { color: onMedia ? T.onAccent : sub }]}>{formatTime(main.created_at)}</Text>
       {mine && <Ticks msg={main} peerLastReadId={peerLastReadId} onMedia={onMedia} />}
     </View>
   );
@@ -108,7 +111,7 @@ function MessageRow(props: Props) {
     <View style={[styles.rowOuter, props.highlighted && styles.highlight]}>
       <Animated.View style={[styles.swipeIcon, { opacity: dx.interpolate({ inputRange: [-70, -20, 0], outputRange: [1, 0.2, 0] }) }]}>
         <View style={styles.swipeIconCircle}>
-          <CornerUpLeft size={16} color="#FFFFFF" />
+          <CornerUpLeft size={16} color={T.onAccent} />
         </View>
       </Animated.View>
       <Animated.View
@@ -161,7 +164,7 @@ function MessageRow(props: Props) {
               onPress={() => props.onPressReply(main)}
               style={[styles.quote, mine ? styles.quoteMine : styles.quoteOther, isVisual && styles.quoteInMedia]}
             >
-              <Text style={[styles.quoteName, { color: mine ? '#FFFFFF' : C.accent }]} numberOfLines={1}>
+              <Text style={[styles.quoteName, { color: mine ? T.onAccent : C.accent }]} numberOfLines={1}>
                 {replied ? repliedName : main.external_reply_chat_id ? 'Сообщение из другого чата' : 'Сообщение'}
               </Text>
               <Text style={[styles.quoteText, { color: sub }]} numberOfLines={1}>
@@ -186,9 +189,9 @@ function MessageRow(props: Props) {
             <TouchableOpacity onPress={() => props.onOpenFile(main)} onLongPress={onLong} activeOpacity={0.75} style={styles.file}>
               <View style={[styles.fileIcon, { backgroundColor: mine ? 'rgba(255,255,255,0.2)' : C.accentSoft }]}>
                 {main.status === 'sending' ? (
-                  <Clock size={20} color={mine ? '#FFFFFF' : C.accent} />
+                  <Clock size={20} color={mine ? T.onAccent : C.accent} />
                 ) : (
-                  <FileText size={20} color={mine ? '#FFFFFF' : C.accent} />
+                  <FileText size={20} color={mine ? T.onAccent : C.accent} />
                 )}
               </View>
               <View style={{ flex: 1 }}>
@@ -215,7 +218,10 @@ function MessageRow(props: Props) {
           )}
 
           {caption && !isPoll ? (
-            <Text style={[styles.text, { color: fg }, isVisual && styles.captionInMedia]} selectable={false}>
+            <Text
+              style={[styles.text, { color: fg, fontSize: messageFontSize, lineHeight: Math.round(messageFontSize * 1.32) }, isVisual && styles.captionInMedia]}
+              selectable={false}
+            >
               {caption}
               <Text style={styles.metaSpacer}>{' '.repeat(mine ? 16 : 11)}</Text>
             </Text>
@@ -248,7 +254,7 @@ export function DayDivider({ label }: { label: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   rowOuter: { paddingHorizontal: 8 },
   highlight: { backgroundColor: 'rgba(31,122,82,0.12)' },
   row: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 6 },
@@ -259,13 +265,13 @@ const styles = StyleSheet.create({
   swipeIconCircle: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center' },
   avatarSlot: { width: 36, marginRight: 4 },
   avatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  avatarText: { color: T.onAccent, fontSize: 13, fontWeight: '700' },
   bubble: {
     paddingHorizontal: 11,
     paddingTop: 7,
     paddingBottom: 7,
     minWidth: 76,
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOpacity: 0.05,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
@@ -280,7 +286,7 @@ const styles = StyleSheet.create({
   padInMedia: { paddingHorizontal: 8, paddingTop: 4 },
   forwarded: { fontSize: 13, fontStyle: 'italic', marginBottom: 3 },
   quote: { borderLeftWidth: 3, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 5 },
-  quoteMine: { borderLeftColor: '#FFFFFF', backgroundColor: 'rgba(255,255,255,0.14)' },
+  quoteMine: { borderLeftColor: T.card, backgroundColor: 'rgba(255,255,255,0.14)' },
   quoteOther: { borderLeftColor: C.accent, backgroundColor: 'rgba(31,122,82,0.08)' },
   quoteInMedia: { marginHorizontal: 5, marginTop: 4 },
   quoteName: { fontSize: 13, fontWeight: '700' },
@@ -290,7 +296,7 @@ const styles = StyleSheet.create({
   metaSpacer: { fontSize: 11 },
   metaAbs: { position: 'absolute', right: 9, bottom: 5 },
   meta: { flexDirection: 'row', alignItems: 'center' },
-  metaOnMedia: { backgroundColor: 'rgba(0,0,0,0.38)', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  metaOnMedia: { backgroundColor: T.overlay, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
   metaText: { fontSize: 11 },
   tick: { marginLeft: 3 },
   failed: { fontSize: 11, color: '#FECACA', marginTop: 4, textAlign: 'right' },
@@ -302,7 +308,7 @@ const styles = StyleSheet.create({
   serviceWrap: { alignItems: 'center', marginVertical: 8, paddingHorizontal: 24 },
   serviceText: {
     fontSize: 13,
-    color: '#FFFFFF',
+    color: T.onAccent,
     backgroundColor: 'rgba(40,58,48,0.45)',
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -310,5 +316,5 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     textAlign: 'center',
   },
-  dayText: { fontWeight: '600' },
-});
+  dayText: { fontWeight: '600' }
+}));

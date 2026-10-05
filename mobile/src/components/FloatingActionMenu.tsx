@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Animated } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 
+import { T, themed } from '../theme/runtime';
 interface MenuAction {
   label: string;
   icon: string;
@@ -43,7 +44,7 @@ export default function FloatingActionMenu({ actions }: FloatingActionMenuProps)
       {isOpen && (
         <TouchableOpacity
           activeOpacity={1}
-          style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.3)' }]}
+          style={[styles.overlay, { backgroundColor: T.overlay }]}
           onPress={toggle}
         />
       )}
@@ -93,7 +94,7 @@ export default function FloatingActionMenu({ actions }: FloatingActionMenuProps)
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => ({
   container: {
     position: 'absolute',
     right: 20,
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 28,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -143,10 +144,10 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: T.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
-  },
-});
+  }
+}));

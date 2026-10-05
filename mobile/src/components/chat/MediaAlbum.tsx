@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Image, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Image, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Play, AlertCircle } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
 import { albumLayout, formatDuration } from './chatUtils';
+import UploadProgress from './UploadProgress';
 
 import { T, themed } from '../../theme/runtime';
 /**
@@ -34,11 +35,13 @@ interface Props {
   onLongPress?: () => void;
   /** Время и галочки поверх последней картинки (когда нет подписи). */
   overlay?: React.ReactNode;
+  /** Крестик на загружаемом фото — отменить отправку. */
+  onCancelUpload?: (item: AlbumItem) => void;
 }
 
 const RADIUS = 14;
 
-export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop = true, roundBottom = true, onPress, onLongPress, overlay }: Props) {
+export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop = true, roundBottom = true, onPress, onLongPress, overlay, onCancelUpload }: Props) {
   const ratios = items.map((m) => (m.media_width && m.media_height ? m.media_width / m.media_height : m.media_kind === 'video' ? 16 / 9 : 1));
   const { cells, width, height } = albumLayout(ratios, maxWidth, maxHeight);
 
@@ -79,7 +82,7 @@ export default function MediaAlbum({ items, maxWidth, maxHeight = 360, roundTop 
             )}
             {m.status === 'sending' && (
               <View style={styles.progress}>
-                <ActivityIndicator color={T.onAccent} />
+                <UploadProgress progress={(m as any).progress} onCancel={onCancelUpload ? () => onCancelUpload(m) : undefined} />
               </View>
             )}
             {m.status === 'failed' && (
@@ -123,6 +126,6 @@ const styles = themed(() => ({
     backgroundColor: T.overlay,
   },
   durationText: { color: T.onAccent, fontSize: 12, fontWeight: '600' },
-  progress: { ...StyleSheet.absoluteFill, backgroundColor: T.overlay, alignItems: 'center', justifyContent: 'center' },
+  progress: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center' },
   overlay: { position: 'absolute', right: 6, bottom: 6 },
 }));

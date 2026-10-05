@@ -6,7 +6,8 @@ import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
-import { C, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
+import { C, fileBadge, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
+import UploadProgress from './UploadProgress';
 
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
@@ -40,6 +41,7 @@ interface Props {
   onPressReply: (msg: any) => void;
   onSwipeReply: (msg: any) => void;
   onRetry: (msg: any) => void;
+  onCancelUpload?: (msg: any) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
   onPressSender?: (userId: number) => void;
 }
@@ -86,8 +88,13 @@ function MessageRow(props: Props) {
   const sub = mine ? C.textOutMuted : C.textMuted;
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
-  const isVisual = row.type === 'album' || main.media_kind === 'photo' || main.media_kind === 'video' || (!main.media_kind && main.thumb_url);
-  const isFile = !isVisual && !!main.file_url;
+  // Группа документов (несколько файлов одним сообщением, как в Telegram).
+  const isDocGroup = row.type === 'album' && msgs.every((m) => m.media_kind === 'file');
+  const isVisual =
+    !isPoll && !isDocGroup && (row.type === 'album' || main.media_kind === 'photo' || main.media_kind === 'video' || (!main.media_kind && main.thumb_url));
+  const isFile = !isPoll && !isVisual && !!main.file_url;
+  const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
+  const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
   const caption = main.text && !isNote ? main.text : '';
   const mediaOnly = isVisual && !caption && !main.reply_to_message_id && !main.forwarded_from_user_id && !(showName && isGroup && !mine);
 
@@ -183,29 +190,22 @@ function MessageRow(props: Props) {
               onPress={props.onOpenMedia}
               onLongPress={onLong}
               overlay={!caption ? meta(true) : null}
+              onCancelUpload={props.onCancelUpload}
             />
           )}
 
-          {isFile && (
-            <TouchableOpacity onPress={() => props.onOpenFile(main)} onLongPress={onLong} activeOpacity={0.75} style={styles.file}>
-              <View style={[styles.fileIcon, { backgroundColor: mine ? 'rgba(255,255,255,0.2)' : C.accentSoft }]}>
-                {main.status === 'sending' ? (
-                  <Clock size={20} color={mine ? T.onAccent : C.accent} />
-                ) : (
-                  <FileText size={20} color={mine ? T.onAccent : C.accent} />
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.fileName, { color: fg }]} numberOfLines={2}>
-                  {main.file_name || 'Файл'}
-                </Text>
-                <View style={styles.fileMetaRow}>
-                  <Download size={12} color={sub} />
-                  <Text style={[styles.fileMeta, { color: sub }]}>{formatSize(main.file_size) || 'Открыть'}</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
+          {isFile &&
+            msgs.map((f) => (
+              <FileRow key={f.client_id || f.id} msg={f} mine={mine} fg={fg} sub={sub} onOpen={props.onOpenFile} onLongPress={onLong} onCancel={props.onCancelUpload} />
+            ))}
+          {isFile && !caption && <View style={styles.metaRoom} />}
+
+          {pollMediaVisual && (
+            <View style={styles.pollMedia}>
+              <MediaAlbum items={[main]} maxWidth={Math.min(maxBubble - 28, 300)} maxHeight={260} onPress={props.onOpenMedia} onLongPress={onLong} />
+            </View>
           )}
+          {pollMediaFile && <FileRow msg={main} mine={mine} fg={fg} sub={sub} onOpen={props.onOpenFile} onLongPress={onLong} />}
 
           {isPoll && <PollBubble poll={main.poll} myVotes={main.my_votes || []} currentUserId={currentUserId} isMine={mine} />}
 
@@ -237,6 +237,63 @@ function MessageRow(props: Props) {
 }
 
 export default memo(MessageRow);
+
+/** Документ в пузыре: цветной значок с расширением, имя, размер; при отправке — кольцо с отменой. */
+function FileRow({
+  msg,
+  mine,
+  fg,
+  sub,
+  onOpen,
+  onLongPress,
+  onCancel,
+}: {
+  msg: any;
+  mine: boolean;
+  fg: string;
+  sub: string;
+  onOpen: (m: any) => void;
+  onLongPress: () => void;
+  onCancel?: (m: any) => void;
+}) {
+  const badge = fileBadge(msg.file_name);
+  const sending = msg.status === 'sending';
+  const failed = msg.status === 'failed';
+  return (
+    <TouchableOpacity onPress={() => onOpen(msg)} onLongPress={onLongPress} activeOpacity={0.75} style={styles.file}>
+      <View style={[styles.fileIcon, { backgroundColor: mine ? 'rgba(255,255,255,0.22)' : badge.color }]}>
+        {sending ? (
+          <UploadProgress
+            progress={msg.progress}
+            size={46}
+            background="transparent"
+            track="rgba(255,255,255,0.3)"
+            onCancel={onCancel ? () => onCancel(msg) : undefined}
+          />
+        ) : failed ? (
+          <AlertCircle size={22} color="#FFFFFF" />
+        ) : badge.ext ? (
+          <Text style={styles.fileExt}>{badge.ext}</Text>
+        ) : (
+          <FileText size={20} color="#FFFFFF" />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.fileName, { color: fg }]} numberOfLines={2}>
+          {msg.file_name || 'Файл'}
+        </Text>
+        <View style={styles.fileMetaRow}>
+          {!sending && <Download size={12} color={sub} />}
+          <Text style={[styles.fileMeta, { color: sub }]}>
+            {sending
+              ? `${Math.round((msg.progress || 0) * 100)}% · ${formatSize(msg.file_size) || 'отправка'}`
+              : formatSize(msg.file_size) || 'Открыть'}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 /** Служебное сообщение по центру ленты. */
 export function ServiceRow({ text }: { text: string }) {
@@ -301,8 +358,11 @@ const styles = themed(() => ({
   metaText: { fontSize: 11 },
   tick: { marginLeft: 3 },
   failed: { fontSize: 11, color: '#FECACA', marginTop: 4, textAlign: 'right' },
-  file: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 200, paddingBottom: 14, paddingTop: 2 },
-  fileIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  file: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 220, paddingVertical: 4 },
+  fileIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  metaRoom: { height: 12 },
+  fileExt: { color: '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
+  pollMedia: { marginHorizontal: -6, marginTop: -2, marginBottom: 10, borderRadius: 12, overflow: 'hidden', alignSelf: 'center' },
   fileName: { fontSize: 15, fontWeight: '600' },
   fileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   fileMeta: { fontSize: 12 },

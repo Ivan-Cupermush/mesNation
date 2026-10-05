@@ -11,10 +11,13 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Image,
   } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { X, Check, Lightbulb } from 'lucide-react-native';
-import { C, plural } from './chatUtils';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
+import { X, Check, Lightbulb, ImagePlus, Paperclip, Play, FileText } from 'lucide-react-native';
+import { C, fileBadge, formatSize, plural } from './chatUtils';
 
 import { T, themed } from '../../theme/runtime';
 /**
@@ -33,10 +36,19 @@ export interface PollDraft {
   explanation: string | null;
 }
 
+/** Вложение опроса: фото, видео или файл над вопросом (как в Telegram). */
+export interface PollMediaDraft {
+  uri: string;
+  name: string;
+  type: string;
+  kind: 'photo' | 'video' | 'file';
+  size?: number | null;
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (poll: PollDraft) => Promise<void>;
+  onSubmit: (poll: PollDraft, media: PollMediaDraft | null) => Promise<void>;
 }
 
 const MAX_OPTIONS = 10;
@@ -50,6 +62,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
   const [correct, setCorrect] = useState<number | null>(null);
   const [explanation, setExplanation] = useState('');
   const [sending, setSending] = useState(false);
+  const [media, setMedia] = useState<PollMediaDraft | null>(null);
   const inputs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
@@ -61,8 +74,38 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
       setQuiz(false);
       setCorrect(null);
       setExplanation('');
+      setMedia(null);
     }
   }, [visible]);
+
+  const pickMedia = async () => {
+    const res = await launchImageLibrary({ mediaType: 'mixed', selectionLimit: 1, quality: 0.9 });
+    const a = res.assets?.[0];
+    if (!a?.uri) return;
+    const isVideo = (a.type || '').startsWith('video');
+    setMedia({
+      uri: a.uri,
+      name: a.fileName || `poll_${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`,
+      type: a.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+      kind: isVideo ? 'video' : 'photo',
+      size: a.fileSize,
+    });
+  };
+
+  const pickFile = async () => {
+    try {
+      const [f] = await pick({ type: [types.allFiles] });
+      if (!f?.uri) return;
+      if ((f.size || 0) > 200 * 1024 * 1024) {
+        Alert.alert('Слишком большой файл', 'Максимальный размер — 200 МБ');
+        return;
+      }
+      setMedia({ uri: f.uri, name: f.name || 'Файл', type: f.type || 'application/octet-stream', kind: 'file', size: f.size });
+    } catch (err: any) {
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
+      Alert.alert('Не удалось выбрать файл', err?.message || '');
+    }
+  };
 
   const setOption = (i: number, value: string) => {
     setOptions((prev) => {
@@ -112,7 +155,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
         is_quiz: quiz,
         correct_option_index: correctIndex,
         explanation: quiz && explanation.trim() ? explanation.trim() : null,
-      });
+      }, media);
       onClose();
     } catch (e: any) {
       Alert.alert('Не удалось создать опрос', e?.message || '');
@@ -140,6 +183,52 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
           </View>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+            {/* Медиа над вопросом — фото, видео или файл */}
+            {media ? (
+              <View style={styles.mediaCard}>
+                {media.kind === 'file' ? (
+                  <View style={styles.mediaFile}>
+                    <View style={[styles.mediaFileBadge, { backgroundColor: fileBadge(media.name).color }]}>
+                      {fileBadge(media.name).ext ? (
+                        <Text style={styles.mediaFileExt}>{fileBadge(media.name).ext}</Text>
+                      ) : (
+                        <FileText size={20} color="#FFFFFF" />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.mediaFileName} numberOfLines={2}>
+                        {media.name}
+                      </Text>
+                      {media.size ? <Text style={styles.mediaFileMeta}>{formatSize(media.size)}</Text> : null}
+                    </View>
+                  </View>
+                ) : (
+                  <View>
+                    <Image source={{ uri: media.uri }} style={styles.mediaImage} resizeMode="cover" />
+                    {media.kind === 'video' && (
+                      <View style={styles.mediaPlay}>
+                        <Play size={22} color="#FFFFFF" fill="#FFFFFF" />
+                      </View>
+                    )}
+                  </View>
+                )}
+                <TouchableOpacity onPress={() => setMedia(null)} style={styles.mediaRemove} accessibilityLabel="Убрать вложение">
+                  <X size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.mediaActions}>
+                <TouchableOpacity style={styles.mediaAction} onPress={pickMedia} activeOpacity={0.75}>
+                  <ImagePlus size={20} color={C.accent} />
+                  <Text style={styles.mediaActionText}>Фото или видео</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.mediaAction} onPress={pickFile} activeOpacity={0.75}>
+                  <Paperclip size={20} color={C.accent} />
+                  <Text style={styles.mediaActionText}>Файл</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <Text style={styles.section}>ВОПРОС</Text>
             <View style={styles.card}>
               <TextInput
@@ -279,6 +368,52 @@ function SettingRow({
 }
 
 const styles = themed(() => ({
+  mediaActions: { flexDirection: 'row', gap: 10, marginBottom: 6 },
+  mediaAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: T.border,
+    backgroundColor: T.card,
+  },
+  mediaActionText: { color: C.accent, fontSize: 14, fontWeight: '600' },
+  mediaCard: { borderRadius: 16, overflow: 'hidden', backgroundColor: T.card, marginBottom: 6 },
+  mediaImage: { width: '100%', height: 200 },
+  mediaPlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 48,
+    height: 48,
+    marginLeft: -24,
+    marginTop: -24,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaRemove: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaFile: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingRight: 48 },
+  mediaFileBadge: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  mediaFileExt: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  mediaFileName: { fontSize: 15, fontWeight: '600', color: T.textPrimary },
+  mediaFileMeta: { fontSize: 12, color: T.textSecondary, marginTop: 2 },
   container: { flex: 1, backgroundColor: T.inputBg },
   header: {
     flexDirection: 'row',

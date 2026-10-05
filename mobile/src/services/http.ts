@@ -187,6 +187,91 @@ export function upload<T>(
   return send<T>(path, { method: 'POST', body: form }, { timeoutMs: UPLOAD_TIMEOUT_MS });
 }
 
+export interface UploadTask<T> {
+  promise: Promise<T>;
+  /** Отменить загрузку (крестик на сообщении, как в Telegram). */
+  abort: () => void;
+}
+
+export class UploadCancelled extends Error {
+  constructor() {
+    super('Загрузка отменена');
+    this.name = 'UploadCancelled';
+  }
+}
+
+/**
+ * Загрузка с прогрессом и отменой. fetch в React Native не сообщает прогресс
+ * отправки, поэтому здесь XMLHttpRequest. onProgress получает долю 0…1.
+ */
+export function uploadWithProgress<T>(
+  path: string,
+  field: string,
+  file: UploadFile,
+  fields: Record<string, string | number | null | undefined> = {},
+  onProgress?: (fraction: number) => void,
+): UploadTask<T> {
+  const xhr = new XMLHttpRequest();
+  let cancelled = false;
+  const promise = (async () => {
+    const token = await getToken();
+    if (!token) {
+      unauthorizedListeners.forEach((l) => l());
+      throw new ApiError('Требуется вход', 401);
+    }
+    if (cancelled) throw new UploadCancelled();
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (v !== undefined && v !== null) form.append(k, String(v));
+    }
+    form.append(field, { uri: file.uri, name: file.name || 'file', type: file.type || 'application/octet-stream' } as any);
+    return new Promise<T>((resolve, reject) => {
+      xhr.open('POST', buildUrl(path));
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.timeout = UPLOAD_TIMEOUT_MS * 5;
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) onProgress(Math.min(0.99, e.loaded / e.total));
+        };
+      }
+      xhr.onload = () => {
+        let data: any = null;
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          data = null;
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(1);
+          resolve(data as T);
+          return;
+        }
+        if (xhr.status === 401) {
+          clearToken().finally(() => unauthorizedListeners.forEach((l) => l()));
+        }
+        const fallback = xhr.status >= 500 ? 'Ошибка сервера. Попробуйте позже.' : `Ошибка запроса (${xhr.status})`;
+        reject(new ApiError(data?.error || fallback, xhr.status, data?.details));
+      };
+      xhr.onerror = () => reject(cancelled ? new UploadCancelled() : new ApiError('Нет связи с сервером', 0));
+      xhr.ontimeout = () => reject(new ApiError('Сервер не ответил вовремя. Проверьте подключение.', 0));
+      xhr.onabort = () => reject(new UploadCancelled());
+      xhr.send(form);
+    });
+  })();
+  return {
+    promise,
+    abort: () => {
+      cancelled = true;
+      try {
+        xhr.abort();
+      } catch {
+        // запрос ещё не отправлен
+      }
+    },
+  };
+}
+
 // ---------- Файлы ----------
 
 /** Абсолютный URL для публичных файлов (аватары, превью). */

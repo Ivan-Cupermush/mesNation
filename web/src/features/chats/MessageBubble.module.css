@@ -1,0 +1,471 @@
+.row {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 14px;
+  margin-top: 6px;
+  transition: background 0.4s;
+}
+
+.rowTight {
+  margin-top: 2px;
+}
+
+.rowMine {
+  justify-content: flex-end;
+}
+
+.highlight {
+  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
+}
+
+.avatarSlot {
+  width: 38px;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.avatarBtn {
+  display: block;
+  border-radius: 50%;
+}
+
+.bubble {
+  position: relative;
+  max-width: min(78%, 560px);
+  min-width: 80px;
+  padding: 7px 11px 7px;
+  border-radius: var(--bubble-radius);
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.08);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.in {
+  background: var(--c-other-message-bubble);
+  color: var(--c-other-message-text);
+}
+
+.out {
+  background: var(--c-my-message-bubble);
+  color: var(--c-my-message-text);
+}
+
+/* Серии: внутренние углы меньше, «хвостик» у последнего пузыря */
+.joinTopIn {
+  border-top-left-radius: calc(var(--bubble-radius) / 3);
+}
+
+.joinBottomIn {
+  border-bottom-left-radius: calc(var(--bubble-radius) / 3);
+}
+
+.joinTopOut {
+  border-top-right-radius: calc(var(--bubble-radius) / 3);
+}
+
+.joinBottomOut {
+  border-bottom-right-radius: calc(var(--bubble-radius) / 3);
+}
+
+.tailIn {
+  border-bottom-left-radius: 4px;
+}
+
+.tailOut {
+  border-bottom-right-radius: 4px;
+}
+
+.withMedia {
+  padding: 3px;
+}
+
+.poll {
+  padding: 10px 14px 24px;
+  min-width: min(300px, 78vw);
+}
+
+.failedBubble {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.mediaOnly {
+  position: relative;
+  max-width: min(78%, 560px);
+}
+
+.sender {
+  display: block;
+  max-width: 100%;
+  font-size: 13.5px;
+  font-weight: 700;
+  margin-bottom: 2px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.padInMedia {
+  padding: 4px 8px 2px;
+}
+
+.forwarded {
+  font-size: 13px;
+  font-style: italic;
+  margin-bottom: 3px;
+  opacity: 0.85;
+}
+
+.in .forwarded {
+  color: var(--c-accent);
+}
+
+.quote {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 140px;
+  text-align: left;
+  padding: 4px 8px;
+  margin-bottom: 5px;
+  border-radius: 6px;
+  border-left: 3px solid;
+}
+
+.in .quote {
+  border-left-color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 10%, transparent);
+}
+
+.out .quote {
+  border-left-color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.quoteInMedia {
+  margin: 4px 5px 5px;
+  width: auto;
+}
+
+.quoteName {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.in .quoteName {
+  color: var(--c-accent);
+}
+
+.quoteText {
+  font-size: 13px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text {
+  font-size: var(--msg-font-size);
+  line-height: 1.38;
+  white-space: pre-wrap;
+}
+
+.text a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.in .text a {
+  color: var(--c-accent);
+}
+
+.captionInMedia {
+  padding: 6px 8px 4px;
+}
+
+.metaSpacer {
+  display: inline-block;
+  margin-left: 10px;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.metaAbs {
+  position: absolute;
+  right: 9px;
+  bottom: 5px;
+}
+
+.metaAbsMedia {
+  right: 10px;
+  bottom: 6px;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.in .meta {
+  color: var(--c-text-muted);
+}
+
+.out .meta {
+  color: var(--c-my-message-muted);
+}
+
+.metaOnMedia,
+.in .metaOnMedia,
+.out .metaOnMedia {
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.tick {
+  opacity: 0.9;
+}
+
+.tickRead {
+  color: var(--c-read-tick);
+}
+
+.metaOnMedia .tickRead {
+  color: #fff;
+}
+
+.in .tickRead {
+  color: var(--c-accent);
+}
+
+.tickFailed {
+  color: #fecaca;
+}
+
+.failed {
+  margin-top: 4px;
+  font-size: 11px;
+  text-align: right;
+  color: #fecaca;
+}
+
+.in .failed {
+  color: var(--c-danger);
+}
+
+/* ---------- Файлы ---------- */
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 230px;
+  max-width: 100%;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.file + .file {
+  margin-top: 4px;
+}
+
+.fileIcon {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.out .fileIcon {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+
+.fileExt {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.fileInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-right: 54px;
+}
+
+.fileName {
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.fileMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* ---------- Альбомы ---------- */
+
+.album {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(var(--bubble-radius) - 3px);
+  max-width: 100%;
+}
+
+.albumRounded {
+  border-radius: var(--bubble-radius);
+}
+
+.cell {
+  position: absolute;
+  overflow: hidden;
+  background: var(--c-input-bg);
+}
+
+.cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s;
+}
+
+.cell:hover img {
+  transform: scale(1.02);
+}
+
+.placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--c-surface-active);
+}
+
+.play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 3px;
+}
+
+.duration {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 11px;
+}
+
+.cellOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fecaca;
+}
+
+.albumMeta {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
+
+.pollMedia {
+  margin: -4px -8px 10px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ---------- Кольцо загрузки ---------- */
+
+.ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+.ring svg {
+  position: absolute;
+  inset: 0;
+}
+
+.ringX {
+  position: relative;
+}
+
+/* ---------- Служебные строки ---------- */
+
+.service {
+  display: flex;
+  justify-content: center;
+  margin: 10px 24px;
+}
+
+.service span {
+  max-width: 100%;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgba(40, 58, 48, 0.45);
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+
+[data-theme='dark'] .service span {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.serviceStrong {
+  font-weight: 650;
+}
+
+@media (max-width: 768px) {
+  .row {
+    padding: 0 8px;
+  }
+
+  .bubble,
+  .mediaOnly {
+    max-width: 86%;
+  }
+}

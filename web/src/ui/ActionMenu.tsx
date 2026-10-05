@@ -37,7 +37,7 @@ export function ActionMenu({ open, anchor, items, title, header, onClose }: Prop
     if (!open || isMobile || !anchor || !ref.current) return;
     const r = ref.current.getBoundingClientRect();
     const left = Math.min(Math.max(8, anchor.x - (anchor.x + r.width > window.innerWidth - 8 ? r.width : 0)), window.innerWidth - r.width - 8);
-    const top = anchor.y + r.height > window.innerHeight - 8 ? Math.max(8, anchor.y - r.height) : anchor.y;
+    const top = anchor.y + r.height > window.innerHeight - 8 ? Math.max(8, (anchor.yUp ?? anchor.y) - r.height) : anchor.y;
     setPos({ left, top });
   }, [open, anchor, isMobile, items.length]);
 

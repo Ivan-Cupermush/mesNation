@@ -151,6 +151,8 @@
 .main {
   flex: 1;
   min-width: 0;
+  /* На телефоне каркас — колонка: без этого блок растягивается под всю ленту и прокручивается страница. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

@@ -139,6 +139,10 @@ export interface Message {
   /** Только на клиенте: результаты опроса. */
   poll?: Poll;
   my_votes?: number[];
+  /** Только на клиенте: локальная копия файла до окончания загрузки. */
+  localUrl?: string | null;
+  localFile?: File;
+  asFile?: boolean;
 }
 
 export interface Topic {

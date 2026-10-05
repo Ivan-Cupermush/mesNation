@@ -14,6 +14,7 @@ import { Legacy } from './app/Legacy';
 
 // Новые разделы
 const ChatsRoutes = lazy(() => import('./features/chats/ChatsRoutes'));
+const UserProfile = lazy(() => import('./features/users/UserProfile'));
 
 // Разделы старой версии — до переноса на новую основу
 const KpiScreen = lazy(() => import('./screens/KpiScreen'));
@@ -58,6 +59,7 @@ function AppRoutes() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/tasks" replace />} />
           <Route path="chats/*" element={<ChatsRoutes />} />
+          <Route path="users/:id" element={<UserProfile />} />
 
           <Route path="tasks" element={<Legacy><TasksScreen /></Legacy>} />
           <Route path="tasks/new" element={<Legacy><CreateTaskScreen /></Legacy>} />

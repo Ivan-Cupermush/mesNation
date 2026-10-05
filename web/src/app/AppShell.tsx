@@ -4,6 +4,7 @@ import { BookOpen, ChartColumn, ListTodo, MessageCircle, NotebookPen, Settings, 
 import { useAuth } from '../features/auth/AuthProvider';
 import { isManager } from '../features/auth/roles';
 import { useUnreadChatsCount } from '../features/chats/queries';
+import { useChatNotifications } from '../features/chats/notifications';
 import { getSocket, onConnectionChange, isConnected } from '../lib/socket';
 import { Avatar } from '../ui/Avatar';
 import { BrandMark } from '../ui/BrandMark';
@@ -35,6 +36,7 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const unread = useUnreadChatsCount();
+  useChatNotifications(user?.id ?? 0);
   const offline = useOfflineBanner();
   const items = NAV.filter((n) => !('managersOnly' in n) || isManager(user));
   const isRoot = ROOT_PATHS.has(location.pathname.replace(/\/$/, ''));

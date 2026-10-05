@@ -13,6 +13,11 @@ export function setActiveChat(chatId: string | null, topicId: number | null = nu
   activeChat = chatId ? { chatId: String(chatId), topicId } : null;
 }
 
+/** Снять отметку, только если открыт всё ещё этот чат (переход чат → чат). */
+export function clearActiveChat(chatId: string, topicId: number | null = null) {
+  if (activeChat && activeChat.chatId === String(chatId) && (activeChat.topicId ?? null) === (topicId ?? null)) activeChat = null;
+}
+
 export function isChatOpen(chatId: string, topicId: number | null): boolean {
   return !!activeChat && activeChat.chatId === String(chatId) && (activeChat.topicId ?? null) === (topicId ?? null);
 }

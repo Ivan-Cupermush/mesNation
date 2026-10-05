@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect, Pattern, Circle, Path, G } from 'react-native-svg';
 import { useTheme } from '../../theme/ThemeContext';
-import { GRADIENTS, PATTERNS, Wallpaper } from '../../theme/wallpapers';
+import { GRADIENTS, PATTERNS, PATTERN_INTENSITY, Wallpaper } from '../../theme/wallpapers';
 
 /**
  * Фон ленты сообщений. Градиенты и узоры рисуются векторно (чёткие на любом
@@ -54,8 +54,12 @@ export function WallpaperView({ wallpaper, style, radius = 0 }: { wallpaper: Wal
   if (wallpaper.type === 'image') {
     return (
       <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.chatBg, borderRadius: radius, overflow: 'hidden' }, style]}>
-        <Image source={{ uri: wallpaper.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        {isDark && <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${wallpaper.dim ?? 0.35})` }]} />}
+        <Image source={{ uri: wallpaper.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={wallpaper.blur ? 12 : 0} />
+        {(() => {
+          // Затемнение задаётся в настройках; по умолчанию — лёгкое в тёмной теме.
+          const dim = wallpaper.dim ?? (isDark ? 0.4 : 0);
+          return dim > 0 ? <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${dim})` }]} /> : null;
+        })()}
       </View>
     );
   }
@@ -68,7 +72,8 @@ export function WallpaperView({ wallpaper, style, radius = 0 }: { wallpaper: Wal
   const gradId = wallpaper.type === 'gradient' ? wallpaper.id : PATTERNS.find((p) => p.id === patternId)?.gradient || 'mint';
   const g = GRADIENTS.find((x) => x.id === gradId) || GRADIENTS[0];
   const stops = isDark ? g.dark : g.light;
-  const ink = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const intensity = wallpaper.type === 'pattern' ? wallpaper.intensity ?? PATTERN_INTENSITY.default : PATTERN_INTENSITY.default;
+  const ink = isDark ? `rgba(255,255,255,${intensity})` : `rgba(0,0,0,${intensity})`;
 
   return (
     <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }, style]} pointerEvents="none">

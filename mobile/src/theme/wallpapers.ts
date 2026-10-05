@@ -12,8 +12,11 @@ import { useEffect, useState } from 'react';
 export type Wallpaper =
   | { type: 'none' }
   | { type: 'gradient'; id: string }
-  | { type: 'pattern'; id: string }
-  | { type: 'image'; uri: string; dim?: number };
+  | { type: 'pattern'; id: string; intensity?: number }
+  | { type: 'image'; uri: string; dim?: number; blur?: boolean };
+
+/** Насыщенность узора по умолчанию и пределы (доля непрозрачности рисунка). */
+export const PATTERN_INTENSITY = { min: 0.03, max: 0.18, default: 0.07 };
 
 export interface GradientDef {
   id: string;

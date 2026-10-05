@@ -61,7 +61,7 @@ function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: num
 function MessageRow(props: Props) {
   const { row, mine, showName, showAvatar, isGroup, senderName, senderAvatar, replied, repliedName, peerLastReadId, currentUserId } = props;
   const { width: screenW } = useWindowDimensions();
-  const { messageFontSize } = useTheme();
+  const { messageFontSize, bubbleRadius } = useTheme();
   const msgs = row.type === 'album' ? row.msgs : [row.msg];
   const main = row.type === 'album' ? row.msgs.find((m) => m.text) || row.msgs[0] : row.msg;
   const showSideAvatar = isGroup && !mine;
@@ -106,11 +106,14 @@ function MessageRow(props: Props) {
     </View>
   );
 
-  const bubbleRadius = {
-    borderTopLeftRadius: !mine && !showName ? 6 : 18,
-    borderTopRightRadius: mine && !showName ? 6 : 18,
-    borderBottomLeftRadius: !mine && showAvatar ? 4 : !mine ? 6 : 18,
-    borderBottomRightRadius: mine && showAvatar ? 4 : mine ? 6 : 18,
+  // Скругление настраивается («Углы сообщений»); внутренние углы серии и «хвостик» — меньше.
+  const R = bubbleRadius;
+  const inner = Math.max(4, Math.round(R / 3));
+  const corners = {
+    borderTopLeftRadius: !mine && !showName ? inner : R,
+    borderTopRightRadius: mine && !showName ? inner : R,
+    borderBottomLeftRadius: !mine && showAvatar ? Math.min(4, inner) : !mine ? inner : R,
+    borderBottomRightRadius: mine && showAvatar ? Math.min(4, inner) : mine ? inner : R,
   };
 
   const onLong = () => props.onLongPress(row);
@@ -148,7 +151,7 @@ function MessageRow(props: Props) {
           delayLongPress={280}
           onPress={main.status === 'failed' ? () => props.onRetry(main) : undefined}
           style={[
-            mediaOnly ? styles.mediaOnly : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, bubbleRadius, { maxWidth: maxBubble }],
+            mediaOnly ? styles.mediaOnly : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, corners, { maxWidth: maxBubble }],
             (isVisual && !mediaOnly) && { width: mediaW + 6, padding: 3 },
             isPoll && styles.pollBubble,
             isNote && styles.noteBubble,

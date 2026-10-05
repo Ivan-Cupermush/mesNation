@@ -1,6 +1,6 @@
 import notifee, { Event, EventType } from '@notifee/react-native';
 import { request } from '../services/http';
-import { openChat, openTask } from '../navigation/ref';
+import { navigationRef, openChat, openTask } from '../navigation/ref';
 import { PushPayload, getNotifySettings } from './model';
 import { clearChatNotification, clearTaskNotification, showMessageNotification, showTaskNotification, taskNotificationId } from './display';
 import { firstTime, isAppActive, isChatOpen, showBanner } from './state';
@@ -20,6 +20,8 @@ export async function handleIncoming(p: PushPayload | null): Promise<void> {
     if (!firstTime(`m:${p.messageId}`)) return;
     if (isAppActive()) {
       if (isChatOpen(p.chatId, p.topicId)) return;
+      // В списке чатов новое сообщение и так видно — баннер не нужен.
+      if (navigationRef.isReady() && navigationRef.getCurrentRoute()?.name === 'ChatList') return;
       const s = await getNotifySettings();
       if (s.messages && s.inApp) showBanner({ kind: 'message', data: p });
       return;

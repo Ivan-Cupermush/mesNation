@@ -57,7 +57,8 @@ import { C, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLa
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
-import { setActiveChat } from '../notifications/state';
+import { useTheme } from '../theme/ThemeContext';
+import { clearActiveChat, setActiveChat } from '../notifications/state';
 import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
 type ChatRouteProp = RouteProp<
@@ -93,6 +94,7 @@ export default function ChatScreen({ navigation }: any) {
   const topicId = route.params.topicId ?? null;
   const initialMessageId = route.params.messageId;
   const isFocused = useIsFocused();
+  const { sendByEnter } = useTheme();
 
   const [chat, setChat] = useState<any>(null);
   const chatName = chat?.name || route.params.chatName || 'Чат';
@@ -369,7 +371,7 @@ export default function ChatScreen({ navigation }: any) {
     if (!isFocused) return;
     setActiveChat(chatId, topicId);
     clearChatNotification(chatId).catch(() => undefined);
-    return () => setActiveChat(null);
+    return () => clearActiveChat(chatId, topicId);
   }, [isFocused, chatId, topicId]);
 
   // ===== Прочитано =====
@@ -493,12 +495,15 @@ export default function ChatScreen({ navigation }: any) {
 
   // Идущие загрузки: client_id → отмена (крестик на сообщении).
   const uploads = useRef(new Map<string, () => void>());
+  // Отменённые ещё до начала загрузки (стояли в очереди альбома).
+  const cancelled = useRef(new Set<string>());
 
   const setProgress = (clientId: string, progress: number) =>
     setMessages((prev) => prev.map((m) => (m.client_id === clientId && m.status === 'sending' ? { ...m, progress } : m)));
 
   /** Отменить отправку файла/фото: остановить загрузку и убрать сообщение. */
   const cancelUpload = useCallback((msg: any) => {
+    cancelled.current.add(msg.client_id);
     uploads.current.get(msg.client_id)?.();
     uploads.current.delete(msg.client_id);
     setMessages((prev) => prev.filter((m) => m.client_id !== msg.client_id));
@@ -506,6 +511,7 @@ export default function ChatScreen({ navigation }: any) {
 
   /** Отправляет (или повторяет отправку) локального сообщения. */
   const deliver = async (local: ChatMessage) => {
+    if (cancelled.current.has(local.client_id)) return;
     setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'sending', progress: 0 } : m)));
     try {
       let saved: any;
@@ -1153,6 +1159,10 @@ export default function ChatScreen({ navigation }: any) {
             placeholderTextColor={T.textMuted}
             multiline
             maxLength={4000}
+            // «Отправка по Enter» (Внешний вид → Чаты): Enter отправляет вместо новой строки.
+            submitBehavior={sendByEnter ? 'submit' : 'newline'}
+            returnKeyType={sendByEnter ? 'send' : 'default'}
+            onSubmitEditing={sendByEnter ? handleSend : undefined}
           />
           <TouchableOpacity
             onPress={handleSend}

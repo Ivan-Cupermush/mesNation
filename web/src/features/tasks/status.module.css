@@ -1,0 +1,83 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.segments {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.segment {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.track {
+  display: flex;
+  align-items: flex-start;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 72px;
+  flex-shrink: 0;
+}
+
+.node {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.line {
+  flex: 1;
+  height: 2px;
+  margin-top: 12px;
+  border-radius: 1px;
+}
+
+.stepLabel {
+  margin-top: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stepActive {
+  font-weight: 800;
+}
+
+@media (max-width: 420px) {
+  .step {
+    width: 60px;
+  }
+
+  .stepLabel {
+    font-size: 10.5px;
+  }
+}

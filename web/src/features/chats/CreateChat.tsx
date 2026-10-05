@@ -11,7 +11,6 @@ import { useFeedback } from '../../ui/feedback';
 import { UserPicker } from '../users/UserPicker';
 import { chatKeys } from './queries';
 import type { Chat } from './types';
-import type { Employee } from '../../lib/types';
 import s from './CreateChat.module.css';
 
 type Step = 'contacts' | 'members' | 'details';
@@ -36,7 +35,7 @@ export default function CreateChat() {
 
   useEffect(() => () => void (photo && URL.revokeObjectURL(photo.url)), [photo]);
 
-  const openPrivate = async (u: Employee) => {
+  const openPrivate = async (u: { id: number }) => {
     setBusy(true);
     try {
       const chat = await api.post<Chat>('/api/chats', { type: 'private', user_ids: [u.id] });

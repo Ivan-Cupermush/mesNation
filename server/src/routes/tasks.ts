@@ -180,15 +180,23 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   });
 });
 
-/** Уведомляет участников задачи (список задач на их устройствах обновится). */
-async function notifyParticipants(taskId: number, event = 'task_updated') {
+async function participantIds(taskId: number): Promise<number[]> {
   const { rows } = await pool.query(
     `SELECT creator_id AS uid FROM tasks WHERE id = $1
      UNION SELECT user_id FROM task_assignees WHERE task_id = $1
      UNION SELECT user_id FROM task_watchers WHERE task_id = $1`,
     [taskId],
   );
-  for (const r of rows) emitToUser(r.uid, event, { task_id: taskId });
+  return rows.map((r) => r.uid as number);
+}
+
+/**
+ * Уведомляет участников задачи (список задач на их устройствах обновится).
+ * also — бывшие участники: при смене исполнителей задача должна исчезнуть и у них.
+ */
+async function notifyParticipants(taskId: number, event = 'task_updated', also: number[] = []) {
+  const ids = new Set([...(await participantIds(taskId)), ...also]);
+  for (const uid of ids) emitToUser(uid, event, { task_id: taskId });
 }
 
 /** Push по смене статуса: на проверку — проверяющим, итог проверки — исполнителям. */
@@ -347,6 +355,7 @@ async function updateTask(req: AuthRequest, res: Response) {
   if (body.executor_comment !== undefined) set('executor_comment', body.executor_comment);
   if (body.watcher_comment !== undefined) set('watcher_comment', body.watcher_comment);
 
+  const before = body.assignee_ids || body.watcher_ids ? await participantIds(taskId) : [];
   const prevAssignees: number[] = body.assignee_ids
     ? (await pool.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId])).rows.map((r) => r.user_id)
     : [];
@@ -365,7 +374,7 @@ async function updateTask(req: AuthRequest, res: Response) {
       );
     }
   });
-  await notifyParticipants(taskId);
+  await notifyParticipants(taskId, 'task_updated', before);
   if (body.assignee_ids) {
     // Новым исполнителям — уведомление «вам назначена задача».
     const added = Array.from(new Set(body.assignee_ids)).filter((u) => !prevAssignees.includes(u));

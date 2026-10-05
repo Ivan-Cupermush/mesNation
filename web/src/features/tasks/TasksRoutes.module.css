@@ -1,0 +1,42 @@
+.layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--c-background);
+}
+
+.list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.split .list {
+  flex: 0 0 440px;
+  border-right: 1px solid var(--c-border);
+}
+
+.listWide {
+  flex: 1;
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

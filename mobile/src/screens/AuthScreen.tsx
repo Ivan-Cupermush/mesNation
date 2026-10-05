@@ -9,6 +9,8 @@ import { Button } from '../components/ui/Button';
 import { request, setToken } from '../services/http';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CompanySetupScreen from './CompanySetupScreen';
+import BrandMark from '../components/ui/BrandMark';
+import { User, Lock, WifiOff, Building2 } from 'lucide-react-native';
 
 import { themed } from '../theme/runtime';
 type Screen = 'loading' | 'offline' | 'welcome' | 'login' | 'setup';
@@ -69,8 +71,8 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
   if (screen === 'loading') {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={{ color: colors.textSecondary, marginTop: 16 }}>Проверяем сервер...</Text>
+        <BrandMark />
+        <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: 32 }} />
       </View>
     );
   }
@@ -79,7 +81,9 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
   if (screen === 'offline') {
     return (
       <SafeAreaView style={[styles.centered, { backgroundColor: colors.background, padding: 32 }]}>
-        <Text style={{ fontSize: 64 }}>📡</Text>
+        <View style={[styles.offlineIcon, { backgroundColor: colors.inputBg }]}>
+          <WifiOff size={34} color={colors.textSecondary} strokeWidth={2} />
+        </View>
         <Text style={[styles.loginTitle, { color: colors.textPrimary, textAlign: 'center' }]}>Нет связи с сервером</Text>
         <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>Проверьте интернет или подключение к рабочей сети.</Text>
         <View style={{ width: '100%', marginTop: 28, gap: 12 }}>
@@ -105,25 +109,20 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
           translucent
         />
         <View style={styles.welcomeContent}>
-          <Text style={{ fontSize: 100 }}>🚀</Text>
-          <Text style={[styles.welcomeTitle, { color: colors.textPrimary }]}>
-            Добро пожаловать в{'\n'}
-            <Text style={{ color: colors.accent }}>Offix</Text>
-          </Text>
+          <BrandMark size={84} />
           <Text style={[styles.welcomeSubtitle, { color: colors.textSecondary }]}>
-            Корпоративный мессенджер нового поколения{'\n'}
-            с CRM, задачами и иерархией прав
+            Чаты, задачи, заметки и KPI вашей компании
           </Text>
 
           <View style={styles.welcomeButtons}>
             <Button
-              title="🏢 Создать компанию"
+              title="Создать компанию"
               onPress={() => setScreen('setup')}
               fullWidth
               size="lg"
             />
             <Text style={[styles.welcomeHint, { color: colors.textMuted }]}>
-              Создайте свою компанию и станьте супер-администратором
+              Вы станете директором — корнем дерева ролей
             </Text>
           </View>
         </View>
@@ -149,13 +148,11 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.loginHero}>
-            <Text style={{ fontSize: 80 }}>🔐</Text>
-            <Text style={[styles.loginTitle, { color: colors.textPrimary }]}>Вход</Text>
+            <BrandMark />
             {companyName && (
               <View style={[styles.companyBadge, { backgroundColor: colors.accentMuted }]}>
-                <Text style={{ color: colors.accent, fontWeight: '600' }}>
-                  🏢 {companyName}
-                </Text>
+                <Building2 size={15} color={colors.accent} strokeWidth={2.2} />
+                <Text style={{ color: colors.accent, fontWeight: '600' }}>{companyName}</Text>
               </View>
             )}
           </View>
@@ -168,7 +165,9 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
               onChangeText={setUsername}
               autoCapitalize="none"
               autoCorrect={false}
-              icon="👤"
+              icon={<User size={18} color={colors.textMuted} strokeWidth={2} />}
+              textContentType="username"
+              returnKeyType="next"
             />
             <Input
               label="Пароль"
@@ -176,7 +175,10 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
               value={password}
               onChangeText={setPassword}
               secureTextEntry
-              icon="🔒"
+              icon={<Lock size={18} color={colors.textMuted} strokeWidth={2} />}
+              textContentType="password"
+              returnKeyType="go"
+              onSubmitEditing={handleLogin}
             />
 
             <View style={{ marginTop: 24 }}>
@@ -201,12 +203,12 @@ const styles = themed(() => ({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { padding: 20, paddingBottom: 40, flexGrow: 1, justifyContent: 'center' },
   welcomeContent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  welcomeTitle: { fontSize: 32, fontWeight: '700', textAlign: 'center', marginTop: 24 },
-  welcomeSubtitle: { fontSize: 16, textAlign: 'center', marginTop: 12, lineHeight: 24 },
+  welcomeSubtitle: { fontSize: 16, textAlign: 'center', marginTop: 20, lineHeight: 24 },
+  offlineIcon: { width: 76, height: 76, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   welcomeButtons: { width: '100%', marginTop: 48 },
   welcomeHint: { fontSize: 13, textAlign: 'center', marginTop: 16 },
-  loginHero: { alignItems: 'center', marginBottom: 32 },
+  loginHero: { alignItems: 'center', marginBottom: 36 },
   loginTitle: { fontSize: 28, fontWeight: '700', marginTop: 16 },
-  companyBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginTop: 12 },
+  companyBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginTop: 20 },
   form: { marginTop: 8 }
 }));

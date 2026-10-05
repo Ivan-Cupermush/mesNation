@@ -600,8 +600,7 @@ const styles = themed(() => ({
   },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   bigSubtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18, fontStyle: 'italic', color: T.textSecondary,
+    fontSize: 14, color: T.textSecondary, fontWeight: '500',
   },
 
   // ===== CONTENT =====

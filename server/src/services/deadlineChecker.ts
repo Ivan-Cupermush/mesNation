@@ -1,5 +1,6 @@
 import pool from '../db/pool';
 import { logger } from '../lib/logger';
+import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from './taskDeadlines';
 
 export interface OverdueInfo {
   executor_overdue: Array<{ id: number; title: string; deadline: string; assignee_ids: number[] }>;
@@ -12,37 +13,29 @@ export interface OverdueInfo {
  */
 export async function checkOverdueTasks(): Promise<OverdueInfo> {
   try {
-    // 1. Исполнительские дедлайны: new/in_progress с просроченным executor_deadline
+    // 1. Исполнители не сдали работу к сроку этапа (дедлайн проверки или общий срок).
     const executorOverdue = await pool.query(
-      `SELECT t.id, t.title, t.executor_deadline as deadline
+      `SELECT t.id, t.title, ${CURRENT_DEADLINE_SQL} AS deadline
        FROM tasks t
-       WHERE t.executor_deadline IS NOT NULL
-         AND t.executor_deadline < NOW()
-         AND t.status_new IN ('new', 'in_progress')
-       ORDER BY t.executor_deadline ASC`,
-      []
+       WHERE t.status_new IN ('new', 'in_progress', 'rejected') AND ${OVERDUE_SQL}
+       ORDER BY 3 ASC`,
     );
 
     const executorResults = [];
     for (const task of executorOverdue.rows) {
-      const assignees = await pool.query(
-        'SELECT user_id FROM task_assignees WHERE task_id = $1', [task.id]
-      );
+      const assignees = await pool.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [task.id]);
       executorResults.push({
         ...task,
         assignee_ids: assignees.rows.map((r: any) => r.user_id),
       });
     }
 
-    // 2. Ревьюерские дедлайны: on_review с просроченным reviewer_deadline
+    // 2. Наблюдатели не проверили к сроку.
     const reviewerOverdue = await pool.query(
-      `SELECT t.id, t.title, t.reviewer_deadline as deadline, t.creator_id
+      `SELECT t.id, t.title, ${CURRENT_DEADLINE_SQL} AS deadline, t.creator_id
        FROM tasks t
-       WHERE t.reviewer_deadline IS NOT NULL
-         AND t.reviewer_deadline < NOW()
-         AND t.status_new = 'on_review'
-       ORDER BY t.reviewer_deadline ASC`,
-      []
+       WHERE t.status_new = 'on_review' AND ${OVERDUE_SQL}
+       ORDER BY 3 ASC`,
     );
 
     const info: OverdueInfo = {

@@ -198,7 +198,7 @@ export const DatePickerField = ({
 
       {/* ===== iOS: Modal с picker ===== */}
       {Platform.OS === 'ios' && (
-        <Modal visible={showDate || showTime} transparent animationType="slide">
+        <Modal visible={showDate || showTime} transparent animationType="slide" onRequestClose={handleCancel}>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { backgroundColor: colors.elevated }]}>
               <View style={[styles.modalHeader, { borderBottomColor: colors.divider }]}>

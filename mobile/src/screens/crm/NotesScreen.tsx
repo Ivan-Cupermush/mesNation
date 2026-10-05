@@ -311,11 +311,10 @@ const styles = themed(() => ({
     lineHeight: 44,
   },
   subtitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
-    fontSize: 18,
-    fontStyle: 'italic',
+        fontSize: 14,
     color: T.textSecondary,
     marginTop: 4,
+    fontWeight: '500',
   },
   profileBtn: {
     width: 40,

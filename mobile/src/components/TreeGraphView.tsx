@@ -6,19 +6,25 @@ import {
   PanResponder,
   Animated,
   LayoutChangeEvent,
-  GestureResponderEvent
+  GestureResponderEvent,
+  StyleSheet,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Defs, Pattern, Circle, Rect } from 'react-native-svg';
 import { Plus, Minus, Maximize2, Users } from 'lucide-react-native';
 import { useTheme } from '../theme/ThemeContext';
 
 import { NODE_WIDTH, NODE_HEIGHT, RoleNode, buildForest, flatten } from './treeLayout';
+import { withAlpha } from '../theme/palettes';
 
-import { T, themed } from '../theme/runtime';
+import { themed } from '../theme/runtime';
 export type { RoleNode };
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
+
+/** Место под кнопкой «+» под нижним рядом узлов. */
+const ADD_ZONE = 44;
+const ADD_SIZE = 26;
 
 const clampScale = (s: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
 
@@ -47,18 +53,32 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
       w = Math.max(w, n.x + NODE_WIDTH);
       h = Math.max(h, n.y + NODE_HEIGHT);
     });
-    return { width: w, height: h };
+    return { width: w, height: h + ADD_ZONE };
   }, [allNodes]);
 
+  // Связи как в оргструктуре: вертикаль от руководителя, общая «шина»
+  // и вертикали к подчинённым, со скруглёнными углами.
   const edges = useMemo(() => {
     const list: { key: string; d: string }[] = [];
+    const R = 10;
     allNodes.forEach((ln) => {
+      if (!ln.children.length) return;
       const px = ln.x + NODE_WIDTH / 2;
       const py = ln.y + NODE_HEIGHT;
+      const my = py + (ln.children[0].y - py) / 2;
       ln.children.forEach((c) => {
         const cx = c.x + NODE_WIDTH / 2;
-        const my = (py + c.y) / 2;
-        list.push({ key: `e-${ln.node.id}-${c.node.id}`, d: `M ${px} ${py} C ${px} ${my}, ${cx} ${my}, ${cx} ${c.y}` });
+        const dx = cx - px;
+        if (Math.abs(dx) < 1) {
+          list.push({ key: `e-${ln.node.id}-${c.node.id}`, d: `M ${px} ${py} V ${c.y}` });
+          return;
+        }
+        const r = Math.min(R, Math.abs(dx) / 2, (c.y - my) / 2);
+        const sx = Math.sign(dx);
+        list.push({
+          key: `e-${ln.node.id}-${c.node.id}`,
+          d: `M ${px} ${py} V ${my - r} Q ${px} ${my} ${px + sx * r} ${my} H ${cx - sx * r} Q ${cx} ${my} ${cx} ${my + r} V ${c.y}`,
+        });
       });
     });
     return list;
@@ -209,13 +229,25 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
     );
   }
 
+  const lineColor = withAlpha(colors.textMuted, 0.7);
+
   return (
     <View
       ref={containerRef}
-      style={[styles.container, { backgroundColor: colors.surface }]}
+      style={[styles.container, { backgroundColor: colors.background }]}
       onLayout={onLayout}
       {...panResponder.panHandlers}
     >
+      {/* Точечная сетка — подложка «доски», на которой нарисована структура. */}
+      <Svg style={styles.grid} pointerEvents="none">
+        <Defs>
+          <Pattern id="dots" width={22} height={22} patternUnits="userSpaceOnUse">
+            <Circle cx={2} cy={2} r={1.2} fill={withAlpha(colors.textMuted, 0.28)} />
+          </Pattern>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#dots)" />
+      </Svg>
+
       <Animated.View
         style={{
           width: bounds.width,
@@ -225,64 +257,71 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
       >
         <Svg width={bounds.width} height={bounds.height} style={styles.svg} pointerEvents="none">
           {edges.map((e) => (
-            <Path key={e.key} d={e.d} stroke={colors.border} strokeWidth={2} fill="none" strokeLinecap="round" />
+            <Path key={e.key} d={e.d} stroke={lineColor} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
           ))}
         </Svg>
-        {allNodes.map(({ node, x, y }) => {
-          const color = node.color || T.violet;
+        {allNodes.map(({ node, x, y, children }) => {
+          const color = node.color || colors.accent;
           const selected = selectedNodeId === node.id;
+          const isRoot = !!node.is_root || node.parent_id == null;
           const userCount = Number(node.users_count) || 0;
           const icon = node.icon && String(node.icon).trim() ? String(node.icon) : '\u{1F464}';
           return (
-            <TouchableOpacity
-              key={node.id}
-              activeOpacity={0.85}
-              onPress={() => onNodePress?.(node)}
-              accessibilityRole="button"
-              accessibilityLabel={`Роль ${node.name}, сотрудников: ${userCount}`}
-              style={[
-                styles.nodeCard,
-                { left: x, top: y, backgroundColor: colors.elevated, shadowColor: colors.shadow },
-                selected && { borderWidth: 2, borderColor: colors.accent },
-              ]}
-            >
-              <View style={[styles.nodeAccent, { backgroundColor: color }]} />
-              <View style={styles.nodeBody}>
-                <View style={[styles.nodeIconWrap, { backgroundColor: color + '22' }]}>
+            <React.Fragment key={node.id}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => onNodePress?.(node)}
+                accessibilityRole="button"
+                accessibilityLabel={`Роль ${node.name}, сотрудников: ${userCount}`}
+                style={[
+                  styles.nodeCard,
+                  { left: x, top: y, backgroundColor: colors.card, shadowColor: colors.shadow, borderColor: isRoot ? color : colors.border },
+                  isRoot && styles.rootCard,
+                  selected && { borderColor: colors.accent, borderWidth: 2 },
+                ]}
+              >
+                <View style={[styles.nodeAccent, { backgroundColor: color }]} />
+                <View style={[styles.nodeIconWrap, { backgroundColor: withAlpha(color.length === 7 ? color : '#888888', 0.16) }]}>
                   <Text style={styles.nodeIcon}>{icon}</Text>
                 </View>
                 <View style={styles.nodeTextWrap}>
                   <Text style={[styles.nodeName, { color: colors.textPrimary }]} numberOfLines={1}>
                     {node.name}
                   </Text>
-                  {userCount > 0 ? (
-                    <View style={[styles.usersChip, { backgroundColor: colors.surfaceHover }]}>
-                      <Users size={10} color={colors.textSecondary} strokeWidth={2.2} />
-                      <Text style={[styles.usersChipText, { color: colors.textSecondary }]}>{userCount}</Text>
-                    </View>
-                  ) : (
-                    <Text style={[styles.nodeEmpty, { color: colors.textMuted }]}>нет людей</Text>
-                  )}
+                  <View style={styles.nodeMeta}>
+                    <Users size={11} color={userCount ? colors.textSecondary : colors.textMuted} strokeWidth={2.2} />
+                    <Text style={[styles.nodeMetaText, { color: userCount ? colors.textSecondary : colors.textMuted }]}>
+                      {userCount ? `${userCount} чел.` : 'вакансия'}
+                    </Text>
+                  </View>
                 </View>
-                {onAddChildPress && (
-                  // Кнопка внутри карточки: на Android касания за её пределами не доходят.
-                  <TouchableOpacity
-                    onPress={() => onAddChildPress(node)}
-                    style={[styles.addBtn, { backgroundColor: colors.accentMuted }]}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
-                    accessibilityLabel={`Добавить роль под «${node.name}»`}
-                  >
-                    <Plus size={15} color={colors.accent} strokeWidth={2.6} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+              {onAddChildPress && (
+                // «+» под узлом, на линии к подчинённым: добавить роль уровнем ниже.
+                <TouchableOpacity
+                  onPress={() => onAddChildPress(node)}
+                  style={[
+                    styles.addBtn,
+                    {
+                      left: x + NODE_WIDTH / 2 - ADD_SIZE / 2,
+                      top: y + NODE_HEIGHT + (children.length ? 6 : 10),
+                      backgroundColor: colors.card,
+                      borderColor: colors.accent,
+                    },
+                  ]}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={`Добавить роль под «${node.name}»`}
+                >
+                  <Plus size={14} color={colors.accent} strokeWidth={2.8} />
+                </TouchableOpacity>
+              )}
+            </React.Fragment>
           );
         })}
       </Animated.View>
 
-      <View style={[styles.zoomControls, { backgroundColor: colors.elevated, shadowColor: colors.shadow }]}>
+      <View style={[styles.zoomControls, { backgroundColor: colors.card, shadowColor: colors.shadow, borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => zoomBy(1.25)} style={styles.zoomBtn} activeOpacity={0.7} accessibilityLabel="Приблизить">
           <Plus size={20} color={colors.textPrimary} strokeWidth={2.2} />
         </TouchableOpacity>
@@ -301,6 +340,7 @@ export default function TreeGraphView({ nodes, tree, onNodePress, onAddChildPres
 
 const styles = themed(() => ({
   container: { flex: 1, overflow: 'hidden' },
+  grid: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   svg: { position: 'absolute', top: 0, left: 0 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 14, fontWeight: '500' },
@@ -309,36 +349,40 @@ const styles = themed(() => ({
     width: NODE_WIDTH,
     height: NODE_HEIGHT,
     borderRadius: 16,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  nodeAccent: { width: 4 },
-  nodeBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 10, paddingRight: 8 },
-  nodeIconWrap: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  nodeIcon: { fontSize: 18, lineHeight: 22 },
-  nodeTextWrap: { flex: 1 },
-  nodeName: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
-  usersChip: {
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    gap: 10,
+    paddingRight: 12,
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  usersChipText: { fontSize: 10, fontWeight: '700' },
-  nodeEmpty: { fontSize: 10, fontStyle: 'italic' },
-  addBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  rootCard: { borderWidth: 1.5 },
+  nodeAccent: { width: 4, alignSelf: 'stretch' },
+  nodeIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  nodeIcon: { fontSize: 19, lineHeight: 23 },
+  nodeTextWrap: { flex: 1 },
+  nodeName: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  nodeMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  nodeMetaText: { fontSize: 11, fontWeight: '600' },
+  addBtn: {
+    position: 'absolute',
+    width: ADD_SIZE,
+    height: ADD_SIZE,
+    borderRadius: ADD_SIZE / 2,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   zoomControls: {
     position: 'absolute',
     right: 16,
     bottom: 24,
     borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 4,
     flexDirection: 'row',
     alignItems: 'center',
@@ -348,5 +392,5 @@ const styles = themed(() => ({
     elevation: 6,
   },
   zoomBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  zoomDivider: { width: 1, height: 24 }
+  zoomDivider: { width: 1, height: 24 },
 }));

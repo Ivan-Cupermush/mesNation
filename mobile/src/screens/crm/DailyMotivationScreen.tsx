@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowRight, Sparkles } from 'lucide-react-native';
+import { ArrowRight, Quote } from 'lucide-react-native';
 import { api } from '../../services/api';
 
 import { T, themed } from '../../theme/runtime';
@@ -111,8 +111,8 @@ export default function DailyMotivationScreen({ navigation }: any) {
 
         <View style={styles.quoteBox}>
           <View style={styles.quoteHead}>
-            <Sparkles size={16} color={T.accent} />
-            <Text style={styles.quoteHeadText}>цитата дня · по твоим показателям</Text>
+            <Quote size={16} color={T.accent} />
+            <Text style={styles.quoteHeadText}>Мысль дня</Text>
           </View>
           <Text style={styles.quote}>«{quote}»</Text>
         </View>

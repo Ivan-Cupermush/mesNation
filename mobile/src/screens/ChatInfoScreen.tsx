@@ -11,8 +11,7 @@ import {
   Modal,
   Switch,
   Image,
-  Pressable,
-} from 'react-native';
+  Pressable, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -512,7 +511,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>Фон этого чата</Text>
-          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в «Оформлении».</Text>
+          <Text style={styles.sheetHint}>Виден только вам. Общий фон для всех чатов — в настройках внешнего вида.</Text>
           <ScrollView style={{ maxHeight: 420 }}>
             <WallpaperPicker value={wallpaper} onChange={(wp) => setChatWallpaper(chatId, wp)} />
           </ScrollView>
@@ -535,6 +534,7 @@ export default function ChatInfoScreen({ navigation }: any) {
 
       {/* ===== Переименование ===== */}
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.dialogBackdrop}>
           <View style={styles.dialog}>
             <Text style={styles.dialogTitle}>Название группы</Text>
@@ -549,6 +549,7 @@ export default function ChatInfoScreen({ navigation }: any) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ===== Права администратора ===== */}
@@ -561,7 +562,7 @@ export default function ChatInfoScreen({ navigation }: any) {
               <View style={styles.sheetUser}>
                 <Avatar name={adminEditor.user.display_name || adminEditor.user.username} url={adminEditor.user.avatar_url} size={44} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.memberName}>{adminEditor.user.display_name || adminEditor.user.username}</Text>
+                  <Text style={styles.memberName} numberOfLines={1}>{adminEditor.user.display_name || adminEditor.user.username}</Text>
                   <Text style={styles.memberSub}>{adminEditor.existing ? 'Администратор' : 'Станет администратором'}</Text>
                 </View>
               </View>

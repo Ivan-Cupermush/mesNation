@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Platform,
+  View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Platform, Pressable,
 } from 'react-native';
 import { ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react-native';
 
 import { T, themed } from '../theme/runtime';
+import { withAlpha } from '../theme/palettes';
 import SafeBottom from './ui/SafeBottom';
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 const MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
@@ -13,14 +14,23 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-const ITEM_H = 34;
+const ITEM_H = 40;
 const VISIBLE = 5;
 const WHEEL_H = ITEM_H * VISIBLE;
 const WHEEL_PAD = (WHEEL_H - ITEM_H) / 2;
 
+/**
+ * Колесо выбора (часы/минуты) как в iOS. На Android вложенный вертикальный
+ * ScrollView внутри другого не получает жесты без nestedScrollEnabled —
+ * из-за этого колёса не крутились. Значение можно выбрать и касанием.
+ */
 function Wheel({ items, value, onChange }: { items: number[]; value: number; onChange: (v: number) => void }) {
   const ref = useRef<ScrollView>(null);
   const [center, setCenter] = useState(value);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (settle.current) clearTimeout(settle.current);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -32,51 +42,73 @@ function Wheel({ items, value, onChange }: { items: number[]; value: number; onC
   }, []);
 
   const idxFrom = (y: number) => Math.max(0, Math.min(items.length - 1, Math.round(y / ITEM_H)));
+  const commit = (y: number) => {
+    const i = idxFrom(y);
+    setCenter(i);
+    onChange(items[i]);
+  };
+  const pick = (i: number) => {
+    ref.current?.scrollTo({ y: i * ITEM_H, animated: true });
+    setCenter(i);
+    onChange(items[i]);
+  };
+  const fade = (a: number) => withAlpha(T.card, a);
 
   return (
-    <View style={{ height: WHEEL_H, flex: 1, position: 'relative' }}>
+    <View style={{ height: WHEEL_H, flex: 1 }}>
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
+        <View style={{ height: ITEM_H, borderRadius: 10, backgroundColor: T.accentMuted }} />
+      </View>
       <ScrollView
         ref={ref}
+        nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_H}
-        snapToAlignment="center"
         decelerationRate="fast"
-        onScroll={(e) => setCenter(idxFrom(e.nativeEvent.contentOffset.y))}
-        onScrollEndDrag={(e) => onChange(idxFrom(e.nativeEvent.contentOffset.y))}
-        onMomentumScrollEnd={(e) => onChange(idxFrom(e.nativeEvent.contentOffset.y))}
+        scrollEventThrottle={16}
+        overScrollMode="never"
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          setCenter(idxFrom(y));
+          // Страховка: на части устройств конец инерции не приходит — фиксируем после паузы.
+          if (settle.current) clearTimeout(settle.current);
+          settle.current = setTimeout(() => commit(y), 180);
+        }}
+        onMomentumScrollEnd={(e) => commit(e.nativeEvent.contentOffset.y)}
+        onScrollEndDrag={(e) => {
+          // Без инерции onMomentumScrollEnd не придёт — фиксируем значение здесь.
+          if (!e.nativeEvent.velocity || Math.abs(e.nativeEvent.velocity.y) < 0.05) commit(e.nativeEvent.contentOffset.y);
+        }}
         contentContainerStyle={{ paddingVertical: WHEEL_PAD }}
       >
-        {items.map((it) => {
-          const active = it === center;
+        {items.map((it, i) => {
+          const dist = Math.abs(i - center);
           return (
-            <View key={it} style={{ height: ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ fontSize: active ? 20 : 15, fontWeight: active ? '700' : '500', color: active ? T.textPrimary : T.textMuted }}>
+            <TouchableOpacity key={it} activeOpacity={0.6} onPress={() => pick(i)} style={{ height: ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+              <Text
+                style={{
+                  fontSize: dist === 0 ? 22 : 17,
+                  fontWeight: dist === 0 ? '700' : '500',
+                  color: dist === 0 ? T.textPrimary : T.textSecondary,
+                  opacity: dist === 0 ? 1 : dist === 1 ? 0.7 : 0.4,
+                  fontVariant: ['tabular-nums'],
+                }}
+              >
                 {pad2(it)}
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'center' }]}>
-        <View style={{ height: ITEM_H, borderTopWidth: 1, borderBottomWidth: 1, borderColor: T.border, backgroundColor: 'rgba(31,122,82,0.05)', borderRadius: 8 }} />
-      </View>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'space-between' }]}>
-        <View style={{ height: WHEEL_PAD }}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.9)' }} />
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.55)' }} />
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.25)' }} />
-        </View>
-        <View style={{ height: WHEEL_PAD }}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.25)' }} />
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.55)' }} />
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.9)' }} />
-        </View>
+        <View style={{ height: WHEEL_PAD / 2, backgroundColor: fade(0.75) }} />
+        <View style={{ height: WHEEL_PAD / 2, backgroundColor: fade(0.75) }} />
       </View>
     </View>
   );
 }
 
-export default function DateTimePickerModal({ visible, initialDate, minDate, title, onSave, onClose }: any) {
+export default function DateTimePickerModal({ visible, initialDate, minDate, maxDate, title, onSave, onClose }: any) {
   const [month, setMonth] = useState(new Date());
   const [day, setDay] = useState(new Date());
   const [hour, setHour] = useState(12);
@@ -115,7 +147,9 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
 
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  const isDisabled = (d: Date) => (minDay ? d.getTime() < minDay.getTime() : false);
+  const maxDay = maxDate ? new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate()) : null;
+  const isDisabled = (d: Date) =>
+    (minDay ? d.getTime() < minDay.getTime() : false) || (maxDay ? d.getTime() > maxDay.getTime() : false);
 
   const openMonthYear = () => {
     setSelMonth(month.getMonth());
@@ -137,8 +171,9 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <TouchableOpacity activeOpacity={1} style={styles.overlay} onPress={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
@@ -148,7 +183,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
             {/* ===== Календарь ===== */}
             <View style={styles.calHeader}>
               <TouchableOpacity style={styles.calNavBtn} onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
@@ -188,7 +223,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
             </View>
 
             {/* ===== Время: крутилки как в iOS ===== */}
-            <Text style={styles.timeLabel}>ВРЕМЯ</Text>
+            <Text style={styles.timeLabel}>Время</Text>
             <View style={styles.wheelsRow}>
               <Wheel key={`h${openTick}`} items={HOURS} value={hour} onChange={setHour} />
               <Text style={styles.wheelColon}>:</Text>
@@ -206,11 +241,12 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
           </View>
           <SafeBottom />
         </View>
-      </TouchableOpacity>
+      </View>
 
       {/* ===== Быстрый выбор месяца/года ===== */}
-      <Modal visible={showMonthYear} transparent animationType="fade">
-        <TouchableOpacity activeOpacity={1} style={styles.myOverlay} onPress={() => setShowMonthYear(false)}>
+      <Modal visible={showMonthYear} transparent animationType="fade" onRequestClose={() => setShowMonthYear(false)} statusBarTranslucent>
+        <View style={styles.myOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowMonthYear(false)} />
           <View style={styles.myCard}>
             <View style={styles.myHeader}>
               <Text style={styles.myTitle}>Выбор периода</Text>
@@ -238,7 +274,7 @@ export default function DateTimePickerModal({ visible, initialDate, minDate, tit
               <Text style={styles.myDoneText}>Готово</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </Modal>
   );
@@ -269,8 +305,8 @@ const styles = themed(() => ({
   dayTextToday: { color: T.accent, fontWeight: '700' },
   dayTextDisabled: { color: T.disabled },
 
-  timeLabel: { fontSize: 11, fontWeight: '700', color: T.textSecondary, letterSpacing: 0.5, marginTop: 10, marginBottom: 4, textAlign: 'center' },
-  wheelsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 30 },
+  timeLabel: { fontSize: 13, fontWeight: '600', color: T.textSecondary, marginTop: 14, marginBottom: 6, textAlign: 'center' },
+  wheelsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 40 },
   wheelColon: { fontSize: 22, fontWeight: '700', color: T.textPrimary, marginHorizontal: 10 },
 
   footer: { flexDirection: 'row', gap: 10, marginTop: 16 },

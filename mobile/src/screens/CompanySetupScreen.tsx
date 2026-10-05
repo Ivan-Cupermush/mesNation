@@ -8,7 +8,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { request, setToken } from '../services/http';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Building2, User, AtSign, Mail, Lock } from 'lucide-react-native';
 import { TouchableOpacity } from 'react-native';
 
 import { themed } from '../theme/runtime';
@@ -63,8 +63,8 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
       await setToken(data.token);
 
       Alert.alert(
-        '🎉 Компания создана!',
-        `Добро пожаловать, ${data.user.display_name}! Вы — супер-администратор компании "${data.company_name}".`,
+        'Компания создана',
+        `${data.user.display_name}, вы — директор компании «${data.company_name}».`,
         [{ text: 'Продолжить', onPress: () => onSetupSuccess(data.token, data.user) }]
       );
     } catch (e: any) {
@@ -97,38 +97,36 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
         >
           {/* Hero-блок */}
           <View style={styles.hero}>
-            <Text style={{ fontSize: 80 }}>🏢</Text>
             <Text style={[styles.title, { color: colors.textPrimary }]}>
-              Создание компании
+              Новая компания
             </Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Вы станете супер-администратором и сможете{'\n'}
-              управлять пользователями и правами доступа
+              Вы станете директором: сможете создавать роли и сотрудников
             </Text>
           </View>
 
           {/* Форма */}
           <View style={styles.form}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              🏢 Компания
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+              КОМПАНИЯ
             </Text>
             <Input
               label="Название компании *"
               placeholder="Например: ООО Ромашка"
               value={companyName}
               onChangeText={setCompanyName}
-              icon="🏢"
+              icon={<Building2 size={18} color={colors.textMuted} strokeWidth={2} />}
             />
 
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginTop: 24 }]}>
-              👑 Ваш профиль (супер-администратор)
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 24 }]}>
+              ДИРЕКТОР
             </Text>
             <Input
               label="Отображаемое имя"
               placeholder="Иван Иванов"
               value={displayName}
               onChangeText={setDisplayName}
-              icon="👤"
+              icon={<User size={18} color={colors.textMuted} strokeWidth={2} />}
             />
             <Input
               label="Логин *"
@@ -137,7 +135,7 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
               onChangeText={setUsername}
               autoCapitalize="none"
               autoCorrect={false}
-              icon="🔑"
+              icon={<AtSign size={18} color={colors.textMuted} strokeWidth={2} />}
             />
             <Input
               label="Email *"
@@ -147,15 +145,15 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
               autoCapitalize="none"
               keyboardType="email-address"
               autoCorrect={false}
-              icon="📧"
+              icon={<Mail size={18} color={colors.textMuted} strokeWidth={2} />}
             />
             <Input
-              label="Пароль * (мин. 6 символов)"
+              label="Пароль * (минимум 8 символов)"
               placeholder="••••••••"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
-              icon="🔒"
+              icon={<Lock size={18} color={colors.textMuted} strokeWidth={2} />}
             />
             <Input
               label="Повторите пароль *"
@@ -163,12 +161,12 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
-              icon="🔒"
+              icon={<Lock size={18} color={colors.textMuted} strokeWidth={2} />}
             />
 
             <View style={{ marginTop: 32 }}>
               <Button
-                title={loading ? 'Создаём...' : '🚀 Создать компанию'}
+                title={loading ? 'Создаём…' : 'Создать компанию'}
                 onPress={handleCreate}
                 loading={loading}
                 disabled={loading}
@@ -178,11 +176,7 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
             </View>
 
             <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              Создавая компанию, вы получаете права супер-администратора:{'\n'}
-              • Создание и редактирование дерева прав{'\n'}
-              • Создание пользователей{'\n'}
-              • Назначение ролей{'\n'}
-              • Полный доступ ко всем данным
+              Директор — корень дерева ролей: видит все данные компании, создаёт роли и учётные записи сотрудников.
             </Text>
           </View>
         </ScrollView>
@@ -199,6 +193,6 @@ const styles = themed(() => ({
   title: { fontSize: 28, fontWeight: '700', marginTop: 16 },
   subtitle: { fontSize: 15, textAlign: 'center', marginTop: 8, lineHeight: 22 },
   form: { marginTop: 8 },
-  sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 8 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5, marginBottom: 10, marginTop: 8, marginLeft: 2 },
   footerText: { fontSize: 12, textAlign: 'center', marginTop: 24, lineHeight: 18 }
 }));

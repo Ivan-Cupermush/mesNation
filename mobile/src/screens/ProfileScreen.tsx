@@ -374,15 +374,15 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           </View>
         )}
 
-        {/* ===== ОФОРМЛЕНИЕ ===== */}
+        {/* ===== ВНЕШНИЙ ВИД ===== */}
         <View style={styles.card}>
           <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate('Appearance')} activeOpacity={0.7}>
             <View style={[styles.infoIconWrap, { backgroundColor: T.accentMuted }]}>
               <Palette size={16} color={T.accent} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.infoValue}>Оформление</Text>
-              <Text style={styles.infoLabel}>Тёмная тема, цвет, фон чатов, размер текста</Text>
+              <Text style={styles.infoValue}>Настройки внешнего вида</Text>
+              <Text style={styles.infoLabel}>Тема, цвет, фон чатов, размер текста</Text>
             </View>
             <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>
@@ -428,7 +428,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
       <ChangePasswordModal visible={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       {/* ===== МОДАЛКА РЕДАКТИРОВАНИЯ ===== */}
-      <Modal visible={showEditModal} transparent animationType="slide">
+      <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)} statusBarTranslucent>
         <TouchableOpacity
           activeOpacity={1}
           onPress={() => setShowEditModal(false)}

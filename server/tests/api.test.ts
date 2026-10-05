@@ -129,8 +129,9 @@ describe('задачи', () => {
       title: 'Сверка с бухгалтерией',
       assignee_ids: [c.bk.id],
       watcher_ids: [c.mgr2.id],
-      executor_deadline: new Date(Date.now() - 3600_000).toISOString(),
-      reviewer_deadline: new Date(Date.now() + 86400_000).toISOString(),
+      // Общий срок через 2 дня, сдать на проверку нужно было час назад.
+      executor_deadline: new Date(Date.now() + 2 * 86400_000).toISOString(),
+      reviewer_deadline: new Date(Date.now() - 3600_000).toISOString(),
       checkpoints: [{ title: 'Черновик', deadline: new Date(Date.now() + 3600_000).toISOString() }],
     });
     expect(r.status).toBe(201);
@@ -148,6 +149,45 @@ describe('задачи', () => {
   it('просрочка вычисляется (фильтр «Просроченные» больше не пустой)', async () => {
     const list = (await as(c.mgr1).get('/api/tasks?overdue=true')).body as any[];
     expect(list.some((t) => t.id === taskId && t.is_overdue)).toBe(true);
+  });
+
+  it('дедлайн проверки — не позже дедлайна выполнения (общего срока)', async () => {
+    const soon = new Date(Date.now() + 86400_000).toISOString();
+    const later = new Date(Date.now() + 3 * 86400_000).toISOString();
+    const bad = await as(c.mgr1).post('/api/tasks', { title: 'Х', assignee_ids: [c.bk.id], executor_deadline: soon, reviewer_deadline: later });
+    expect(bad.status).toBe(400);
+    const ok = await as(c.mgr1).post('/api/tasks', { title: 'Отчёт', assignee_ids: [c.bk.id], executor_deadline: later, reviewer_deadline: soon });
+    expect(ok.status).toBe(201);
+    // Текущий срок до сдачи — дедлайн проверки.
+    expect(new Date(ok.body.current_deadline).toISOString()).toBe(soon);
+    // Перенос общего срока раньше дедлайна проверки запрещён.
+    expect((await as(c.mgr1).patch(`/api/tasks/${ok.body.id}`, { executor_deadline: new Date(Date.now() + 3600_000).toISOString() })).status).toBe(400);
+    // Сдали на проверку после дедлайна проверки — наблюдателям остаётся общий срок.
+    const late = await as(c.mgr1).post('/api/tasks', {
+      title: 'Поздняя сдача',
+      assignee_ids: [c.bk.id],
+      executor_deadline: later,
+      reviewer_deadline: new Date(Date.now() - 3600_000).toISOString(),
+    });
+    expect(late.body.is_overdue).toBe(true);
+    await as(c.bk).post(`/api/tasks/${late.body.id}/transition`, { to_status: 'in_progress' });
+    const sent = await as(c.bk).post(`/api/tasks/${late.body.id}/transition`, { to_status: 'on_review' });
+    expect(sent.status).toBe(200);
+    const after = (await as(c.mgr1).get(`/api/tasks/${late.body.id}`)).body;
+    expect(after.is_overdue).toBe(false);
+    expect(new Date(after.current_deadline).toISOString()).toBe(later);
+  });
+
+  it('проверяют наблюдатели: наблюдатель принимает или отклоняет, исполнитель — нет', async () => {
+    const t = await as(c.mgr1).post('/api/tasks', { title: 'Проверка наблюдателем', assignee_ids: [c.bk.id], watcher_ids: [c.mgr2.id] });
+    await as(c.bk).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'on_review' });
+    const forWatcher = (await as(c.mgr2).get(`/api/tasks/${t.body.id}`)).body;
+    expect(forWatcher.available_transitions.map((x: any) => x.to).sort()).toEqual(['done', 'rejected']);
+    expect((await as(c.bk).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'done' })).status).toBe(403);
+    expect((await as(c.mgr2).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'rejected' })).status).toBe(400); // без причины
+    expect((await as(c.mgr2).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'rejected', comment: 'Нет подписи' })).status).toBe(200);
+    await as(c.bk).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'on_review' });
+    expect((await as(c.mgr2).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'done' })).status).toBe(200);
   });
 
   it('посторонний не видит задачу, руководитель исполнителя — видит', async () => {

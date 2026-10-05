@@ -155,6 +155,11 @@ export default function CreateTaskScreen({ navigation, route }: any) {
     }
   };
 
+  const shortDate = (d: Date) =>
+    d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) +
+    ' ' +
+    d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
   const formatDate = (d: Date | null) => {
     if (!d) return 'Не выбран';
     return d.toLocaleDateString('ru-RU', {
@@ -175,8 +180,11 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       Alert.alert('Ошибка', 'Выберите хотя бы одного исполнителя');
       return;
     }
-    if (executorDeadline && reviewerDeadline && reviewerDeadline < executorDeadline) {
-      Alert.alert('Ошибка', 'Дедлайн проверки не может быть раньше дедлайна выполнения');
+    if (executorDeadline && reviewerDeadline && reviewerDeadline > executorDeadline) {
+      Alert.alert(
+        'Проверьте сроки',
+        'Дедлайн проверки должен быть не позже дедлайна выполнения: к общему сроку задача уже проверена и закрыта.',
+      );
       return;
     }
 
@@ -250,7 +258,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
     title: string,
     source: User[],
   ) => (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
@@ -283,7 +291,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.userName}>
+                    <Text style={styles.userName} numberOfLines={1}>
                       {item.display_name || item.username}
                       {item.id === meId ? ' (я)' : ''}
                     </Text>
@@ -441,6 +449,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           </View>
 
           <Text style={styles.fieldLabel}>Дедлайн выполнения</Text>
+          <Text style={styles.fieldHintTop}>Общий срок задачи — к нему она должна быть полностью завершена</Text>
           <TouchableOpacity
             onPress={() => setShowExecutorDatePicker(true)}
             style={styles.dateRow}
@@ -468,6 +477,9 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <View style={styles.divider} />
 
           <Text style={styles.fieldLabel}>Дедлайн проверки</Text>
+          <Text style={styles.fieldHintTop}>
+            Необязательно. К этому сроку исполнители сдают работу, а наблюдатели её проверяют. Не позже дедлайна выполнения.
+          </Text>
           <TouchableOpacity
             onPress={() => setShowReviewerDatePicker(true)}
             style={styles.dateRow}
@@ -491,9 +503,24 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               </TouchableOpacity>
             )}
           </TouchableOpacity>
-          <Text style={styles.fieldHint}>
-            Если не указан — будет рассчитан автоматически при переходе на проверку
-          </Text>
+          {reviewerDeadline && executorDeadline && reviewerDeadline > executorDeadline && (
+            <Text style={[styles.fieldHint, { color: T.danger }]}>Дедлайн проверки позже дедлайна выполнения — так нельзя</Text>
+          )}
+          {executorDeadline && (
+            <View style={styles.timeline}>
+              <View style={styles.timelineItem}>
+                <View style={[styles.timelineDot, { backgroundColor: reviewerDeadline ? T.warning : T.disabled }]} />
+                <Text style={styles.timelineLabel}>Проверка</Text>
+                <Text style={styles.timelineDate}>{reviewerDeadline ? shortDate(reviewerDeadline) : '—'}</Text>
+              </View>
+              <View style={styles.timelineLine} />
+              <View style={styles.timelineItem}>
+                <View style={[styles.timelineDot, { backgroundColor: T.accent }]} />
+                <Text style={styles.timelineLabel}>Завершение</Text>
+                <Text style={styles.timelineDate}>{shortDate(executorDeadline)}</Text>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* ===== КАРТОЧКА 4: Участники ===== */}
@@ -665,6 +692,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         visible={showCpPicker}
         initialDate={executorDeadline}
         minDate={new Date()}
+        maxDate={executorDeadline}
         title="Срок контрольной точки"
         onClose={() => setShowCpPicker(false)}
         onSave={(d: Date) => {
@@ -686,8 +714,9 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       {/* Кастомный пикер: дедлайн проверки */}
       <DateTimePickerModal
         visible={showReviewerDatePicker}
-        initialDate={reviewerDeadline}
+        initialDate={reviewerDeadline || executorDeadline}
         minDate={new Date()}
+        maxDate={executorDeadline}
         title="Дедлайн проверки"
         onClose={() => setShowReviewerDatePicker(false)}
         onSave={(d: Date) => { setReviewerDeadline(d); setShowReviewerDatePicker(false); }}
@@ -786,8 +815,22 @@ const styles = themed(() => ({
   fieldHint: {
     fontSize: 12,
     color: T.textMuted,
-    fontStyle: 'italic',
   },
+  fieldHintTop: { fontSize: 12, color: T.textMuted, marginTop: -4, lineHeight: 16 },
+  timeline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: T.inputBg,
+  },
+  timelineItem: { alignItems: 'center', minWidth: 96 },
+  timelineDot: { width: 10, height: 10, borderRadius: 5, marginBottom: 4 },
+  timelineLabel: { fontSize: 11, fontWeight: '600', color: T.textSecondary },
+  timelineDate: { fontSize: 12, fontWeight: '700', color: T.textPrimary, marginTop: 1 },
+  timelineLine: { flex: 1, height: 2, backgroundColor: T.border, marginHorizontal: 6, marginBottom: 22 },
   divider: {
     height: 1,
     backgroundColor: T.surfaceActive,

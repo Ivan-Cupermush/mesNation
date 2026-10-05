@@ -10,7 +10,7 @@ import { WallpaperView } from '../components/chat/ChatWallpaper';
 import WallpaperPicker from '../components/chat/WallpaperPicker';
 
 /**
- * Оформление (как «Настройки чатов» в Telegram): тема, цвет акцента,
+ * Внешний вид (как «Настройки чатов» в Telegram): тема, цвет акцента,
  * фон чатов и размер текста сообщений — с живым предпросмотром.
  */
 
@@ -39,7 +39,7 @@ export default function AppearanceScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} accessibilityLabel="Назад">
           <ChevronLeft size={26} color={T.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Оформление</Text>
+        <Text style={styles.headerTitle}>Внешний вид</Text>
         <View style={styles.iconBtn} />
       </View>
 
@@ -79,7 +79,7 @@ export default function AppearanceScreen({ navigation }: any) {
         </View>
 
         {/* ===== Цвет ===== */}
-        <Text style={styles.section}>ЦВЕТ ОФОРМЛЕНИЯ</Text>
+        <Text style={styles.section}>ЦВЕТ ИНТЕРФЕЙСА</Text>
         <View style={styles.card}>
           <View style={styles.palettes}>
             {PALETTES.map((p) => {
@@ -132,7 +132,7 @@ export default function AppearanceScreen({ navigation }: any) {
         <View style={styles.card}>
           {wallpaper && <WallpaperPicker value={wallpaper} onChange={changeWallpaper} />}
           <Text style={styles.hint}>
-            Это фон для всех чатов. Для отдельного чата фон можно поменять в его информации: «Фон чата».
+            Фон для всех чатов. Свой фон для отдельного чата — в информации о чате, пункт «Фон чата».
           </Text>
         </View>
       </ScrollView>

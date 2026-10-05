@@ -22,6 +22,7 @@ import { fuzzyMatch } from '../utils/fuzzySearch';
 import { C, hashColor, initials, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
+import { withAlpha } from '../theme/palettes';
 /**
  * Новый чат как в Telegram:
  *  1. «Новое сообщение» — список сотрудников; нажатие сразу открывает
@@ -378,5 +379,5 @@ const styles = themed(() => ({
     shadowOffset: { width: 0, height: 4 },
   },
   fabDisabled: { backgroundColor: T.disabled },
-  busyOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' },
+  busyOverlay: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.background, 0.7), alignItems: 'center', justifyContent: 'center' },
 }));

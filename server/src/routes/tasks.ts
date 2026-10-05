@@ -9,6 +9,7 @@ import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/upl
 import { assertCanAssign, assertCanViewTask, getTaskRoles, getUserNode, getSubtreeNodeIds, isDirector } from '../services/access';
 import { checkOverdueTasks } from '../services/deadlineChecker';
 import { emitToUser } from '../realtime/socket';
+import { CURRENT_DEADLINE_SQL, OVERDUE_SQL, REVIEW_AFTER_FINAL_MESSAGE, reviewWithinFinal } from '../services/taskDeadlines';
 
 /**
  * Задачи. Монтируется на /api/tasks (после authenticate).
@@ -23,19 +24,12 @@ const router = Router();
 const STATUSES = ['new', 'in_progress', 'on_review', 'done', 'overdue', 'rejected', 'archived'] as const;
 const ACTIVE_STATUSES = ['new', 'in_progress', 'on_review', 'rejected', 'overdue'];
 
-/**
- * Задача просрочена, если не завершена и прошёл дедлайн исполнения
- * (или дедлайн проверки, пока задача на проверке).
- */
-const OVERDUE_SQL = `(
-  t.status_new IN ('new','in_progress','rejected','overdue') AND COALESCE(t.executor_deadline, t.hard_deadline) < NOW()
-  OR t.status_new = 'on_review' AND t.reviewer_deadline < NOW()
-)`;
 
 /** Полная выборка задачи: участники, наблюдатели, роли текущего пользователя. */
 const TASK_SELECT = `
   SELECT t.*,
          ${OVERDUE_SQL} AS is_overdue,
+         ${CURRENT_DEADLINE_SQL} AS current_deadline,
          COALESCE(uc.display_name, uc.username) AS creator_name,
          uc.username AS creator_username,
          (t.creator_id = $1) AS is_creator,
@@ -126,7 +120,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     where.push(`t.importance = $${params.length}`);
   }
   const prio = "CASE t.importance WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 ELSE 3 END";
-  const dl = 'COALESCE(t.executor_deadline, t.hard_deadline)';
+  // Сортировка по ближайшему сроку текущего этапа (сдать / проверить / закрыть).
+  const dl = `COALESCE(${CURRENT_DEADLINE_SQL}, t.executor_deadline, t.hard_deadline)`;
   const order =
     q.sort_by === 'priority'
       ? `${prio}, ${dl} ASC NULLS LAST, t.created_at DESC`
@@ -214,10 +209,10 @@ const createSchema = z
     watcher_ids: z.array(id).max(200).optional(),
     checkpoints: z.array(checkpointInput).max(50).optional(),
   })
-  .refine((v) => {
-    const ex = v.executor_deadline ?? v.hard_deadline;
-    return !ex || !v.reviewer_deadline || v.reviewer_deadline >= ex;
-  }, { message: 'Дедлайн проверки не может быть раньше дедлайна выполнения', path: ['reviewer_deadline'] });
+  .refine((v) => reviewWithinFinal(v.executor_deadline ?? v.hard_deadline, v.reviewer_deadline), {
+    message: REVIEW_AFTER_FINAL_MESSAGE,
+    path: ['reviewer_deadline'],
+  });
 
 async function setPeople(client: PoolClient, table: 'task_assignees' | 'task_watchers', taskId: number, ids: number[]) {
   await client.query(`DELETE FROM ${table} WHERE task_id = $1 AND user_id <> ALL($2::int[])`, [taskId, ids]);
@@ -290,7 +285,9 @@ async function updateTask(req: AuthRequest, res: Response) {
   const me = req.userId!;
   const body = req.body as z.infer<typeof patchSchema>;
   const roles = await assertCanViewTask(taskId, me);
-  const current = (await pool.query('SELECT status_new FROM tasks WHERE id = $1', [taskId])).rows[0];
+  const current = (
+    await pool.query('SELECT status_new, executor_deadline, hard_deadline, reviewer_deadline FROM tasks WHERE id = $1', [taskId])
+  ).rows[0];
   if (current.status_new === 'archived') throw badRequest('Задача в архиве. Сначала разархивируйте её.');
 
   const touchesCreatorFields = CREATOR_FIELDS.some((f) => body[f] !== undefined);
@@ -317,6 +314,11 @@ async function updateTask(req: AuthRequest, res: Response) {
   if (body.description !== undefined) set('description', body.description);
   if (body.importance !== undefined) set('importance', body.importance);
   const deadline = body.executor_deadline !== undefined ? body.executor_deadline : body.hard_deadline;
+  const nextFinal = deadline !== undefined ? deadline : (current.executor_deadline ?? current.hard_deadline);
+  const nextReview = body.reviewer_deadline !== undefined ? body.reviewer_deadline : current.reviewer_deadline;
+  if ((deadline !== undefined || body.reviewer_deadline !== undefined) && !reviewWithinFinal(nextFinal, nextReview)) {
+    throw badRequest(REVIEW_AFTER_FINAL_MESSAGE);
+  }
   if (deadline !== undefined) {
     set('executor_deadline', deadline);
     set('hard_deadline', deadline);
@@ -353,17 +355,18 @@ router.put('/:id', validate(patchSchema), updateTask);
  * Жизненный цикл задачи. role: кто может сделать переход;
  * 'self' — только если создатель сам себе исполнитель (проверять самому себя незачем).
  */
-type Transition = { role: 'creator' | 'assignee' | 'self'; action: string; comment?: 'required' | 'optional'; style?: 'primary' | 'success' | 'danger' | 'neutral' };
+/** reviewer — наблюдатель или создатель (у создателя всегда права наблюдателя). */
+type Transition = { role: 'creator' | 'assignee' | 'reviewer' | 'self'; action: string; comment?: 'required' | 'optional'; style?: 'primary' | 'success' | 'danger' | 'neutral' };
 const TRANSITIONS: Record<string, Transition> = {
   'new→in_progress': { role: 'assignee', action: 'Взять в работу', style: 'primary' },
   'new→on_review': { role: 'assignee', action: 'Сразу сдать на проверку', comment: 'optional', style: 'neutral' },
   'in_progress→on_review': { role: 'assignee', action: 'Отправить на проверку', comment: 'optional', style: 'primary' },
   'on_review→in_progress': { role: 'assignee', action: 'Отозвать с проверки', style: 'neutral' },
-  'on_review→done': { role: 'creator', action: 'Принять задачу', comment: 'optional', style: 'success' },
-  'on_review→rejected': { role: 'creator', action: 'Отклонить', comment: 'required', style: 'danger' },
+  'on_review→done': { role: 'reviewer', action: 'Принять задачу', comment: 'optional', style: 'success' },
+  'on_review→rejected': { role: 'reviewer', action: 'Отклонить', comment: 'required', style: 'danger' },
   'rejected→in_progress': { role: 'assignee', action: 'Вернуть в работу', style: 'primary' },
   'rejected→on_review': { role: 'assignee', action: 'Отправить на проверку повторно', comment: 'optional', style: 'neutral' },
-  'done→in_progress': { role: 'creator', action: 'Вернуть на доработку', comment: 'required', style: 'neutral' },
+  'done→in_progress': { role: 'reviewer', action: 'Вернуть на доработку', comment: 'required', style: 'neutral' },
   'done→archived': { role: 'creator', action: 'Архивировать', style: 'neutral' },
   'overdue→in_progress': { role: 'assignee', action: 'Взять в работу', style: 'primary' },
   'overdue→on_review': { role: 'assignee', action: 'Отправить на проверку', comment: 'optional', style: 'neutral' },
@@ -374,13 +377,16 @@ const TRANSITIONS: Record<string, Transition> = {
   'overdue→done': { role: 'self', action: 'Завершить', style: 'success' },
 };
 
-function allowed(t: Transition, roles: { isCreator: boolean; isAssignee: boolean }) {
+type Roles = { isCreator: boolean; isAssignee: boolean; isWatcher?: boolean };
+
+function allowed(t: Transition, roles: Roles) {
   if (t.role === 'self') return roles.isCreator && roles.isAssignee;
+  if (t.role === 'reviewer') return roles.isCreator || !!roles.isWatcher;
   return t.role === 'creator' ? roles.isCreator : roles.isAssignee;
 }
 
 /** Действия со статусом, доступные пользователю прямо сейчас (для кнопок в приложении). */
-function availableTransitions(status: string, roles: { isCreator: boolean; isAssignee: boolean }) {
+function availableTransitions(status: string, roles: Roles) {
   // Себе-задача: «на проверку самому себе» не предлагаем, есть «Завершить».
   const selfTask = roles.isCreator && roles.isAssignee;
   return Object.entries(TRANSITIONS)
@@ -417,14 +423,16 @@ router.post('/:id/transition', validate(transitionSchema), async (req: AuthReque
           ? `Только исполнитель может: ${t.action}`
           : t.role === 'creator'
             ? `Только создатель может: ${t.action}`
-            : 'Завершить без проверки можно только свою задачу',
+            : t.role === 'reviewer'
+              ? `Только наблюдатели и создатель могут: ${t.action}`
+              : 'Завершить без проверки можно только свою задачу',
       );
     }
     if (t.comment === 'required' && !comment) throw badRequest(to_status === 'rejected' ? 'При отклонении укажите причину' : 'Укажите комментарий');
 
     const extra: string[] = [];
-    if (to_status === 'on_review' && !task.reviewer_deadline) extra.push(`reviewer_deadline = NOW() + INTERVAL '2 days'`);
-    if (to_status === 'rejected') extra.push('reviewer_deadline = NULL');
+    // Дедлайн проверки задаёт создатель заранее (не позже общего срока) — переходы его не трогают.
+    if (to_status === 'on_review') extra.push('review_started_at = NOW()');
     if (to_status === 'archived') {
       extra.push('archived_at = NOW()', `archived_as = 'done'`, `archived_by = ${Number(me)}`, `status_before_archive = '${task.status_new}'`);
     }

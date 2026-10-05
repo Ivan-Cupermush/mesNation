@@ -66,7 +66,7 @@ export default function AssignKpiScreen({ navigation }: any) {
         target_value: target,
         description: description.trim() || undefined,
       });
-      Alert.alert('✅ Успех', `KPI назначен ${selectedUser.display_name}`);
+      Alert.alert('KPI назначен', selectedUser.display_name || selectedUser.username || '');
       navigation.goBack();
     } catch (e: any) {
       Alert.alert('Ошибка', e.message || 'Не удалось назначить KPI');
@@ -118,7 +118,7 @@ export default function AssignKpiScreen({ navigation }: any) {
                     },
                   ]}
                 >
-                  <Text style={[styles.userName, { color: colors.textPrimary }]}>{user.display_name}</Text>
+                  <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>{user.display_name || user.username}</Text>
                   <Text style={[styles.userKpis, { color: colors.textSecondary }]}>
                     {user.kpis?.length || 0} активных KPI
                   </Text>

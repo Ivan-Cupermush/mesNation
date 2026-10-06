@@ -23,8 +23,26 @@ $envVars = Read-DotEnv (Join-Path $server '.env')
 Write-Host "Offix — диагностика $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), компьютер $env:COMPUTERNAME"
 try { Write-Host "Версия кода: $(& git -C $Root log -1 --format='%h %ci %s')" } catch { }
 
+Step 'Железо и система'
+try {
+  $os = Get-CimInstance Win32_OperatingSystem
+  Write-Host "    Система:    $($os.Caption) $($os.Version)"
+  $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+  Write-Host "    Процессор:  $($cpu.Name.Trim()) — ядер $($cpu.NumberOfCores), потоков $($cpu.NumberOfLogicalProcessors)"
+  $ramGb = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+  $freeGb = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
+  Write-Host "    Память:     $ramGb ГБ (свободно $freeGb ГБ)"
+  foreach ($d in Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3') {
+    Write-Host ("    Диск {0}     {1} ГБ, свободно {2} ГБ" -f $d.DeviceID, [math]::Round($d.Size / 1GB), [math]::Round($d.FreeSpace / 1GB))
+  }
+  foreach ($pd in Get-PhysicalDisk -ErrorAction SilentlyContinue) {
+    Write-Host ("    Накопитель: {0} — {1}, {2} ГБ" -f $pd.FriendlyName, $pd.MediaType, [math]::Round($pd.Size / 1GB))
+  }
+  foreach ($g in Get-CimInstance Win32_VideoController) { Write-Host "    Видео:      $($g.Name)" }
+} catch { Warn "Не удалось прочитать сведения о железе: $($_.Exception.Message)" }
+
 Step 'Службы'
-$services = @($Service, 'cloudflared', 'Caddy') + @(Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+$services = @($Service, 'OffixTunnel', 'cloudflared', 'Caddy') + @(Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
 foreach ($name in $services) {
   $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
   if (-not $svc) { Write-Host "    $name — не установлена"; continue }
@@ -97,6 +115,14 @@ foreach ($d in $Domains) {
     $r = Invoke-WebRequest -Uri "https://$d/api/health" -TimeoutSec 15 -UseBasicParsing
     Ok "https://$d/api/health — $($r.StatusCode) за $($sw.ElapsedMilliseconds) мс"
   } catch { Bad "https://$d/api/health с этого компьютера недоступен: $($_.Exception.Message)" }
+}
+
+Step 'Туннель к VPS'
+$tunnelLog = Join-Path $Root 'logs\tunnel.log'
+if (Test-Path $tunnelLog) {
+  Get-Content $tunnelLog -Tail 10 -Encoding UTF8 | ForEach-Object { Write-Host "    $_" }
+} else {
+  Write-Host '    туннель не настраивался (журнала logs\tunnel.log нет)'
 }
 
 Step 'Последние ошибки в журнале'

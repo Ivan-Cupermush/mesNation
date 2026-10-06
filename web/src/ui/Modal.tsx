@@ -37,6 +37,8 @@ export function Modal({ open, onClose, title, children, footer, size = 'md', per
     stack.push(me);
     document.body.style.overflow = 'hidden';
     const focusFirst = () => {
+      // Фокус уже внутри (autoFocus нужного поля или человек успел нажать) — не перехватываем.
+      if (panelRef.current?.contains(document.activeElement)) return;
       const el = panelRef.current?.querySelector<HTMLElement>('[autofocus], input, textarea, select, button:not([data-close])');
       (el || panelRef.current)?.focus();
     };

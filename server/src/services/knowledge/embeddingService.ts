@@ -54,11 +54,20 @@ export async function generateResponse(prompt: string): Promise<string> {
 /**
  * Проверка доступности Ollama
  */
-export async function checkOllamaHealth(): Promise<boolean> {
+export async function checkOllamaHealth(timeoutMs = 3000): Promise<boolean> {
+  // Недоступный адрес может «висеть» минутами — проверка отвечает быстро в любом случае.
+  let timer: NodeJS.Timeout | undefined;
   try {
-    await ollama.list();
+    await Promise.race([
+      ollama.list(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      }),
+    ]);
     return true;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }

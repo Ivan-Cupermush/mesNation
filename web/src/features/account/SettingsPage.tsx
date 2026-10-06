@@ -70,7 +70,7 @@ export default function SettingsPage() {
             <SettingsRow icon={<Users size={18} />} tone="info" title="Сотрудники" hint="Все сотрудники компании" onClick={() => navigate('/employees')} />
             <SettingsRow icon={<UserPlus size={18} />} tone="warning" title="Новый сотрудник" hint="Добавить пользователя в систему" onClick={() => navigate('/create-user')} />
             <SettingsRow icon={<Network size={18} />} tone="violet" title="Дерево ролей" hint="Иерархия и управление правами" onClick={() => navigate('/roles')} />
-            <SettingsRow icon={<Target size={18} />} title="Назначить KPI" hint="План продаж для сотрудника" onClick={() => navigate('/stats')} />
+            <SettingsRow icon={<Target size={18} />} title="Назначить KPI" hint="План продаж для сотрудника" onClick={() => navigate('/stats?assign=1')} />
             <SettingsRow icon={<FileSpreadsheet size={18} />} tone="info" title="Импорт из Excel" hint="Загрузка KPI и отчётов продаж" onClick={() => navigate('/import')} />
           </SettingsSection>
         )}

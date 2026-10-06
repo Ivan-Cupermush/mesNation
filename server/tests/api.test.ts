@@ -842,4 +842,55 @@ describe('дымовой тест: экраны не падают с ошибк�
     expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${contracts.body.id}`, { target_value: 4 })).status).toBe(200);
     expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${contracts.body.id}`)).status).toBe(200);
   });
+
+  it('KPI: мусор в датах и фильтрах — 400, а не 500', async () => {
+    const bad = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Y', target_value: 5, period_start: 'вчера' });
+    expect(bad.status).toBe(400);
+    const reversed = await as(c.mgr1).post('/api/kpi/sales/targets', {
+      product_name: 'Y', target_value: 5, period_start: '2030-02-01', period_end: '2030-01-01',
+    });
+    expect(reversed.status).toBe(400);
+    expect((await as(c.mgr1).get('/api/kpi/sales/transactions?target_id=abc')).status).toBe(400);
+    const assign = await as(c.sales).post('/api/kpi/sales/targets/assign', {
+      user_id: c.mgr1.id, product_name: 'Z', target_value: 5, period_end: 'never',
+    });
+    expect(assign.status).toBe(400);
+  });
+
+  it('KPI: карточка сотрудника считает период так же, как список команды', async () => {
+    const sale = await as(c.mgr1).post('/api/kpi/sales/transactions', { product_name: 'Сверка', quantity: 1, amount: 777 });
+    expect(sale.status).toBe(201);
+    const team = await as(c.sales).get('/api/kpi/sales/subordinates?period=month');
+    const row = team.body.find((r: any) => r.user_id === c.mgr1.id);
+    const card = await as(c.sales).get(`/api/kpi/sales/employee/${c.mgr1.id}/stats?period=month`);
+    expect(card.status).toBe(200);
+    expect(Number(card.body.summary.total_amount)).toBe(Number(row.total_amount));
+    const s = card.body.taskStats;
+    expect(s.total).toBe(s.completed + s.in_progress + s.overdue);
+    // Чужую карточку сотрудник смотреть не может.
+    expect((await as(c.mgr1).get(`/api/kpi/sales/employee/${c.sales.id}/stats`)).status).toBe(403);
+  });
+
+  it('База знаний: при недоступном ИИ вопрос не остаётся в истории, чужие диалоги не видны', async () => {
+    const before = (await as(c.mgr1).get('/api/knowledge/sessions')).body.length;
+    const r = await as(c.mgr1).post('/api/knowledge/chat', { message: 'Сколько дней отпуска?' });
+    // В тестах нейросети нет: понятная ошибка вместо 500 и без «висящего» диалога.
+    expect(r.status, JSON.stringify(r.body)).toBe(503);
+    expect((await as(c.mgr1).get('/api/knowledge/sessions')).body.length).toBe(before);
+    expect((await as(c.mgr1).get('/api/knowledge/sessions/abc/messages')).status).toBe(400);
+    expect((await as(c.mgr1).post('/api/knowledge/messages/abc/feedback', { feedback: 'positive' })).status).toBe(400);
+    expect((await as(c.mgr1).get('/api/knowledge/sessions/999999/messages')).status).toBe(404);
+    expect((await as(c.mgr1).post('/api/knowledge/chat', { session_id: 999999, message: 'x' })).status).toBe(404);
+    expect((await as(c.dir).post('/api/knowledge/documents/999999/reprocess')).status).toBe(404);
+  });
+
+  it('KPI: страница ручного импорта работает со строгой политикой скриптов', async () => {
+    const r = await as().get('/api/kpi/upload');
+    expect(r.status).toBe(200);
+    const csp = String(r.headers['content-security-policy']);
+    const nonce = /'nonce-([^']+)'/.exec(csp)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(r.text).toContain(`<script nonce="${nonce}">`);
+    expect(r.text).not.toMatch(/\son(click|change)=/);
+  });
 });

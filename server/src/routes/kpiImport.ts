@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { withTransaction } from '../db/pool';
@@ -7,7 +8,14 @@ import { forbidden, badRequest } from '../lib/errors';
 import { isSubordinate } from '../services/access';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (/\.(xlsx|xls|xlsm|ods)$/i.test(file.originalname) || /spreadsheet|excel/i.test(file.mimetype)) cb(null, true);
+    else cb(badRequest('Загрузите файл KPI в формате Excel (.xlsx или .xls)'));
+  },
+});
 
 // ================= ХЕЛПЕРЫ ПАРСЕРА =================
 function num(v: any): number {
@@ -146,17 +154,17 @@ td,th{border-bottom:1px solid #e5e7eb;padding:6px;text-align:left}
 <div id="loginBox">
  <label>Логин</label><input id="login" value="admin">
  <label>Пароль</label><input id="password" type="password">
- <button onclick="doLogin()">Войти</button>
+ <button id="loginBtn" type="button">Войти</button>
 </div>
 <div id="uploadBox" class="hidden">
  <label>Сотрудник</label><select id="employee"></select>
  <div id="hint" style="margin-top:8px;color:#6b7280;font-size:13px"></div>
  <label>Файл KPI (.xlsx)</label><input type="file" id="file" accept=".xlsx,.xls">
- <button id="btn" onclick="doUpload()">Загрузить и создать KPI</button>
+ <button id="btn" type="button">Загрузить и создать KPI</button>
 </div>
 <div id="result"></div>
 </div>
-<script>
+<script nonce="__NONCE__">
 var token='';
 function esc(v){var d=document.createElement('div');d.textContent=String(v==null?'':v);return d.innerHTML;}
 function doLogin(){
@@ -189,10 +197,21 @@ function doUpload(){
  }).catch(function(e){document.getElementById('btn').disabled=false;show('Ошибка сети: '+esc(e),false);});
 }
 function show(html,ok){var el=document.getElementById('result');el.style.display='block';el.className=ok?'ok':'err';el.innerHTML=html;}
+document.getElementById('loginBtn').addEventListener('click',doLogin);
+document.getElementById('btn').addEventListener('click',doUpload);
 </script></body></html>`;
 
-router.get('/upload', (req: Request, res: Response) => {
-  res.send(PAGE_HTML);
+// Общая политика безопасности запрещает встроенные скрипты; этой странице
+// разрешён ровно один — её собственный, по одноразовому nonce.
+router.get('/upload', (_req: Request, res: Response) => {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  res.setHeader(
+    'Content-Security-Policy',
+    `default-src 'self'; script-src 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; ` +
+      `connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'`,
+  );
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(PAGE_HTML.replace('__NONCE__', nonce));
 });
 
 // ================= ИМПОРТ KPI =================

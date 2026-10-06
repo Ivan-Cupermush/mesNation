@@ -23,7 +23,5 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
-    // Предупреждение о крупных чанках не мешает: графики KPI грузятся отдельно, лениво.
-    chunkSizeWarningLimit: 800,
   },
 })

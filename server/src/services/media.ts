@@ -14,7 +14,7 @@ const run = promisify(execFile);
  */
 
 export interface MediaInfo {
-  kind: 'photo' | 'video' | 'file';
+  kind: 'photo' | 'video' | 'file' | 'voice' | 'video_note';
   thumbUrl: string | null;
   width: number | null;
   height: number | null;
@@ -86,8 +86,31 @@ async function processVideo(filePath: string, fileName: string): Promise<MediaIn
   return info;
 }
 
-export async function processUpload(file: Express.Multer.File, asFile = false): Promise<MediaInfo> {
+/** Длительность аудио (голосовое) по ffprobe; без ffmpeg — null. */
+async function audioDuration(filePath: string): Promise<number | null> {
+  if (!(await hasFfmpeg())) return null;
+  try {
+    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', filePath], { timeout: 15000 });
+    const d = Number(JSON.parse(stdout).format?.duration);
+    return Number.isFinite(d) ? Math.round(d * 100) / 100 : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function processUpload(
+  file: Express.Multer.File,
+  asFile = false,
+  special?: 'voice' | 'video_note',
+): Promise<MediaInfo> {
   const ext = path.extname(file.originalname || file.filename).toLowerCase();
+  if (special === 'voice') {
+    return { kind: 'voice', thumbUrl: null, width: null, height: null, duration: await audioDuration(file.path) };
+  }
+  if (special === 'video_note') {
+    const v = await processVideo(file.path, file.filename);
+    return { ...v, kind: 'video_note' };
+  }
   if (!asFile) {
     if (file.mimetype.startsWith('image/') || IMAGE_EXT.has(ext)) {
       const img = await processImage(file.path, file.filename);

@@ -126,7 +126,18 @@ export function pushPreview(m: any): string {
   if (m.note_share_id) return `Заметка: ${m.note_share?.title || ''}`.trim();
   const text = (m.text || '').trim();
   const kind = m.media_kind || (m.thumb_url ? 'photo' : m.file_url ? 'file' : null);
-  const label = kind === 'photo' ? 'Фото' : kind === 'video' ? 'Видео' : kind === 'file' ? m.file_name || 'Файл' : '';
+  const label =
+    kind === 'photo'
+      ? 'Фото'
+      : kind === 'video'
+        ? 'Видео'
+        : kind === 'voice'
+          ? 'Голосовое сообщение'
+          : kind === 'video_note'
+            ? 'Видеосообщение'
+            : kind === 'file'
+              ? m.file_name || 'Файл'
+              : '';
   if (label && text) return clip(`${label}, ${text}`, 300);
   return clip(text || label || 'Сообщение', 300);
 }

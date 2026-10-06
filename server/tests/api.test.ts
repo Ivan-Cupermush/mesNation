@@ -88,6 +88,25 @@ describe('дерево ролей', () => {
     expect(r.status).toBe(400);
   });
 
+  it('у дерева один корень: «потерянная» роль возвращается под директора', async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    // Второй корень база больше не принимает.
+    await expect(pool.query(`INSERT INTO role_tree (name, parent_id) VALUES ('Сирота', NULL)`)).rejects.toThrow();
+    // Старые данные: снимаем защиту и создаём роль без родителя, как после старого удаления.
+    await pool.query('DROP INDEX uq_role_tree_single_root');
+    const stray = (await pool.query(`INSERT INTO role_tree (name, parent_id) VALUES ('Сирота', NULL) RETURNING id`)).rows[0].id;
+    const sql = readFileSync(join(__dirname, '../src/db/migrations/0013_role_tree_single_root.sql'), 'utf8');
+    await pool.query(sql);
+    const row = (await pool.query('SELECT parent_id, level FROM role_tree WHERE id = $1', [stray])).rows[0];
+    expect(row.parent_id).toBe(c.nodes.root);
+    expect(row.level).toBe(1);
+    const roots = await pool.query('SELECT id FROM role_tree WHERE parent_id IS NULL');
+    expect(roots.rows.map((r) => r.id)).toEqual([c.nodes.root]);
+    expect((await as(c.dir).get('/api/auth/me')).body.is_director).toBe(true);
+    await as(c.dir).delete(`/api/role-tree/${stray}`);
+  });
+
   it('прямые члены роли отдаются одним запросом', async () => {
     const r = await as(c.dir).get(`/api/role-tree/${c.nodes.mgrNode}/users`);
     expect(r.body.map((u: any) => u.username).sort()).toEqual(['mgr1', 'mgr2']);
@@ -567,6 +586,100 @@ describe('мессенджер как в Telegram', () => {
     const b = await up('b.pdf', 'Договор и приложение');
     expect(a.body).toMatchObject({ media_kind: 'file', media_group_id: 'docs-1' });
     expect(b.body).toMatchObject({ media_group_id: 'docs-1', text: 'Договор и приложение' });
+  });
+
+  it('голосовое: длительность, волна, прослушивание', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Голосовые', user_ids: [c.mgr2.id] });
+    const voice = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('fake-aac'), 'voice.m4a')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'voice')
+      .field('duration', '4.2')
+      .field('waveform', '0,5,31,12,7');
+    expect(voice.status).toBe(201);
+    expect(voice.body).toMatchObject({ media_kind: 'voice', content_type: 'voice', media_waveform: '0,5,31,12,7', listened_by: [] });
+    expect(Number(voice.body.media_duration)).toBeCloseTo(4.2);
+
+    const bad = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('x'), 'v.m4a')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'voice')
+      .field('waveform', '99,1');
+    expect(bad.status).toBe(400);
+
+    // Отправитель своё не «прослушивает»; получатель — да, один раз.
+    await as(c.mgr1).post(`/api/messages/${voice.body.id}/listened`);
+    expect((await as(c.mgr2).post(`/api/messages/${voice.body.id}/listened`)).status).toBe(200);
+    await as(c.mgr2).post(`/api/messages/${voice.body.id}/listened`);
+    const hist = await as(c.mgr1).get(`/api/messages/${chat.body.id}`);
+    expect(hist.body.find((m: any) => m.id === voice.body.id).listened_by).toEqual([c.mgr2.id]);
+
+    const note = await as(c.mgr1)
+      .upload('/api/upload', 'file', Buffer.from('fake-mp4'), 'circle.mp4')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'video_note')
+      .field('duration', '7');
+    expect(note.body).toMatchObject({ media_kind: 'video_note', content_type: 'video_note' });
+
+    // Обычное текстовое «прослушать» нельзя.
+    const text = await as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text: 'привет' });
+    expect((await as(c.mgr2).post(`/api/messages/${text.body.id}/listened`)).status).toBe(400);
+  });
+
+  it('реакции: одна от человека, повтор снимает, другая заменяет', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Реакции', user_ids: [c.mgr2.id] });
+    const msg = await as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text: 'Сдали отчёт' });
+    const r1 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' });
+    expect(r1.body.reactions).toEqual([{ emoji: '👍', count: 1, user_ids: [c.mgr2.id] }]);
+    await as(c.mgr1).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' });
+    const r2 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🔥' });
+    expect(r2.body.reactions).toEqual([
+      { emoji: '👍', count: 1, user_ids: [c.mgr1.id] },
+      { emoji: '🔥', count: 1, user_ids: [c.mgr2.id] },
+    ]);
+    const r3 = await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🔥' });
+    expect(r3.body.reactions).toEqual([{ emoji: '👍', count: 1, user_ids: [c.mgr1.id] }]);
+    expect((await as(c.mgr2).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '🤡' })).status).toBe(400);
+    expect((await as(c.acc).post(`/api/messages/${msg.body.id}/reactions`, { emoji: '👍' })).status).toBe(403);
+    const hist = await as(c.mgr2).get(`/api/messages/${chat.body.id}`);
+    expect(hist.body.find((m: any) => m.id === msg.body.id).reactions).toHaveLength(1);
+  });
+
+  it('поиск по сообщениям чата', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Поиск', user_ids: [c.mgr2.id] });
+    const send = (text: string) => as(c.mgr1).post(`/api/chats/${chat.body.id}/messages`, { text });
+    await send('Договор с поставщиком');
+    await send('Скидка 50% до пятницы');
+    const last = await send('договор подписан');
+    const r = await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=ДОГОВОР`);
+    expect(r.status).toBe(200);
+    expect(r.body.map((m: any) => m.text)).toEqual(['договор подписан', 'Договор с поставщиком']);
+    expect(r.body[0].id).toBe(last.body.id);
+    // % и _ — обычные символы, а не шаблон.
+    const pct = await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=${encodeURIComponent('50%')}`);
+    expect(pct.body).toHaveLength(1);
+    expect((await as(c.mgr2).get(`/api/messages/${chat.body.id}/search?q=_`)).body).toHaveLength(0);
+    expect((await as(c.acc).get(`/api/messages/${chat.body.id}/search?q=договор`)).status).toBe(403);
+  });
+
+  it('удаление выделенных сообщений одним запросом', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Выделение', user_ids: [c.mgr2.id] });
+    const send = (who: Actor, text: string) => as(who).post(`/api/chats/${chat.body.id}/messages`, { text });
+    const a = await send(c.mgr1, 'раз');
+    const b = await send(c.mgr1, 'два');
+    const foreign = await send(c.mgr2, 'чужое');
+    // Участник без прав не удалит у всех чужое — и ничего не удаляется (своё тоже).
+    const denied = await as(c.mgr2).post('/api/messages/bulk-delete', { ids: [foreign.body.id, a.body.id], scope: 'all' });
+    expect(denied.status).toBe(403);
+    const texts = async (who: Actor) =>
+      (await as(who).get(`/api/messages/${chat.body.id}`)).body.filter((m: any) => m.content_type !== 'service' && !m.deleted_for_all);
+    expect(await texts(c.mgr2)).toHaveLength(3);
+    const ok = await as(c.mgr1).post('/api/messages/bulk-delete', { ids: [a.body.id, b.body.id], scope: 'all' });
+    expect(ok.body).toMatchObject({ success: true, deleted: 2 });
+    const mine = await as(c.mgr1).post('/api/messages/bulk-delete', { ids: [foreign.body.id], scope: 'me' });
+    expect(mine.status).toBe(200);
+    expect(await texts(c.mgr1)).toHaveLength(0);
+    expect(await texts(c.mgr2)).toHaveLength(1);
   });
 
   it('опрос с фото: медиа хранится в сообщении опроса', async () => {

@@ -18,7 +18,7 @@ import * as RNFS from 'react-native-fs';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { X, Forward, Download, MessageSquareText } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
-import { authHeaders, signedFileUrl } from '../../services/http';
+import { authHeaders, cachedSignedUrl } from '../../services/http';
 import ZoomableImage from './ZoomableImage';
 import VideoPlayer from './VideoPlayer';
 import { formatTime, requestSavePermission } from './chatUtils';
@@ -50,17 +50,6 @@ interface Props {
   onClose: () => void;
   onForward?: (item: ViewerItem) => void;
   onShowInChat?: (item: ViewerItem) => void;
-}
-
-// Подписанная ссылка живёт 10 минут; держим её 8, чтобы повторное открытие
-// фото брало картинку из кеша, а не скачивало заново.
-const signedCache = new Map<string, { url: string; at: number }>();
-async function cachedSignedUrl(path: string): Promise<string> {
-  const hit = signedCache.get(path);
-  if (hit && Date.now() - hit.at < 8 * 60_000) return hit.url;
-  const url = await signedFileUrl(path);
-  signedCache.set(path, { url, at: Date.now() });
-  return url;
 }
 
 export default function MediaViewer({ visible, items, initialIndex, onClose, onForward, onShowInChat }: Props) {

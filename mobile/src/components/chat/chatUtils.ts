@@ -128,6 +128,22 @@ export function fileBadge(name?: string | null): { ext: string; color: string } 
   return { ext: ext && ext.length <= 4 ? ext.toUpperCase() : '', color: '#7A8591' };
 }
 
+/** Реакции (тот же набор, что принимает сервер). */
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🙏', '👎', '🎉', '👏', '💯', '🤝'];
+
+/** Голосовое или кружочек. */
+export const isVoiceLike = (m: any) => m && !m.deleted_for_all && (m.media_kind === 'voice' || m.media_kind === 'video_note');
+
+/**
+ * Не прослушано: получатель ещё не включал; у отправителя — никто, кроме
+ * него, ещё не послушал (точка как в Telegram).
+ */
+export function isUnlistened(m: any, me: number): boolean {
+  if (!isVoiceLike(m) || m.local || !me) return false;
+  const by: number[] = m.listened_by || [];
+  return m.sender_id === me ? !by.some((id) => id !== me) : !by.includes(me);
+}
+
 export const isVisualMedia = (m: any) => m && !m.deleted_for_all && (m.media_kind === 'photo' || m.media_kind === 'video' || (!m.media_kind && !!m.thumb_url));
 
 /** Короткое описание сообщения для цитат, закрепа и списка чатов. */
@@ -137,6 +153,8 @@ export const messagePreview = (m: any): string => {
   if (m.poll_id || m.content_type === 'poll') return `📊 ${m.poll?.question || 'Опрос'}`;
   if (m.note_share_id || m.content_type === 'note') return m.text || '📝 Заметка';
   const caption = m.text ? ` ${m.text}` : '';
+  if (m.media_kind === 'voice') return `🎤 Голосовое сообщение${caption}`;
+  if (m.media_kind === 'video_note') return '📹 Видеосообщение';
   if (m.media_kind === 'video') return `🎬 Видео${caption}`;
   if (m.media_kind === 'photo' || (!m.media_kind && m.thumb_url)) return `🖼 Фото${caption}`;
   if (m.file_url) return `📎 ${m.file_name || 'Файл'}${caption}`;

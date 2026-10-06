@@ -1,13 +1,15 @@
 import React, { memo, useRef } from 'react';
-import { View, Text, TouchableOpacity, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, Animated, PanResponder, Image, useWindowDimensions } from 'react-native';
 import { Check, CheckCheck, Clock, AlertCircle, FileText, CornerUpLeft, Download } from 'lucide-react-native';
 import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
-import { C, fileBadge, formatSize, formatTime, hashColor, initials, messagePreview } from './chatUtils';
+import { C, fileBadge, formatSize, formatTime, hashColor, initials, isUnlistened, messagePreview } from './chatUtils';
 import UploadProgress from './UploadProgress';
+import VoiceBubble from './voice/VoiceBubble';
+import VideoNoteBubble from './voice/VideoNoteBubble';
 
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
@@ -44,6 +46,42 @@ interface Props {
   onCancelUpload?: (msg: any) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
   onPressSender?: (userId: number) => void;
+  /** Режим выделения (как в Telegram): нажатие отмечает сообщение. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (row: Props['row']) => void;
+  onPlayVoice?: (msg: any) => void;
+  onSeekVoice?: (msg: any, ratio: number) => void;
+  onVideoNoteStarted?: (msg: any) => void;
+  /** Реакция: двойное нажатие — 👍, нажатие на плашку — снять/поставить. */
+  onReact?: (msg: any, emoji: string) => void;
+}
+
+/** Плашки реакций под сообщением (как в Telegram): эмодзи и число, своя — подсвечена. */
+function Reactions({ msg, mine, me, onReact, onMedia }: { msg: any; mine: boolean; me: number; onReact?: (m: any, e: string) => void; onMedia?: boolean }) {
+  const list: { emoji: string; count: number; user_ids: number[] }[] = msg.reactions || [];
+  if (!list.length) return null;
+  return (
+    <View style={[styles.reactions, onMedia && styles.reactionsOnMedia, mine && onMedia && styles.reactionsRight]}>
+      {list.map((r) => {
+        const my = r.user_ids?.includes(me);
+        return (
+          <TouchableOpacity
+            key={r.emoji}
+            onPress={() => onReact?.(msg, r.emoji)}
+            activeOpacity={0.7}
+            style={[styles.reaction, onMedia ? styles.reactionGlass : mine ? styles.reactionOut : styles.reactionIn, my && (mine && !onMedia ? styles.reactionMineOut : styles.reactionMine)]}
+            accessibilityLabel={`Реакция ${r.emoji}: ${r.count}`}
+          >
+            <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+            <Text style={[styles.reactionCount, my ? (mine && !onMedia ? { color: C.bubbleOut } : { color: T.onAccent }) : { color: onMedia ? '#FFFFFF' : mine ? T.myMessageText : C.accent }]}>
+              {r.count}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
 }
 
 function Ticks({ msg, peerLastReadId, onMedia }: { msg: any; peerLastReadId: number; onMedia?: boolean }) {
@@ -74,7 +112,7 @@ function MessageRow(props: Props) {
   propsRef.current = props;
   const swipe = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dx < -12 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+      onMoveShouldSetPanResponder: (_, g) => !propsRef.current.selecting && g.dx < -12 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
       onPanResponderMove: (_, g) => dx.setValue(Math.max(-80, Math.min(0, g.dx))),
       onPanResponderRelease: (_, g) => {
         if (g.dx < -60) propsRef.current.onSwipeReply(main);
@@ -88,11 +126,14 @@ function MessageRow(props: Props) {
   const sub = mine ? C.textOutMuted : C.textMuted;
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
+  const isVoice = main.media_kind === 'voice' && !!main.file_url;
+  const isVideoNote = main.media_kind === 'video_note' && !!main.file_url;
+  const unlistened = isUnlistened(main, currentUserId);
   // Группа документов (несколько файлов одним сообщением, как в Telegram).
   const isDocGroup = row.type === 'album' && msgs.every((m) => m.media_kind === 'file');
   const isVisual =
     !isPoll && !isDocGroup && (row.type === 'album' || main.media_kind === 'photo' || main.media_kind === 'video' || (!main.media_kind && main.thumb_url));
-  const isFile = !isPoll && !isVisual && !!main.file_url;
+  const isFile = !isPoll && !isVisual && !isVoice && !isVideoNote && !!main.file_url;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
   const caption = main.text && !isNote ? main.text : '';
@@ -117,9 +158,57 @@ function MessageRow(props: Props) {
   };
 
   const onLong = () => props.onLongPress(row);
+  const selecting = !!props.selecting;
+  const lastTap = useRef(0);
+  const onBubblePress = () => {
+    if (main.status === 'failed') return props.onRetry(main);
+    if (main.local || typeof main.id !== 'number') return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      lastTap.current = 0;
+      props.onReact?.(main, '👍');
+    } else {
+      lastTap.current = now;
+    }
+  };
+
+  const checkSlot = selecting ? (
+    <View style={styles.checkSlot} pointerEvents="none">
+      <View style={[styles.check, props.selected && styles.checkOn]}>{props.selected && <Check size={14} color={T.onAccent} strokeWidth={3} />}</View>
+    </View>
+  ) : null;
+
+  // Кружочек — без пузыря, как в Telegram.
+  if (isVideoNote) {
+    return (
+      <View style={[styles.rowOuter, selecting && styles.rowSelecting, props.highlighted && styles.highlight, props.selected && styles.selectedRow]}>
+        {checkSlot}
+        <Animated.View
+          {...swipe.panHandlers}
+          style={[styles.row, selecting && styles.flex, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
+        >
+          {showSideAvatar && <View style={styles.avatarSlot} />}
+          <View style={mine ? styles.colEnd : styles.colStart}>
+            <VideoNoteBubble
+              msg={main}
+              mine={mine}
+              unlistened={unlistened}
+              meta={meta(true)}
+              onStarted={(m) => props.onVideoNoteStarted?.(m)}
+              onLongPress={onLong}
+              onCancel={props.onCancelUpload}
+            />
+            <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} onMedia />
+          </View>
+        </Animated.View>
+        {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
+      </View>
+    );
+  }
 
   return (
-    <View style={[styles.rowOuter, props.highlighted && styles.highlight]}>
+    <View style={[styles.rowOuter, selecting && styles.rowSelecting, props.highlighted && styles.highlight, props.selected && styles.selectedRow]}>
+      {checkSlot}
       <Animated.View style={[styles.swipeIcon, { opacity: dx.interpolate({ inputRange: [-70, -20, 0], outputRange: [1, 0.2, 0] }) }]}>
         <View style={styles.swipeIconCircle}>
           <CornerUpLeft size={16} color={T.onAccent} />
@@ -127,7 +216,7 @@ function MessageRow(props: Props) {
       </Animated.View>
       <Animated.View
         {...swipe.panHandlers}
-        style={[styles.row, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
+        style={[styles.row, selecting && styles.flex, mine ? styles.rowMine : styles.rowOther, { transform: [{ translateX: dx }] }, !showAvatar && styles.rowTight]}
       >
         {showSideAvatar && (
           <View style={styles.avatarSlot}>
@@ -149,7 +238,7 @@ function MessageRow(props: Props) {
           activeOpacity={0.9}
           onLongPress={onLong}
           delayLongPress={280}
-          onPress={main.status === 'failed' ? () => props.onRetry(main) : undefined}
+          onPress={onBubblePress}
           style={[
             mediaOnly ? styles.mediaOnly : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, corners, { maxWidth: maxBubble }],
             (isVisual && !mediaOnly) && { width: mediaW + 6, padding: 3 },
@@ -197,6 +286,18 @@ function MessageRow(props: Props) {
             />
           )}
 
+          {isVoice && (
+            <VoiceBubble
+              msg={main}
+              mine={mine}
+              unlistened={unlistened}
+              onPlay={(m) => props.onPlayVoice?.(m)}
+              onSeek={(m, r) => props.onSeekVoice?.(m, r)}
+              onCancel={props.onCancelUpload}
+            />
+          )}
+          {isVoice && !caption && <View style={styles.metaRoomVoice} />}
+
           {isFile &&
             msgs.map((f) => (
               <FileRow key={f.client_id || f.id} msg={f} mine={mine} fg={fg} sub={sub} onOpen={props.onOpenFile} onLongPress={onLong} onCancel={props.onCancelUpload} />
@@ -231,10 +332,18 @@ function MessageRow(props: Props) {
             </Text>
           ) : null}
 
+          {!mediaOnly && <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} />}
           {!(isVisual && !caption) && <View style={[styles.metaAbs, isVisual && { right: 10, bottom: 6 }]}>{meta()}</View>}
           {main.status === 'failed' && <Text style={styles.failed}>Не отправлено · нажмите, чтобы повторить</Text>}
         </TouchableOpacity>
       </Animated.View>
+      {mediaOnly && (
+        <View style={[styles.mediaReactions, mine ? styles.rowMine : styles.rowOther]}>
+          <Reactions msg={main} mine={mine} me={currentUserId} onReact={props.onReact} onMedia />
+        </View>
+      )}
+      {/* В режиме выделения вся строка — одна большая кнопка «отметить». */}
+      {selecting && <Pressable style={styles.selectCatcher} onPress={() => props.onToggleSelect?.(row)} onLongPress={() => props.onToggleSelect?.(row)} />}
     </View>
   );
 }
@@ -317,7 +426,38 @@ export function DayDivider({ label }: { label: string }) {
 
 const styles = themed(() => ({
   rowOuter: { paddingHorizontal: 8 },
+  rowSelecting: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
   highlight: { backgroundColor: withAlpha(T.accent, 0.14) },
+  selectedRow: { backgroundColor: withAlpha(T.accent, 0.16) },
+  checkSlot: { width: 34, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: T.accent, borderColor: T.accent },
+  selectCatcher: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+  metaRoomVoice: { height: 4 },
+  colStart: { alignItems: 'flex-start' },
+  colEnd: { alignItems: 'flex-end' },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5, marginBottom: 2, paddingRight: 52 },
+  reactionsOnMedia: { paddingRight: 0, marginTop: 4 },
+  reactionsRight: { justifyContent: 'flex-end' },
+  mediaReactions: { flexDirection: 'row' },
+  reaction: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 26, paddingHorizontal: 8, borderRadius: 13 },
+  reactionIn: { backgroundColor: withAlpha(T.accent, 0.12) },
+  reactionOut: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  reactionGlass: { backgroundColor: 'rgba(0,0,0,0.32)' },
+  reactionMine: { backgroundColor: C.accent },
+  reactionMineOut: { backgroundColor: T.myMessageText },
+  reactionEmoji: { fontSize: 14 },
+  reactionCount: { fontSize: 13, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 6 },
   rowTight: { marginTop: 2 },
   rowMine: { justifyContent: 'flex-end' },

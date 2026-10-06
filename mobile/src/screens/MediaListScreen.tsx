@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { stopVoice, toggleVoice } from '../components/chat/voice/voicePlayer';
+import { useVoiceFor } from '../components/chat/voice/useVoice';
+import { PlayGlyph } from '../components/chat/voice/VoiceBubble';
 import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, useWindowDimensions, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, FileText, Link2, BarChart3, Play } from 'lucide-react-native';
@@ -13,10 +16,11 @@ import { T, themed } from '../theme/runtime';
  * просмотрщике), файлы, ссылки и опросы. Подгружаются постранично.
  */
 
-type Kind = 'images' | 'files' | 'links' | 'polls';
+type Kind = 'images' | 'files' | 'voice' | 'links' | 'polls';
 const TABS: { key: Kind; label: string }[] = [
   { key: 'images', label: 'Медиа' },
   { key: 'files', label: 'Файлы' },
+  { key: 'voice', label: 'Голосовые' },
   { key: 'links', label: 'Ссылки' },
   { key: 'polls', label: 'Опросы' },
 ];
@@ -56,6 +60,11 @@ export default function MediaListScreen({ route, navigation }: any) {
     setItems([]);
     load();
   }, [load]);
+
+  // Ушли с экрана — голосовое не играет дальше без управления.
+  useEffect(() => () => {
+    stopVoice();
+  }, []);
 
   const goToMessage = (item: any) =>
     navigation.navigate('Chat', { chatId: String(item.chat_id), chatName: 'Чат', messageId: item.id, topicId: item.topic_id || null });
@@ -109,6 +118,11 @@ export default function MediaListScreen({ route, navigation }: any) {
           </View>
         </TouchableOpacity>
       );
+    }
+    if (kind === 'voice') {
+      // Голосовые — слушать прямо здесь (по очереди, как в Telegram); кружочки — открыть в чате.
+      const next = items.slice(0, index).reverse().filter((m) => m.media_kind === 'voice');
+      return <VoiceRow item={item} sub={[date(item.created_at), item.sender_display_name || item.sender_name].filter(Boolean).join(' · ')} next={next} onOpen={() => goToMessage(item)} />;
     }
     if (kind === 'links') {
       const urls: string[] = (item.text || '').match(URL_RE) || [];
@@ -192,7 +206,40 @@ export default function MediaListScreen({ route, navigation }: any) {
   );
 }
 
+function VoiceRow({ item, sub, next, onOpen }: { item: any; sub: string; next: any[]; onOpen: () => void }) {
+  const st = useVoiceFor(item);
+  const isNote = item.media_kind === 'video_note';
+  const playing = !!st?.playing;
+  const progress = st && st.duration ? st.position / st.duration : 0;
+  return (
+    <TouchableOpacity
+      style={styles.row}
+      activeOpacity={0.6}
+      onPress={() => (isNote ? onOpen() : toggleVoice(item, next).catch(() => undefined))}
+      onLongPress={onOpen}
+    >
+      {isNote && item.thumb_url ? (
+        <Image source={{ uri: SERVER_URL + item.thumb_url }} style={styles.noteThumb} />
+      ) : (
+        <View style={[styles.rowIcon, styles.voiceIcon]}>
+          <PlayGlyph playing={playing} color={T.onAccent} size={18} />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {isNote ? 'Видеосообщение' : 'Голосовое сообщение'} · {formatDuration(playing ? (st?.position || 0) / 1000 : item.media_duration)}
+        </Text>
+        <Text style={styles.rowSub}>{sub}</Text>
+        {st && <View style={[styles.voiceProgress, { width: `${progress * 100}%` }]} />}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 const styles = themed(() => ({
+  voiceIcon: { backgroundColor: C.accent, borderRadius: 23 },
+  noteThumb: { width: 46, height: 46, borderRadius: 23 },
+  voiceProgress: { height: 2, backgroundColor: C.accent, marginTop: 4, borderRadius: 1 },
   container: { flex: 1, backgroundColor: T.card },
   header: { flexDirection: 'row', alignItems: 'center', height: 56, paddingHorizontal: 4 },
   iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

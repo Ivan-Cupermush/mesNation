@@ -30,6 +30,7 @@ import {
   Building2,
   Palette,
   Bell,
+  Users,
 } from 'lucide-react-native';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
@@ -372,6 +373,22 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
                 <Text style={styles.infoValue}>{profile.company_name}</Text>
               </View>
             </View>
+          </View>
+        )}
+
+        {/* ===== КОМАНДА (руководитель без прав директора) ===== */}
+        {!!profile?.has_subordinates && !profile?.is_director && (
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.infoRow} onPress={() => navigation.navigate('Employees')} activeOpacity={0.7}>
+              <View style={[styles.infoIconWrap, { backgroundColor: T.infoSoft }]}>
+                <Users size={16} color={T.info} strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoValue}>Сотрудники</Text>
+                <Text style={styles.infoLabel}>Ваша команда и дерево ролей</Text>
+              </View>
+              <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+            </TouchableOpacity>
           </View>
         )}
 

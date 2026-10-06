@@ -439,6 +439,7 @@ const MEDIA_FILTERS: Record<string, string> = {
   files: "m.file_url IS NOT NULL AND (m.media_kind = 'file' OR (m.media_kind IS NULL AND m.thumb_url IS NULL))",
   links: "m.text ~* 'https?://'",
   polls: 'm.poll_id IS NOT NULL',
+  voice: "m.media_kind IN ('voice', 'video_note')",
 };
 
 router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
@@ -449,6 +450,7 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
             COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.files})::int AS files,
             COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.links})::int AS links,
             COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.polls})::int AS polls,
+            COUNT(*) FILTER (WHERE ${MEDIA_FILTERS.voice})::int AS voice,
             COUNT(*)::int AS messages
      FROM messages m WHERE m.chat_id = $1 AND m.deleted_for_all IS NOT TRUE`,
     [String(chatId)],
@@ -458,7 +460,7 @@ router.get('/:id/stats', async (req: AuthRequest, res: Response) => {
 });
 
 const mediaQuery = z.object({
-  type: z.enum(['media', 'images', 'files', 'links', 'polls']).default('media'),
+  type: z.enum(['media', 'images', 'files', 'links', 'polls', 'voice']).default('media'),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   before: id.optional(),
   topic_id: id.optional(),

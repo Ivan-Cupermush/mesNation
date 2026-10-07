@@ -7,13 +7,16 @@
   powershell -ExecutionPolicy Bypass -File C:\mesNation\deploy\windows\diagnose.ps1 > diag.txt
 #>
 param(
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [string]$Service = 'Offix',
   [string[]]$Domains = @('offixcrm.ru', 'web.offixcrm.ru')
 )
 
 $ErrorActionPreference = 'Continue'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 
 $server = Join-Path $Root 'server'
 $web = Join-Path $Root 'web'

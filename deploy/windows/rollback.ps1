@@ -4,12 +4,15 @@
   База данных не откатывается: миграции пишутся так, чтобы старая версия с новой схемой работала.
 #>
 param(
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [string]$Service = 'Offix'
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 Assert-Admin
 
 $server = Join-Path $Root 'server'

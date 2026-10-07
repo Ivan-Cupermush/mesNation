@@ -24,7 +24,7 @@ param(
   [Parameter(Mandatory = $true)][string]$VpsHost,
   # Ключ VPS (печатает setup.sh): защищает от подмены сервера по дороге.
   [Parameter(Mandatory = $true)][string]$HostKey,
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [string]$Service = 'OffixTunnel',
   [string]$Nssm = 'nssm.exe',
   [string]$Dir = 'C:\offix-tunnel',
@@ -34,7 +34,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 Assert-Admin
 
 Step 'Проверяю окружение'

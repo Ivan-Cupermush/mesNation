@@ -1,5 +1,5 @@
 ﻿# Общие функции скриптов развёртывания Offix на Windows (PowerShell 5.1+).
-# Файл подключается из других скриптов: . (Join-Path $PSScriptRoot 'common.ps1')
+# Файл подключается из других скриптов: . (Join-Path $ScriptDir 'common.ps1')
 
 function Step([string]$Text) { Write-Host ''; Write-Host "==> $Text" -ForegroundColor Cyan }
 function Ok([string]$Text) { Write-Host "OK  $Text" -ForegroundColor Green }

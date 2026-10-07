@@ -1,29 +1,30 @@
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, FileCheck, FileSpreadsheet, ListChecks, Upload, UserRound, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileCheck, FileSpreadsheet, ListChecks, Trash2, Upload, UserRound, Users, XCircle } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { isManager } from '../auth/roles';
 import { api, upload, UploadCancelled } from '../../lib/http';
 import { formatDate, formatSize, plural } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
-import { Button } from '../../ui/Button';
+import { Button, IconButton } from '../../ui/Button';
 import { Page, PageBody, PageHeader } from '../../ui/Page';
 import { Spinner } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
-import { money, number, toNum } from './format';
-import { kpiKeys, useImportHistory, useKpiRefresh } from './queries';
-import type { ImportPreview, ImportResult, MappingField, SalesTarget } from './types';
+import { monthKey, monthTitle, money, number, reportPeriod } from './format';
+import { kpiTitle } from './KpiCard';
+import { kpiKeys, useImportHistory, useKpiRefresh, useSalesReports, useSubordinates, useUnmatchedManagers } from './queries';
+import type { ImportPreview, ImportResult, KpiFilePreview, KpiTarget, MappingField, ReportImportResult, ReportManagerResult } from './types';
 import { TeamPicker } from './TeamPicker';
 import s from './ImportPage.module.css';
 
 type Mode = 'sales' | 'report' | 'plan' | 'kpi';
 
 const MODES: { key: Mode; title: string; text: string; icon: ReactNode; manager?: boolean }[] = [
+  { key: 'report', title: 'Отчёт о продажах', text: 'Ежедневный отчёт из 1С «По менеджерам» — обновит KPI всей команды', icon: <Users size={20} />, manager: true },
+  { key: 'kpi', title: 'Файл KPI сотрудника', text: 'План, бонусы и правила выплат на месяц (или итоги месяца)', icon: <UserRound size={20} />, manager: true },
   { key: 'sales', title: 'Мои продажи', text: 'Строки продаж: товар, количество, сумма, дата, клиент', icon: <FileSpreadsheet size={20} /> },
-  { key: 'kpi', title: 'KPI сотрудника', text: 'План, факт, % выполнения, бонус и выплата по каждому показателю', icon: <UserRound size={20} />, manager: true },
-  { key: 'report', title: 'Отчёт по менеджерам', text: 'Отчёт продаж с разделом «По менеджерам» — обновит факт KPI команды', icon: <Users size={20} />, manager: true },
-  { key: 'plan', title: 'План KPI по листам', text: 'Каждый лист — сотрудник и его показатели план/факт', icon: <ListChecks size={20} />, manager: true },
+  { key: 'plan', title: 'KPI по листам', text: 'Файл, где каждый лист — KPI отдельного сотрудника', icon: <ListChecks size={20} />, manager: true },
 ];
 
 const FIELDS: { key: MappingField; label: string; required?: boolean }[] = [
@@ -52,8 +53,9 @@ export default function ImportPage() {
   const manager = isManager(me);
   const [params, setParams] = useSearchParams();
   const requested = params.get('type') as Mode | null;
-  const mode: Mode = requested && MODES.some((m) => m.key === requested && (!m.manager || manager)) ? requested : 'sales';
-  const setMode = (m: Mode) => setParams(m === 'sales' ? {} : { type: m }, { replace: true });
+  // Руководителю по умолчанию — ежедневный отчёт о продажах.
+  const mode: Mode = requested && MODES.some((m) => m.key === requested && (!m.manager || manager)) ? requested : manager ? 'report' : 'sales';
+  const setMode = (m: Mode) => setParams({ type: m }, { replace: true });
 
   return (
     <Page>
@@ -420,185 +422,402 @@ function Warnings({ title, lines }: { title: string; lines: string[] }) {
 
 // ---------- KPI сотрудника (файл план/факт/бонус) ----------
 
-interface EmployeeKpiResult {
-  success: boolean;
-  imported: number;
-  employeeName: string;
-  kpis: SalesTarget[];
-}
+const FILE_ACCEPT = '.xlsx,.xls,.xlsm,.ods';
 
 function EmployeeKpiImport() {
-  const { confirm } = useFeedback();
+  const { toast } = useFeedback();
+  const navigate = useNavigate();
   const refresh = useKpiRefresh();
-  const { busy, progress, run } = useUpload<EmployeeKpiResult>();
+  const [params] = useSearchParams();
+  const preset = Number(params.get('user')) || 0;
+  const { busy, progress, run } = useUpload<KpiFilePreview>();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<KpiFilePreview | null>(null);
   const [person, setPerson] = useState<{ id: number; name: string } | null>(null);
+  const [month, setMonth] = useState('');
   const [picking, setPicking] = useState(false);
-  const [result, setResult] = useState<EmployeeKpiResult | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ imported: number; replaced: number; month: string; kpis: KpiTarget[]; person: { id: number; name: string } } | null>(null);
+  // Ссылка «Файл KPI» из карточки сотрудника — имя берём из списка команды.
+  const team = useSubordinates('month', preset > 0).data;
+
+  const pick = async (f: File) => {
+    const r = await run('/api/kpi/import', f, { dryRun: 1 }, 'Не удалось прочитать файл KPI');
+    if (!r) return;
+    setFile(f);
+    setPreview(r);
+    setMonth(r.month);
+    const fromLink = preset ? team?.find((m) => m.user_id === preset) : null;
+    setPerson(
+      preset
+        ? { id: preset, name: fromLink ? fromLink.display_name || fromLink.username : r.suggestedUser?.id === preset ? r.suggestedUser.name : 'Сотрудник' }
+        : r.suggestedUser,
+    );
+  };
+
+  const save = async () => {
+    if (!file || !person || !preview) return;
+    setSaving(true);
+    try {
+      const r = await upload<{ imported: number; replaced: number; month: string; kpis: KpiTarget[] }>('/api/kpi/import', 'file', file, file.name, { userId: person.id, month }).promise;
+      setResult({ ...r, person });
+      refresh();
+    } catch (e) {
+      toast.error(e, 'Не удалось загрузить KPI');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = () => {
+    setResult(null);
+    setPreview(null);
+    setFile(null);
+  };
+
+  if (result) {
+    const total = result.kpis.reduce((sum, k) => sum + (k.calc.now ?? 0), 0);
+    return (
+      <Done
+        title={`KPI на ${monthTitle(result.month)} загружен`}
+        text={`${result.person.name}: ${result.imported} ${plural(result.imported, ['показатель', 'показателя', 'показателей'])}${result.replaced ? ` (заменено прежних: ${result.replaced})` : ''}`}
+        onAgain={reset}
+      >
+        <div className={s.tableWrap}>
+          <table className={[s.table, s.wrap].join(' ')}>
+            <thead>
+              <tr>
+                <th>Показатель</th>
+                <th>План</th>
+                <th>Факт</th>
+                <th>Заработано</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.kpis.map((k) => (
+                <tr key={k.id}>
+                  <td>
+                    {kpiTitle(k)}
+                    <span className={s.sub}>{k.calc.tracked ? 'факт по отчётам о продажах' : k.calc.rule || 'без выплаты'}</span>
+                  </td>
+                  <td>{number(k.target_value)}</td>
+                  <td>{number(k.current_value)}</td>
+                  <td>{k.calc.now != null ? money(k.calc.now) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className={s.muted}>Сейчас к выплате: {money(total)}. Факт будет обновляться после каждой загрузки отчёта о продажах.</p>
+        <Button variant="soft" onClick={() => navigate(`/stats/employee/${result.person.id}?month=${result.month}`)}>
+          Открыть KPI сотрудника
+        </Button>
+      </Done>
+    );
+  }
+
+  if (preview) {
+    return (
+      <>
+        <div className={s.card}>
+          <span className={s.label}>Сотрудник</span>
+          <button type="button" className={s.person} onClick={() => setPicking(true)} disabled={saving}>
+            {person ? (
+              <>
+                <Avatar name={person.name} size={34} />
+                <b>{person.name}</b>
+              </>
+            ) : (
+              <span className={s.muted}>Выберите сотрудника из своей команды</span>
+            )}
+          </button>
+          {preview.employeeName && (
+            <p className={s.muted}>
+              В файле: «{preview.employeeName}»{preview.suggestedUser ? '' : ' — сотрудник с таким именем не найден, выберите вручную'}.
+            </p>
+          )}
+          <label className={s.label} htmlFor="kpi-month">
+            Месяц
+          </label>
+          <input id="kpi-month" type="month" className={s.select} value={month} onChange={(e) => setMonth(e.target.value)} />
+          <p className={s.muted}>
+            {preview.monthFromFile ? `Месяц из файла: ${monthTitle(preview.monthFromFile)}.` : 'В файле нет даты — проверьте месяц.'}{' '}
+            {preview.hasResults ? 'В файле есть итоги месяца (к выплате).' : 'В файле только план — итогов нет.'} Показатели из файла KPI за этот месяц
+            будут заменены, цели, созданные вручную, останутся.
+          </p>
+        </div>
+        {preview.warnings.length > 0 && <Warnings title="Проверьте файл" lines={preview.warnings} />}
+        <div className={s.tableWrap}>
+          <table className={[s.table, s.wrap].join(' ')}>
+            <thead>
+              <tr>
+                <th>Показатель</th>
+                <th>План</th>
+                <th>Бонус</th>
+                <th>Как считается</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.metrics.map((m, i) => (
+                <tr key={i}>
+                  <td>
+                    {kpiTitle({ product_name: m.name, kpi_kind: m.kind })}
+                    {m.items.length > 0 && <span className={s.sub}>{m.items.map((it) => `${it.name} — ${it.need} ТТ`).join('; ')}</span>}
+                  </td>
+                  <td>{number(m.plan)}</td>
+                  <td>{m.bonus ? money(m.bonus) : '—'}</td>
+                  <td>
+                    {FACT_TEXT[m.factRule.type]}
+                    <span className={s.sub}>{m.rule}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className={s.actions}>
+          <Button variant="secondary" onClick={reset} disabled={saving}>
+            Другой файл
+          </Button>
+          <Button icon={<Upload size={16} />} loading={saving} disabled={!person || !month} onClick={save}>
+            Загрузить KPI
+          </Button>
+        </div>
+        <TeamPicker
+          open={picking}
+          onClose={() => setPicking(false)}
+          onPick={(p) => {
+            setPerson(p);
+            setPicking(false);
+          }}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <DropZone accept={FILE_ACCEPT} busy={busy} progress={progress} onFile={pick} hint="Файл KPI: показатели со строками «план», «факт», «бонус», «к выплате»" />
+      <p className={s.muted}>
+        Сначала покажем, что нашли в файле: сотрудника, месяц и показатели — с правилами выплат из их названий («порог 90%, при 80–90% кэф 0,5»).
+        Правило любого показателя потом можно поправить в карточке KPI.
+      </p>
+    </>
+  );
+}
+
+const FACT_TEXT: Record<string, string> = {
+  revenue: 'по отчёту: продажи',
+  clients: 'по отчёту: точки',
+  items: 'по отчёту: позиции',
+  manual: 'вручную / из файла',
+};
+
+// ---------- Ежедневный отчёт о продажах ----------
+
+function ManagerReportImport() {
+  const { toast, confirm } = useFeedback();
+  const navigate = useNavigate();
+  const refresh = useKpiRefresh();
+  const { busy, progress, run } = useUpload<ReportImportResult>();
+  const [result, setResult] = useState<ReportImportResult | null>(null);
+  const [mapping, setMapping] = useState<string | null>(null);
+  const reports = useSalesReports('', !result);
+  const unmatched = useUnmatchedManagers(!result);
 
   const pick = async (file: File) => {
-    if (!person) return;
-    const ok = await confirm({
-      title: `Загрузить KPI для ${person.name}?`,
-      text: 'KPI сотрудника за текущий месяц будут заменены показателями из файла.',
-      confirmText: 'Загрузить',
-    });
-    if (!ok) return;
-    const r = await run('/api/kpi/import', file, { userId: person.id }, 'Не удалось загрузить KPI');
+    const r = await run('/api/kpi/sales/import-report', file, {}, 'Не удалось обработать отчёт');
     if (r) {
       setResult(r);
       refresh();
     }
   };
 
+  const assign = async (name: string, user: { id: number; name: string }) => {
+    try {
+      const r = await api.post<{ months: number; targets: number }>('/api/kpi/reports/aliases', { name, userId: user.id });
+      toast.success(`«${name}» — это ${user.name}. Пересчитано показателей: ${r.targets}`);
+      setResult((prev) =>
+        prev && {
+          ...prev,
+          results: prev.results.map((x): ReportManagerResult => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: r.targets > 0, targetsUpdated: r.targets } : x)),
+        },
+      );
+      refresh();
+    } catch (e) {
+      toast.error(e, 'Не удалось сопоставить');
+    }
+  };
+
+  const removeReport = async (id: number, label: string) => {
+    const ok = await confirm({ title: `Удалить отчёт за ${label}?`, text: 'Факт KPI пересчитается без него.', confirmText: 'Удалить', danger: true });
+    if (!ok) return;
+    try {
+      await api.delete(`/api/kpi/reports/${id}`);
+      refresh();
+      toast.success('Отчёт удалён');
+    } catch (e) {
+      toast.error(e, 'Не удалось удалить отчёт');
+    }
+  };
+
+  const picker = (
+    <TeamPicker
+      open={!!mapping}
+      title={mapping ? `Кто в 1С «${mapping}»?` : ''}
+      onClose={() => setMapping(null)}
+      onPick={(u) => {
+        const name = mapping!;
+        setMapping(null);
+        assign(name, u);
+      }}
+    />
+  );
+
   if (result) {
-    const mismatch = result.employeeName && person && !person.name.toLowerCase().includes(result.employeeName.toLowerCase().split(' ')[0]);
+    const rows = result.results;
+    const ok = rows.filter((r) => r.status === 'ok').length;
+    const rep = result.report;
     return (
-      <Done title={`Загружено ${result.imported} ${plural(result.imported, ['показатель', 'показателя', 'показателей'])}`} text={person ? `KPI: ${person.name}` : undefined} onAgain={() => setResult(null)}>
-        {mismatch && <Warnings title="Проверьте сотрудника" lines={[`В файле указан «${result.employeeName}», а загружено для «${person!.name}».`]} />}
+      <Done
+        title={rep ? `Отчёт за ${reportPeriod(rep.period_start, rep.period_end)} загружен` : 'Нечего загружать'}
+        text={
+          rep
+            ? `Выручка ${money(rep.total_revenue)} · менеджеров найдено: ${ok} из ${rows.length}${result.replaced ? ` · заменён прежний отчёт за этот период` : ''}`
+            : 'В отчёте нет ваших сотрудников'
+        }
+        onAgain={() => setResult(null)}
+      >
+        {result.epListEmpty && (
+          <Warnings
+            title="Список «Есть повод» пуст"
+            lines={['Пока он пуст, вся выручка считается в «без ЕП», а «Есть повод» — ноль. Добавьте клиентов сети на странице «Клиенты для KPI».']}
+          />
+        )}
+        {result.warnings.length > 0 && <Warnings title="Проверьте отчёт" lines={result.warnings} />}
         <div className={s.tableWrap}>
-          <table className={s.table}>
+          <table className={[s.table, s.wrap].join(' ')}>
             <thead>
               <tr>
-                <th>Показатель</th>
-                <th>План</th>
-                <th>Факт</th>
-                <th>%</th>
-                <th>Бонус</th>
-                <th>К выплате</th>
+                <th>Менеджер в 1С</th>
+                <th>Выручка</th>
+                <th>Есть повод</th>
+                <th>KPI</th>
               </tr>
             </thead>
             <tbody>
-              {result.kpis.map((k) => (
-                <tr key={k.id}>
-                  <td>{k.product_name}</td>
-                  <td>{number(k.target_value)}</td>
-                  <td>{number(k.current_value)}</td>
-                  <td>{number(k.target_percent)}</td>
-                  <td>{toNum(k.bonus_amount) ? money(k.bonus_amount) : '—'}</td>
-                  <td>{toNum(k.payment_amount) ? money(k.payment_amount) : '—'}</td>
+              {rows.map((r) => (
+                <tr key={r.manager}>
+                  <td>
+                    {r.manager}
+                    {r.user && <span className={s.sub}>{r.user}</span>}
+                  </td>
+                  <td>{money(r.total)}</td>
+                  <td>{r.ep ? money(r.ep) : '—'}</td>
+                  <td className={r.status === 'ok' ? s.good : s.bad}>
+                    <div className={s.cellAction}>
+                      {r.status === 'ok' ? (r.updated ? `обновлено показателей: ${r.targetsUpdated}` : 'нет KPI за этот месяц') : r.error}
+                      {(r.status === 'unmatched' || r.status === 'ambiguous') && (
+                        <Button size="sm" variant="soft" onClick={() => setMapping(r.manager)}>
+                          Выбрать сотрудника
+                        </Button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </Done>
-    );
-  }
-
-  return (
-    <>
-      <div className={s.card}>
-        <span className={s.label}>Сотрудник</span>
-        <button type="button" className={s.person} onClick={() => setPicking(true)} disabled={busy}>
-          {person ? (
-            <>
-              <Avatar name={person.name} size={34} />
-              <b>{person.name}</b>
-            </>
-          ) : (
-            <span className={s.muted}>Выберите сотрудника из своей команды</span>
-          )}
-        </button>
-      </div>
-      {person ? (
-        <DropZone accept=".xlsx,.xls,.ods" busy={busy} progress={progress} onFile={pick} hint="Файл KPI: строки «план», «факт», «% выполнения», «бонус», «к выплате»" />
-      ) : (
-        <p className={s.muted}>Сначала выберите сотрудника — показатели из файла станут его KPI на текущий месяц.</p>
-      )}
-      <TeamPicker
-        open={picking}
-        onClose={() => setPicking(false)}
-        onPick={(p) => {
-          setPerson(p);
-          setPicking(false);
-        }}
-      />
-    </>
-  );
-}
-
-// ---------- Отчёт по менеджерам ----------
-
-interface ReportRow {
-  manager: string;
-  user?: string;
-  total: number;
-  ep: number;
-  noEp: number;
-  updated: boolean;
-  targetsUpdated?: number;
-  error?: string;
-}
-
-function ManagerReportImport() {
-  const refresh = useKpiRefresh();
-  const { busy, progress, run } = useUpload<{ success: boolean; results: ReportRow[] }>();
-  const [rows, setRows] = useState<ReportRow[] | null>(null);
-
-  const pick = async (file: File) => {
-    const r = await run('/api/kpi/sales/import-report', file, {}, 'Не удалось обработать отчёт');
-    if (r) {
-      setRows(r.results);
-      refresh();
-    }
-  };
-
-  if (rows) {
-    const ok = rows.filter((r) => r.updated).length;
-    return (
-      <Done
-        title={rows.length ? `Обновлено: ${ok} из ${rows.length}` : 'Менеджеры не найдены'}
-        text={rows.length ? 'Факт KPI «без ЕП» и «есть повод» обновлён по отчёту' : 'В отчёте нет раздела «По менеджерам»'}
-        onAgain={() => setRows(null)}
-      >
-        {rows.length > 0 && (
-          <div className={s.tableWrap}>
-            <table className={s.table}>
-              <thead>
-                <tr>
-                  <th>Менеджер</th>
-                  <th>Всего</th>
-                  <th>Есть повод</th>
-                  <th>Без ЕП</th>
-                  <th>Результат</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.manager}>
-                    <td>
-                      {r.manager}
-                      {r.user && r.user !== r.manager && <span className={s.sub}>{r.user}</span>}
-                    </td>
-                    <td>{money(r.total)}</td>
-                    <td>{money(r.ep)}</td>
-                    <td>{money(r.noEp)}</td>
-                    <td className={r.error || !r.updated ? s.bad : s.good}>{r.error || (r.updated ? `обновлено целей: ${r.targetsUpdated}` : 'нет подходящих целей')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {rep && (
+          <Button variant="soft" icon={<Users size={16} />} onClick={() => navigate('/stats/clients')}>
+            Клиенты «Есть повод»
+          </Button>
         )}
+        {picker}
       </Done>
     );
   }
 
   return (
     <>
-      <DropZone accept=".xlsx,.xls,.ods" busy={busy} progress={progress} onFile={pick} hint="Отчёт продаж с разделом «По менеджерам» и строкой «Период: дд.мм.гггг - дд.мм.гггг»" />
+      <DropZone
+        accept={FILE_ACCEPT}
+        busy={busy}
+        progress={progress}
+        onFile={pick}
+        hint="Отчёт 1С «Валовая прибыль» с разделом «По менеджерам» — за день или с начала месяца"
+      />
       <p className={s.muted}>
-        Для каждого менеджера из отчёта найдём сотрудника по имени и обновим выполнение его целей с «без ЕП» и «есть повод» в названии. Обновляются только ваши подчинённые.
+        Подходят оба варианта: отчёт с 1-го числа по сегодня (каждый новый заменяет прежний) или отчёт за один день (дни складываются). Факт всех KPI
+        команды — продажи с «Есть повод» и без, Балтика, ОПХ, АКБ, дистрибуция — пересчитается сразу.
       </p>
+      {(unmatched.data?.length ?? 0) > 0 && (
+        <section className={s.section}>
+          <h2>Не найдены среди сотрудников</h2>
+          <div className={s.list}>
+            {unmatched.data!.map((u) => (
+              <div key={u.manager_key} className={s.historyRow}>
+                <span className={s.fileIcon} data-status="pending">
+                  <UserRound size={18} />
+                </span>
+                <div className={s.historyBody}>
+                  <b>{u.name}</b>
+                  <span>
+                    {u.revenue != null ? money(u.revenue) : '—'} · последний отчёт по {reportPeriod(u.last_date, u.last_date)}
+                  </span>
+                </div>
+                <Button size="sm" variant="soft" onClick={() => setMapping(u.name)}>
+                  Выбрать
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {(reports.data?.length ?? 0) > 0 && (
+        <section className={s.section}>
+          <h2>Загруженные отчёты</h2>
+          <div className={s.list}>
+            {reports.data!.slice(0, 31).map((r) => {
+              const label = reportPeriod(r.period_start, r.period_end);
+              return (
+                <div key={r.id} className={s.historyRow}>
+                  <span className={s.fileIcon}>
+                    <FileSpreadsheet size={18} />
+                  </span>
+                  <div className={s.historyBody}>
+                    <b title={r.file_name}>
+                      {label} · {monthTitle(r.month)}
+                    </b>
+                    <span>
+                      {formatDate(r.created_at, true)}
+                      {r.uploaded_by_name ? ` · ${r.uploaded_by_name}` : ''}
+                      {r.unmatched ? ` · не найдено менеджеров: ${r.unmatched}` : ''}
+                    </span>
+                  </div>
+                  <b className={s.accent}>{money(r.total_revenue)}</b>
+                  <IconButton label={`Удалить отчёт за ${label}`} size={34} onClick={() => removeReport(r.id, label)}>
+                    <Trash2 size={16} />
+                  </IconButton>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {picker}
     </>
   );
 }
 
-// ---------- План KPI по листам ----------
+// ---------- KPI по листам ----------
 
 interface PlanRow {
   employee: string;
+  sheet?: string;
   user?: string;
+  month?: string;
   created?: number;
   updated?: number;
   kpis?: number;
@@ -611,7 +830,7 @@ function KpiPlanImport() {
   const [rows, setRows] = useState<PlanRow[] | null>(null);
 
   const pick = async (file: File) => {
-    const r = await run('/api/kpi/sales/import-kpi-plan', file, {}, 'Не удалось обработать план');
+    const r = await run('/api/kpi/sales/import-kpi-plan', file, {}, 'Не удалось обработать файл');
     if (r) {
       setRows(r.results);
       refresh();
@@ -627,7 +846,7 @@ function KpiPlanImport() {
             <table className={s.table}>
               <thead>
                 <tr>
-                  <th>Сотрудник</th>
+                  <th>Лист</th>
                   <th>Результат</th>
                 </tr>
               </thead>
@@ -638,7 +857,9 @@ function KpiPlanImport() {
                       {r.employee}
                       {r.user && r.user !== r.employee && <span className={s.sub}>{r.user}</span>}
                     </td>
-                    <td className={r.error ? s.bad : s.good}>{r.error || `новых целей: ${r.created ?? 0}, обновлено: ${r.updated ?? 0}`}</td>
+                    <td className={r.error ? s.bad : s.good}>
+                      {r.error || `${r.month ? `${monthTitle(r.month)}: ` : ''}показателей ${r.created ?? 0}${r.updated ? `, заменено ${r.updated}` : ''}`}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -651,8 +872,11 @@ function KpiPlanImport() {
 
   return (
     <>
-      <DropZone accept=".xlsx,.xls,.ods" busy={busy} progress={progress} onFile={pick} hint="Каждый лист: имя сотрудника, затем показатели со строками «план» и «факт»" />
-      <p className={s.muted}>Цели с таким же названием обновятся, новые — добавятся на 30 дней. Загружать можно только для своих подчинённых.</p>
+      <DropZone accept={FILE_ACCEPT} busy={busy} progress={progress} onFile={pick} hint="Каждый лист — файл KPI сотрудника: имя, месяц и показатели" />
+      <p className={s.muted}>
+        Сотрудник — по имени на листе (только из вашей команды), месяц — из даты в файле, иначе текущий ({monthTitle(monthKey())}). Показатели из файла
+        KPI за месяц заменяются, цели, созданные вручную, остаются.
+      </p>
     </>
   );
 }

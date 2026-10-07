@@ -344,6 +344,24 @@ p.muted {
   color: var(--c-text-muted);
 }
 
+/* Таблицы KPI: длинные названия и пояснения переносятся, а не растягивают таблицу. */
+.wrap td {
+  white-space: normal;
+  vertical-align: top;
+  min-width: 90px;
+}
+
+.wrap td:first-child {
+  min-width: 160px;
+}
+
+.cellAction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .good {
   color: var(--c-success);
   font-weight: 650;

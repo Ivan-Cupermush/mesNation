@@ -26,6 +26,7 @@ import tasksRouter from './routes/tasks';
 import notesRouter, { notePdfPublicRouter } from './routes/notes';
 import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
+import kpiReportsRouter from './routes/kpiReports';
 import knowledgeRouter from './routes/knowledge';
 import { filesApiRouter, uploadsRouter } from './routes/files';
 import { createWebRouter, resolveWebDist } from './web';
@@ -145,6 +146,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api/tasks', tasksRouter);
   app.use('/api/notes', notesRouter);
   app.use('/api/kpi/sales', kpiSalesRouter);
+  app.use('/api/kpi', kpiReportsRouter);
   app.use('/api/knowledge', knowledgeRouter);
 
   const webDir = options.webDistDir === undefined ? resolveWebDist() : options.webDistDir;

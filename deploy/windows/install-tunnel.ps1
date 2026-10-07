@@ -51,8 +51,10 @@ if (-not (Test-Path $ssh)) {
 # ssh -V печатает версию в поток ошибок: в Windows PowerShell 5.1 при $ErrorActionPreference='Stop' это считалось бы сбоем.
 $sshVersion = ((cmd.exe /c "`"$ssh`" -V 2>&1") | Out-String).Trim()
 Ok "OpenSSH: $sshVersion"
+# NSSM, положенный вручную в C:\nssm (на Windows Server без winget), находим сам.
+if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue) -and (Test-Path 'C:\nssm\nssm.exe')) { $Nssm = 'C:\nssm\nssm.exe' }
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
-  throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
+  throw 'NSSM не найден. Установите: winget install NSSM.NSSM, либо положите nssm.exe в C:\nssm (или укажите путь: -Nssm C:\tools\nssm.exe)'
 }
 if ($HostKey -notmatch '^ssh-ed25519 [A-Za-z0-9+/=]+$') { throw 'HostKey должен быть строкой вида "ssh-ed25519 AAAA..." — скопируйте её из вывода setup.sh целиком.' }
 

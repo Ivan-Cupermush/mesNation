@@ -40,8 +40,10 @@ $nodeMajor = [int]((& node.exe -v).TrimStart('v').Split('.')[0])
 if ($nodeMajor -lt 22) { throw "Нужен Node.js 22+, установлен $(& node.exe -v)" }
 Ok "Node.js $(& node.exe -v): $($node.Source)"
 
+# NSSM, положенный вручную в C:\nssm (на Windows Server без winget), находим сам.
+if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue) -and (Test-Path 'C:\nssm\nssm.exe')) { $Nssm = 'C:\nssm\nssm.exe' }
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
-  throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
+  throw 'NSSM не найден. Установите: winget install NSSM.NSSM, либо положите nssm.exe в C:\nssm (или укажите путь: -Nssm C:\tools\nssm.exe)'
 }
 
 $envFile = Join-Path $server '.env'

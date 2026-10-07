@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { dbToLevel, encodeWaveform } from './waveform';
+import { dbToLevel, encodeWaveform } from './waveformData';
 
 export type RecKind = 'voice' | 'video_note';
 

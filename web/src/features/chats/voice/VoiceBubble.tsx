@@ -3,7 +3,7 @@ import { formatDuration } from '../../../lib/format';
 import { Spinner } from '../../../ui/Spinner';
 import { UploadRing } from '../UploadRing';
 import type { Message } from '../types';
-import { decodeWaveform } from './waveform';
+import { decodeWaveform } from './waveformData';
 import { Waveform } from './Waveform';
 import { useVoiceFor } from './voicePlayer';
 import s from './voice.module.css';

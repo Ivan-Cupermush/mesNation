@@ -1,6 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import type { createSound, RecordBackType } from 'react-native-nitro-sound';
-import { dbToLevel } from './waveform';
+import { dbToLevel } from './waveformData';
 
 type SoundType = ReturnType<typeof createSound>;
 

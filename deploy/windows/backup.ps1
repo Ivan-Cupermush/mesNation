@@ -16,18 +16,21 @@
   powershell -ExecutionPolicy Bypass -File C:\mesNation\deploy\windows\backup.ps1 -BackupDir D:\offix-backup -Register
 #>
 param(
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [Parameter(Mandatory = $true)][string]$BackupDir,
   [int]$KeepDays = 30,
   [switch]$Register
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 
 if ($Register) {
   Assert-Admin
-  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Root `"$Root`" -BackupDir `"$BackupDir`" -KeepDays $KeepDays"
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$(if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path })`" -Root `"$Root`" -BackupDir `"$BackupDir`" -KeepDays $KeepDays"
   $trigger = New-ScheduledTaskTrigger -Daily -At '03:30'
   Register-ScheduledTask -TaskName 'Offix backup' -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
   Ok "Ежедневная копия зарегистрирована (03:30) в $BackupDir"

@@ -209,8 +209,13 @@ $SITE_LIST {
 }
 CONF
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || { caddy validate --config /etc/caddy/Caddyfile; die "Ошибка в Caddyfile"; }
+# Проверка конфига выше запускается от root и создаёт файл журнала с владельцем root —
+# после этого Caddy (пользователь caddy) не смог бы его открыть.
+chown -R caddy:caddy /var/log/caddy
 systemctl enable caddy >/dev/null
-systemctl reload caddy 2>/dev/null || systemctl restart caddy
+systemctl restart caddy
+sleep 2
+systemctl is-active --quiet caddy || { journalctl -u caddy -n 20 --no-pager; die "Caddy не запустился — см. журнал выше"; }
 ok "Caddy обслуживает: $SITE_LIST"
 
 step "Команды обслуживания"

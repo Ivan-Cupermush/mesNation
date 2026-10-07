@@ -16,7 +16,7 @@
   powershell -ExecutionPolicy Bypass -File C:\mesNation\deploy\windows\install-service.ps1 -StopOldProcesses
 #>
 param(
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [string]$Service = 'Offix',
   [string]$Nssm = 'nssm.exe',
   # Завершить старые ручные запуски (Vite на 5173, node на порту сервера).
@@ -24,7 +24,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 Assert-Admin
 
 $server = Join-Path $Root 'server'
@@ -37,8 +40,10 @@ $nodeMajor = [int]((& node.exe -v).TrimStart('v').Split('.')[0])
 if ($nodeMajor -lt 22) { throw "Нужен Node.js 22+, установлен $(& node.exe -v)" }
 Ok "Node.js $(& node.exe -v): $($node.Source)"
 
+# NSSM, положенный вручную в C:\nssm (на Windows Server без winget), находим сам.
+if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue) -and (Test-Path 'C:\nssm\nssm.exe')) { $Nssm = 'C:\nssm\nssm.exe' }
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
-  throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
+  throw 'NSSM не найден. Установите: winget install NSSM.NSSM, либо положите nssm.exe в C:\nssm (или укажите путь: -Nssm C:\tools\nssm.exe)'
 }
 
 $envFile = Join-Path $server '.env'
@@ -99,4 +104,4 @@ foreach ($s in $settings) {
 Ok "Служба $Service зарегистрирована (автозапуск, журнал: $logs\server.log)"
 Write-Host ''
 Write-Host 'Дальше: соберите и запустите —' -ForegroundColor Cyan
-Write-Host "  powershell -ExecutionPolicy Bypass -File `"$PSScriptRoot\update.ps1`" -SkipPull"
+Write-Host "  powershell -ExecutionPolicy Bypass -File `"$ScriptDir\update.ps1`" -SkipPull"

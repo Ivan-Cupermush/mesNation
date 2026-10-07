@@ -24,7 +24,7 @@ param(
   [Parameter(Mandatory = $true)][string]$VpsHost,
   # Ключ VPS (печатает setup.sh): защищает от подмены сервера по дороге.
   [Parameter(Mandatory = $true)][string]$HostKey,
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$Root = '',
   [string]$Service = 'OffixTunnel',
   [string]$Nssm = 'nssm.exe',
   [string]$Dir = 'C:\offix-tunnel',
@@ -34,7 +34,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'common.ps1')
+# Папка скрипта: $PSScriptRoot бывает пустым (зависит от способа запуска), поэтому есть запасные способы.
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root) { $Root = (Resolve-Path (Join-Path $ScriptDir '..\..')).Path }
+. (Join-Path $ScriptDir 'common.ps1')
 Assert-Admin
 
 Step 'Проверяю окружение'
@@ -45,9 +48,13 @@ if (-not (Test-Path $ssh)) {
   Add-WindowsCapability -Online -Name 'OpenSSH.Client~~~~0.0.1.0' | Out-Null
   if (-not (Test-Path $ssh)) { throw 'Не удалось установить OpenSSH.Client. Установите: Параметры → Приложения → Дополнительные компоненты → Клиент OpenSSH.' }
 }
-Ok "OpenSSH: $(& $ssh -V 2>&1)"
+# ssh -V печатает версию в поток ошибок: в Windows PowerShell 5.1 при $ErrorActionPreference='Stop' это считалось бы сбоем.
+$sshVersion = ((cmd.exe /c "`"$ssh`" -V 2>&1") | Out-String).Trim()
+Ok "OpenSSH: $sshVersion"
+# NSSM, положенный вручную в C:\nssm (на Windows Server без winget), находим сам.
+if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue) -and (Test-Path 'C:\nssm\nssm.exe')) { $Nssm = 'C:\nssm\nssm.exe' }
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
-  throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
+  throw 'NSSM не найден. Установите: winget install NSSM.NSSM, либо положите nssm.exe в C:\nssm (или укажите путь: -Nssm C:\tools\nssm.exe)'
 }
 if ($HostKey -notmatch '^ssh-ed25519 [A-Za-z0-9+/=]+$') { throw 'HostKey должен быть строкой вида "ssh-ed25519 AAAA..." — скопируйте её из вывода setup.sh целиком.' }
 
@@ -56,6 +63,38 @@ try {
   Wait-Health $localPort 5
 } catch {
   Warn "Сервер Offix не отвечает на 127.0.0.1:$localPort — туннель поднимется, но сайт покажет «сервер недоступен», пока служба Offix не запущена."
+}
+
+# Права на ключ. OpenSSH для Windows отказывается читать ключ, если у него есть доступ у «чужих»:
+# службе (она работает от SYSTEM) нужен ключ, доступный ТОЛЬКО SYSTEM, а вам для проверки входа —
+# доступный администратору. Поэтому перед проверкой ключ открываем, перед запуском службы закрываем.
+$sidSystem = '*S-1-5-18'
+$sidAdmins = '*S-1-5-32-544'
+function Open-KeyForAdmin([string]$Path) {
+  if (-not (Test-Path $Path)) { return }
+  # Через cmd: вывод ошибок программы в PowerShell 5.1 считался бы сбоем скрипта.
+  cmd.exe /c "takeown.exe /f `"$Path`" >nul 2>&1"
+  if ($LASTEXITCODE -ne 0) { Warn "Не удалось сменить владельца ключа (код $LASTEXITCODE) — продолжаю" }
+  Invoke-Native 'icacls.exe' @($Path, '/inheritance:r', '/grant:r', "${sidAdmins}:F", '/grant:r', "${sidSystem}:F") | Out-Null
+}
+function Lock-KeyForSystem([string]$Path) {
+  # Порядок важен: пока у администратора есть полный доступ — сначала меняем владельца (SYSTEM),
+  # и только потом убираем все записи доступа, кроме SYSTEM. Наоборот не получится: без доступа
+  # сменить владельца уже нельзя («Отказано в доступе»).
+  Invoke-Native 'icacls.exe' @($Path, '/setowner', $sidSystem) | Out-Null
+  # Список доступа делаем средствами PowerShell, а не icacls с именами: русские имена пользователей
+  # через командную строку не передаются надёжно (так ключ оставался открытым для «Администратор»
+  # и OpenSSH писал «bad permissions»). Меняется только список доступа, владелец не трогается.
+  $system = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+  $file = Get-Item -LiteralPath $Path -Force
+  $acl = $file.GetAccessControl('Access')
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($system, 'FullControl', 'Allow')))
+  $file.SetAccessControl($acl)
+  $left = @((Get-Acl -Path $Path).Access | ForEach-Object { $_.IdentityReference.Value })
+  if ($left.Count -ne 1) { throw "Не удалось закрыть ключ: доступ остался у $($left -join ', ')" }
+  Ok 'Ключ доступен только SYSTEM'
 }
 
 $net = Test-NetConnection -ComputerName $VpsHost -Port $SshPort -WarningAction SilentlyContinue
@@ -79,6 +118,7 @@ if (-not (Test-Path $key)) {
 $known = Join-Path $Dir 'known_hosts'
 $hostEntry = if ($SshPort -eq 22) { $VpsHost } else { "[$VpsHost]:$SshPort" }
 Set-Content -Path $known -Value "$hostEntry $HostKey" -Encoding ASCII
+Open-KeyForAdmin $key
 $pub = (Get-Content "$key.pub" -Raw).Trim()
 
 Write-Host ''
@@ -120,6 +160,7 @@ if ($probe.HasExited) {
 Stop-Process -Id $probe.Id -Force
 Ok 'Вход по ключу работает, туннель открывается'
 
+Lock-KeyForSystem $key
 Step "Служба $Service"
 $logs = Join-Path $Root 'logs'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null

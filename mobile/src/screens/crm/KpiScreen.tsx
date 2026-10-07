@@ -8,11 +8,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
   CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound,
-  Target, FileSpreadsheet, UserCheck
+  Target, FileSpreadsheet, UserCheck, Upload, Sparkles
 } from 'lucide-react-native';
 import ActionSheet, { SheetAction } from '../../components/chat/ActionSheet';
 import { api, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
+import KpiMonthBlock from '../../components/kpi/KpiMonthBlock';
+import { isKpiTarget } from '../../services/kpi';
 
 import { T, themed } from '../../theme/runtime';
 type Period = 'week' | 'month' | 'quarter';
@@ -79,7 +81,8 @@ export default function KpiScreen({ navigation }: any) {
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const fact = summary?.fact;
-  const targets = summary?.targets || [];
+  // Показатели из файла KPI — в блоке KPI за месяц; здесь — цели, заведённые вручную.
+  const targets = (summary?.targets || []).filter((t: any) => !isKpiTarget(t));
   const avgCheck = fact && Number(fact.total_transactions) > 0
     ? Number(fact.total_amount) / Number(fact.total_transactions) : 0;
 
@@ -107,11 +110,17 @@ export default function KpiScreen({ navigation }: any) {
     return { done, inWork, overdue };
   }, [tasks]);
 
-  // Меню «+»: своя цель, план подчинённому (если есть команда), импорт отчёта.
+  const isManager = subordinates.length > 0 || !!currentUser?.has_subordinates || !!currentUser?.is_director;
+  // Меню «+»: своя цель, план подчинённому, загрузка отчёта и файла KPI (руководителю), импорт продаж.
   const addActions: SheetAction[] = [
     { key: 'own', label: 'Добавить свой KPI', icon: <Target size={20} color={T.accent} />, onPress: () => navigation.navigate('AddProductKpi') },
-    ...(subordinates.length > 0 || currentUser?.has_subordinates || currentUser?.is_director
-      ? [{ key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') }]
+    ...(isManager
+      ? [
+          { key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') },
+          { key: 'report', label: 'Загрузить отчёт о продажах', icon: <Upload size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'report' }) },
+          { key: 'kpi', label: 'Загрузить файл KPI', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'kpi' }) },
+          { key: 'ep', label: 'Клиенты «Есть повод»', icon: <Sparkles size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiClients') },
+        ]
       : []),
     { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('ImportExcel') },
   ];
@@ -157,6 +166,9 @@ export default function KpiScreen({ navigation }: any) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* KPI за месяц: выплата сейчас и прогноз по отчётам о продажах */}
+        {currentUser?.id ? <KpiMonthBlock userId={Number(currentUser.id)} self navigation={navigation} /> : null}
 
         {/* Personal monthly plan */}
         {myKpi && (

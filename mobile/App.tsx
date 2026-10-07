@@ -39,6 +39,9 @@ import EmployeeStatsScreen from './src/screens/crm/EmployeeStatsScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
 import AssignKpiScreen from './src/screens/crm/AssignKpiScreen';
 import AddProductKpiScreen from './src/screens/crm/AddProductKpiScreen';
+import KpiImportScreen from './src/screens/crm/KpiImportScreen';
+import KpiRuleScreen from './src/screens/crm/KpiRuleScreen';
+import KpiClientsScreen from './src/screens/crm/KpiClientsScreen';
 import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
 
 // ===== Экраны управления деревом прав =====
@@ -89,6 +92,9 @@ type KpiStackParamList = {
   RoleTreeEditor: undefined;
   CreateUserRole: undefined;
   EmployeeStats: { userId: number; userName: string };
+  KpiImport: { mode?: 'report' | 'kpi' | 'sheets'; userId?: number } | undefined;
+  KpiRule: { target: any; month: string };
+  KpiClients: undefined;
 };
 
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
@@ -191,6 +197,9 @@ function KpiStackNavigator() {
       <KpiStack.Screen name="AssignKpi" component={AssignKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="AddProductKpi" component={AddProductKpiScreen} options={{ headerShown: false }} />
       <KpiStack.Screen name="ImportExcel" component={ImportExcelScreen} options={{ headerShown: false }} />
+      <KpiStack.Screen name="KpiImport" component={KpiImportScreen} options={{ headerShown: false }} />
+      <KpiStack.Screen name="KpiRule" component={KpiRuleScreen} options={{ headerShown: false }} />
+      <KpiStack.Screen name="KpiClients" component={KpiClientsScreen} options={{ headerShown: false }} />
       <KpiStack.Screen
         name="RoleTreeEditor"
         component={RoleTreeEditorScreen}

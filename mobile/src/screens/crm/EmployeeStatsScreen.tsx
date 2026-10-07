@@ -10,6 +10,8 @@ import {
   Wallet, TrendingUp, ArrowLeft, Package
 } from 'lucide-react-native';
 import { api } from '../../services/api';
+import KpiMonthBlock from '../../components/kpi/KpiMonthBlock';
+import { isKpiTarget } from '../../services/kpi';
 
 import { T, themed } from '../../theme/runtime';
 type Period = 'week' | 'month' | 'quarter';
@@ -63,7 +65,10 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
     );
   }
 
-  const { user, kpis = [], tasks, taskStats, summary, transactions = [] } = data;
+  const { user, kpis: allKpis = [], tasks, taskStats, summary, transactions = [] } = data;
+  // Показатели из файла KPI — в блоке KPI за месяц; ниже — цели, назначенные вручную.
+  const kpis = allKpis.filter((k: any) => !isKpiTarget(k));
+  const fromFile = kpis.length < allKpis.length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -108,10 +113,12 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
           ))}
         </View>
 
-        {/* ВСЕ KPI из Excel */}
+        <KpiMonthBlock userId={Number(userId)} self={false} navigation={navigation} />
+
+        {/* Цели, назначенные вручную */}
         {kpis.length > 0 ? (
           <>
-            <Text style={styles.sectionTitle}>KPI сотрудника ({kpis.length})</Text>
+            <Text style={styles.sectionTitle}>{fromFile ? 'Другие цели' : 'KPI сотрудника'} ({kpis.length})</Text>
             {kpis.map((kpi: any) => (
               <View key={String(kpi.id)} style={[styles.card, { marginBottom: 12 }]}>
                 <View style={styles.kpiHeader}>
@@ -137,7 +144,7 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
               </View>
             ))}
           </>
-        ) : (
+        ) : fromFile ? null : (
           <View style={[styles.card, { alignItems: 'center', paddingVertical: 30 }]}>
             <Package size={32} color={T.textMuted} />
             <Text style={{ color: T.textSecondary, marginTop: 12, fontSize: 14 }}>

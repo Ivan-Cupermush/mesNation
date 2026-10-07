@@ -92,3 +92,70 @@
 .sendActive:active {
   transform: scale(0.94);
 }
+
+/* ---------- Микрофон / камера ---------- */
+
+.barRecording {
+  user-select: none;
+}
+
+.micWrap {
+  position: relative;
+  flex-shrink: 0;
+  margin: 0 2px 1px 4px;
+}
+
+.mic {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+  touch-action: none;
+  -webkit-touch-callout: none;
+  transition: background 0.15s, color 0.15s, transform 0.12s var(--ease), box-shadow 0.2s;
+}
+
+.mic:hover {
+  background: var(--c-input-bg);
+  color: var(--c-accent);
+}
+
+.micActive,
+.micActive:hover {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 22%, transparent);
+  animation: micPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  50% {
+    box-shadow: 0 0 0 13px color-mix(in srgb, var(--c-accent) 12%, transparent);
+  }
+}
+
+.recHint {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: var(--c-elevated);
+  border: 1px solid var(--c-border);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--c-text-primary);
+  pointer-events: none;
+  animation: hintIn 0.16s var(--ease);
+}
+
+@keyframes hintIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

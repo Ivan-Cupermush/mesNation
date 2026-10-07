@@ -36,6 +36,27 @@
 .tabs {
   padding: 4px 14px 10px;
   border-bottom: 1px solid var(--c-border);
+  /* пять вкладок на узком экране — прокручиваются, а не обрезаются */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs [role='tablist'] {
+  width: max-content;
+}
+
+.tabs [role='tab'] {
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .tabs [role='tab'] {
+    padding: 0 11px;
+  }
 }
 
 .scroll {
@@ -158,6 +179,24 @@
   color: #fff;
   font-size: 12px;
   font-weight: 800;
+}
+
+.voiceBadge {
+  border-radius: 50%;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.noteThumb {
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+}
+
+.noteThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .linkBadge {

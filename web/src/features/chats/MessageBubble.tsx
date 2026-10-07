@@ -1,12 +1,15 @@
 import { memo, useRef, type MouseEvent, type ReactNode, type TouchEvent } from 'react';
-import { AlertCircle, Check, CheckCheck, Clock, Download, FileText, Play, X } from 'lucide-react';
+import { AlertCircle, Check, CheckCheck, Clock, Download, FileText, Play } from 'lucide-react';
 import { fileBadge, formatDuration, formatSize, formatTime, hashColor } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
 import { albumLayout } from './albumLayout';
-import { isVisualMedia, linkify, messagePreview, rowMain, rowMessages, type Row } from './model';
+import { isUnlistened, isVisualMedia, linkify, messagePreview, rowMain, rowMessages, type Row } from './model';
 import PollBubble from './PollBubble';
 import NoteShareBubble from './NoteShareBubble';
-import type { Message } from './types';
+import { UploadRing } from './UploadRing';
+import VoiceBubble from './voice/VoiceBubble';
+import VideoNoteBubble from './voice/VideoNoteBubble';
+import type { Message, Reaction } from './types';
 import type { MenuAnchor } from '../../ui/menuAnchor';
 import s from './MessageBubble.module.css';
 
@@ -31,9 +34,22 @@ interface Props {
   onCancel: (msg: Message) => void;
   onSenderClick: (userId: number) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
+  onReact: (msg: Message, emoji: string) => void;
+  onPlayVoice: (msg: Message) => void;
+  onSeekVoice: (msg: Message, ratio: number) => void;
+  onVideoNotePlayed: (msg: Message) => void;
+  /** Режим выделения (как в Telegram): нажатие отмечает сообщение. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (row: Row) => void;
+  /** Подсветить найденное в тексте. */
+  searchQuery?: string;
 }
 
 const LONG_PRESS_MS = 450;
+/** Двойной клик по сообщению — быстрая реакция, как в Telegram. */
+const QUICK_REACTION = '👍';
+
 
 function MessageBubble(props: Props) {
   const { row, mine, firstInSeries, lastInSeries, isGroup, senderName, replied, repliedName, peerLastReadId, meId } = props;
@@ -43,9 +59,14 @@ function MessageBubble(props: Props) {
 
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
+  const isVoice = !isPoll && main.media_kind === 'voice' && !main.deleted_for_all;
+  const isVideoNote = !isPoll && main.media_kind === 'video_note' && !main.deleted_for_all;
   const isDocGroup = row.type === 'album' && msgs.every((m) => m.media_kind === 'file');
-  const isVisual = !isPoll && !isDocGroup && (row.type === 'album' || isVisualMedia(main));
-  const isFile = !isPoll && !isVisual && !!main.file_url;
+  const isVisual = !isPoll && !isDocGroup && !isVoice && !isVideoNote && (row.type === 'album' || isVisualMedia(main));
+  const isFile = !isPoll && !isVisual && !isVoice && !isVideoNote && !!main.file_url;
+  const unlistened = (isVoice || isVideoNote) && isUnlistened(main, meId);
+  const reactions = main.reactions?.length ? main.reactions : null;
+  const selecting = !!props.selecting;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
   const caption = main.text && !isNote && !isPoll ? main.text : '';
@@ -57,10 +78,11 @@ function MessageBubble(props: Props) {
   const openMenu = (e: MouseEvent) => {
     if (main.pending) return;
     e.preventDefault();
+    if (selecting) return props.onToggleSelect?.(row);
     props.onMenu(row, { x: e.clientX, y: e.clientY });
   };
   const onTouchStart = (e: TouchEvent) => {
-    if (main.pending) return;
+    if (main.pending || selecting) return;
     const t = e.touches[0];
     pressTimer.current = setTimeout(() => props.onMenu(row, { x: t.clientX, y: t.clientY }), LONG_PRESS_MS);
   };
@@ -77,6 +99,102 @@ function MessageBubble(props: Props) {
     </span>
   );
 
+  const reactionsRow = reactions && (
+    <Reactions list={reactions} meId={meId} mine={mine} onMedia={false} onReact={(emoji) => props.onReact(main, emoji)} disabled={selecting} />
+  );
+
+  const quickReact = (e: MouseEvent) => {
+    if (selecting || main.pending || main.id < 0 || (e.target as HTMLElement).closest('a,button,input,svg,video')) return;
+    window.getSelection()?.removeAllRanges();
+    props.onReact(main, QUICK_REACTION);
+  };
+
+  const rowClass = [
+    s.row,
+    mine ? s.rowMine : s.rowOther,
+    !lastInSeries && s.rowTight,
+    props.highlighted && s.highlight,
+    selecting && s.rowSelecting,
+    props.selected && s.rowSelected,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const selectBox = selecting && (
+    <span className={[s.selectBox, props.selected && s.selectBoxOn].filter(Boolean).join(' ')} aria-hidden>
+      {props.selected && <Check size={14} strokeWidth={3} />}
+    </span>
+  );
+
+  const rowHandlers = selecting
+    ? {
+        onClickCapture: (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!main.pending) props.onToggleSelect?.(row);
+        },
+        onContextMenu: (e: MouseEvent) => e.preventDefault(),
+        role: 'checkbox' as const,
+        'aria-checked': !!props.selected,
+      }
+    : {};
+
+  const header = (inMedia: boolean) => (
+    <>
+      {showName && (
+        <button type="button" className={[s.sender, inMedia && s.padInMedia].filter(Boolean).join(' ')} style={{ color: hashColor(senderName) }} onClick={() => props.onSenderClick(main.sender_id)}>
+          {senderName}
+        </button>
+      )}
+      {main.forwarded_from_user_id && (
+        <div className={[s.forwarded, inMedia && s.padInMedia].filter(Boolean).join(' ')}>Переслано от {main.forwarded_from_name || 'участника'}</div>
+      )}
+      {main.reply_to_message_id && (
+        <button type="button" className={[s.quote, inMedia && s.quoteInMedia].filter(Boolean).join(' ')} onClick={() => props.onReplyClick(main)}>
+          <span className={s.quoteName}>{replied ? repliedName : main.external_reply_chat_id ? 'Сообщение из другого чата' : 'Сообщение'}</span>
+          <span className={s.quoteText}>
+            {replied ? messagePreview(replied) : main.external_reply_chat_id ? 'Нажмите, чтобы открыть' : 'Исходное сообщение удалено'}
+          </span>
+        </button>
+      )}
+    </>
+  );
+
+  const sideAvatar = showSideAvatar && (
+    <div className={s.avatarSlot}>
+      {lastInSeries && (
+        <button type="button" className={s.avatarBtn} onClick={() => props.onSenderClick(main.sender_id)} aria-label={`Профиль: ${senderName}`}>
+          <Avatar name={senderName} src={props.senderAvatar} size={34} />
+        </button>
+      )}
+    </div>
+  );
+
+  // Кружочек — без пузыря, как в Telegram: подпись, ответ и реакции — рядом.
+  if (isVideoNote) {
+    const hasHeader = showName || !!main.forwarded_from_user_id || !!main.reply_to_message_id;
+    return (
+      <div className={rowClass} data-mid={main.id} {...rowHandlers}>
+        {selectBox}
+        {sideAvatar}
+        <div
+          className={[s.noteCol, mine ? s.noteColMine : ''].join(' ')}
+          onContextMenu={openMenu}
+          onTouchStart={onTouchStart}
+          onTouchEnd={cancelPress}
+          onTouchMove={cancelPress}
+          onDoubleClick={quickReact}
+          onClick={main.pending === 'failed' ? () => props.onRetry(main) : undefined}
+        >
+          {hasHeader && <div className={[s.noteHeader, mine ? s.out : s.in].join(' ')}>{header(false)}</div>}
+          <VideoNoteBubble msg={main} unlistened={unlistened} meta={meta(true)} onPlayed={props.onVideoNotePlayed} onCancel={props.onCancel} />
+          {reactions && <Reactions list={reactions} meId={meId} mine={mine} onMedia onReact={(emoji) => props.onReact(main, emoji)} disabled={selecting} />}
+          {main.pending === 'failed' && <div className={[s.failed, s.noteFailed].join(' ')}>Не отправлено · нажмите, чтобы повторить</div>}
+        </div>
+      </div>
+    );
+  }
+
   const bubbleClass = [
     mediaOnly ? s.mediaOnly : s.bubble,
     !mediaOnly && (mine ? s.out : s.in),
@@ -91,49 +209,28 @@ function MessageBubble(props: Props) {
     .join(' ');
 
   return (
-    <div
-      className={[s.row, mine ? s.rowMine : s.rowOther, !lastInSeries && s.rowTight, props.highlighted && s.highlight].filter(Boolean).join(' ')}
-      data-mid={msgs.map((m) => m.id).join(' ')}
-    >
-      {showSideAvatar && (
-        <div className={s.avatarSlot}>
-          {lastInSeries && (
-            <button type="button" className={s.avatarBtn} onClick={() => props.onSenderClick(main.sender_id)} aria-label={`Профиль: ${senderName}`}>
-              <Avatar name={senderName} src={props.senderAvatar} size={34} />
-            </button>
-          )}
-        </div>
-      )}
+    <div className={rowClass} data-mid={msgs.map((m) => m.id).join(' ')} {...rowHandlers}>
+      {selectBox}
+      {sideAvatar}
       <div
         className={bubbleClass}
         onContextMenu={openMenu}
         onTouchStart={onTouchStart}
         onTouchEnd={cancelPress}
         onTouchMove={cancelPress}
+        onDoubleClick={quickReact}
+        onMouseDown={(e) => e.detail > 1 && !selecting && e.preventDefault()}
         onClick={main.pending === 'failed' ? () => props.onRetry(main) : undefined}
       >
-        {showName && (
-          <button type="button" className={[s.sender, isVisual && s.padInMedia].filter(Boolean).join(' ')} style={{ color: hashColor(senderName) }} onClick={() => props.onSenderClick(main.sender_id)}>
-            {senderName}
-          </button>
-        )}
-        {main.forwarded_from_user_id && (
-          <div className={[s.forwarded, isVisual && s.padInMedia].filter(Boolean).join(' ')}>Переслано от {main.forwarded_from_name || 'участника'}</div>
-        )}
-        {main.reply_to_message_id && (
-          <button type="button" className={[s.quote, isVisual && s.quoteInMedia].filter(Boolean).join(' ')} onClick={() => props.onReplyClick(main)}>
-            <span className={s.quoteName}>{replied ? repliedName : main.external_reply_chat_id ? 'Сообщение из другого чата' : 'Сообщение'}</span>
-            <span className={s.quoteText}>
-              {replied ? messagePreview(replied) : main.external_reply_chat_id ? 'Нажмите, чтобы открыть' : 'Исходное сообщение удалено'}
-            </span>
-          </button>
-        )}
+        {header(isVisual)}
 
         {isVisual && (
-          <MediaAlbum items={msgs} rounded={mediaOnly} onOpen={props.onOpenMedia} onCancel={props.onCancel} overlay={!caption ? meta(true) : null} />
+          <MediaAlbum items={msgs} rounded={mediaOnly} onOpen={props.onOpenMedia} onCancel={props.onCancel} overlay={!caption && !reactions ? meta(true) : null} />
         )}
 
         {isFile && msgs.map((f) => <FileRow key={f.client_id || f.id} msg={f} onOpen={props.onOpenFile} onCancel={props.onCancel} />)}
+
+        {isVoice && <VoiceBubble msg={main} mine={mine} unlistened={unlistened} onPlay={props.onPlayVoice} onSeek={props.onSeekVoice} onCancel={props.onCancel} />}
 
         {pollMediaVisual && (
           <div className={s.pollMedia}>
@@ -148,14 +245,17 @@ function MessageBubble(props: Props) {
 
         {caption && (
           <div className={[s.text, isVisual && s.captionInMedia].filter(Boolean).join(' ')}>
-            <Linkified text={caption} />
+            <Linkified text={caption} query={props.searchQuery} />
             {/* Невидимая копия времени и галочек: резервирует место в конце строки, текст под них не заходит. */}
             <span className={s.metaSpacer} aria-hidden>
               {meta()}
             </span>
           </div>
         )}
-        {!(isVisual && !caption) && <span className={[s.metaAbs, isVisual && s.metaAbsMedia].filter(Boolean).join(' ')}>{meta()}</span>}
+        {reactionsRow && <div className={[s.reactionsWrap, isVisual && s.reactionsInMedia, mediaOnly && s.reactionsUnderMedia].filter(Boolean).join(' ')}>{reactionsRow}</div>}
+        {!(isVisual && !caption && !reactions) && (
+          <span className={[s.metaAbs, isVisual && s.metaAbsMedia].filter(Boolean).join(' ')}>{meta(mediaOnly)}</span>
+        )}
         {main.pending === 'failed' && <div className={s.failed}>Не отправлено · нажмите, чтобы повторить</div>}
       </div>
     </div>
@@ -170,12 +270,12 @@ function Ticks({ msg, peerLastReadId }: { msg: Message; peerLastReadId: number }
   return msg.id <= peerLastReadId ? <CheckCheck size={15} className={s.tickRead} /> : <Check size={14} className={s.tick} />;
 }
 
-function Linkified({ text }: { text: string }) {
+function Linkified({ text, query }: { text: string; query?: string }) {
   return (
     <>
       {linkify(text).map((p, i) =>
         typeof p === 'string' ? (
-          p
+          <Highlighted key={i} text={p} query={query} />
         ) : (
           <a key={i} href={p.url} target="_blank" rel="noopener noreferrer nofollow" onClick={(e) => e.stopPropagation()}>
             {p.url}
@@ -186,41 +286,65 @@ function Linkified({ text }: { text: string }) {
   );
 }
 
-/** Кольцо загрузки с крестиком отмены. */
-export function UploadRing({ progress, onCancel, size = 46 }: { progress?: number; onCancel?: () => void; size?: number }) {
-  const r = size / 2 - 3;
-  const c = 2 * Math.PI * r;
-  const p = Math.max(0.03, Math.min(1, progress || 0));
+/** Найденное при поиске по чату — подсвечено. */
+function Highlighted({ text, query }: { text: string; query?: string }) {
+  const q = query?.trim().toLowerCase();
+  if (!q) return <>{text}</>;
+  const out: ReactNode[] = [];
+  const lower = text.toLowerCase();
+  let from = 0;
+  let at = lower.indexOf(q);
+  while (at !== -1) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(
+      <mark key={at} className={s.mark}>
+        {text.slice(at, at + q.length)}
+      </mark>,
+    );
+    from = at + q.length;
+    at = lower.indexOf(q, from);
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return <>{out}</>;
+}
+
+/** Реакции под сообщением: своя — закрашена; нажатие — поставить или снять. */
+function Reactions({
+  list,
+  meId,
+  mine,
+  onMedia,
+  disabled,
+  onReact,
+}: {
+  list: Reaction[];
+  meId: number;
+  mine: boolean;
+  onMedia: boolean;
+  disabled?: boolean;
+  onReact: (emoji: string) => void;
+}) {
   return (
-    <button
-      type="button"
-      className={s.ring}
-      style={{ width: size, height: size }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onCancel?.();
-      }}
-      aria-label="Отменить отправку"
-      disabled={!onCancel}
-    >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={3} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#fff"
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - p)}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: 'stroke-dashoffset 0.2s' }}
-        />
-      </svg>
-      {onCancel && <X size={size * 0.38} className={s.ringX} />}
-    </button>
+    <div className={[s.reactions, onMedia && s.reactionsOnMedia].filter(Boolean).join(' ')}>
+      {list.map((r) => {
+        const my = r.user_ids.includes(meId);
+        return (
+          <button
+            key={r.emoji}
+            type="button"
+            className={[s.reaction, mine ? s.reactionOut : s.reactionIn, my && s.reactionMy].filter(Boolean).join(' ')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!disabled) onReact(r.emoji);
+            }}
+            title={my ? 'Убрать реакцию' : 'Поставить такую же'}
+          >
+            <span className={s.reactionEmoji}>{r.emoji}</span>
+            <span className={s.reactionCount}>{r.count}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -1,0 +1,18 @@
+.ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+.ring svg {
+  position: absolute;
+  inset: 0;
+}
+
+.ringX {
+  position: relative;
+}

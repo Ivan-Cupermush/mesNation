@@ -1,0 +1,48 @@
+.picker {
+  display: flex;
+  gap: 2px;
+  padding: 4px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--c-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.picker::-webkit-scrollbar {
+  display: none;
+}
+
+.item {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 21px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s var(--ease), background 0.15s;
+}
+
+.item:hover {
+  background: var(--c-input-bg);
+  transform: scale(1.18);
+}
+
+.itemOn {
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+
+@media (max-width: 768px) {
+  .picker {
+    padding: 4px 12px 10px;
+    margin-bottom: 0;
+  }
+
+  .item {
+    width: 42px;
+    height: 42px;
+    font-size: 24px;
+  }
+}

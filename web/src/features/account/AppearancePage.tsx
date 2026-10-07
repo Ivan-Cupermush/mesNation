@@ -13,14 +13,14 @@ const MODES: { key: ThemePreference; label: string; icon: typeof Sun }[] = [
 ];
 
 /**
- * Оформление — как в приложении: тема, цвет, размер текста и скругление
+ * Внешний вид — как в приложении: тема, цвет, размер текста и скругление
  * сообщений (с живым примером), отправка по Enter. Хранится в этом браузере.
  */
 export default function AppearancePage() {
   const theme = useTheme();
   return (
     <Page>
-      <PageHeader title="Оформление" back={true} />
+      <PageHeader title="Внешний вид" back={true} />
       <PageBody narrow>
         <div className={s.preview} aria-hidden>
           <div className={[s.bubble, s.bubbleIn].join(' ')} style={{ fontSize: theme.messageFontSize, borderRadius: theme.bubbleRadius }}>

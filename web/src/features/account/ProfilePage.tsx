@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, Bell, Building2, Camera, Crown, KeyRound, LogOut, Mail, MonitorSmartphone, Palette, Pencil, Shield, UserRound } from 'lucide-react';
+import { AtSign, Bell, Building2, Camera, Crown, FileSpreadsheet, KeyRound, LogOut, Mail, MonitorSmartphone, Network, Palette, Pencil, Shield, UserRound, Users } from 'lucide-react';
 import { useAuth, useMe } from '../auth/AuthProvider';
 import { isManager } from '../auth/roles';
 import { api, uploadFile } from '../../lib/http';
@@ -131,12 +131,21 @@ export default function ProfilePage() {
 
         {me.company_name && (
           <SettingsSection title="Компания">
-            <SettingsRow icon={<Building2 size={18} />} title={me.company_name} hint={isManager(me) ? 'Управление — в разделе «Настройки»' : undefined} onClick={isManager(me) ? () => navigate('/settings') : undefined} />
+            <SettingsRow icon={<Building2 size={18} />} title={me.company_name} hint={me.is_director ? 'Управление — в разделе «Настройки»' : undefined} onClick={me.is_director ? () => navigate('/settings') : undefined} />
+          </SettingsSection>
+        )}
+
+        {/* Руководителю без прав директора — команда здесь (раздела «Настройки» у него нет). */}
+        {isManager(me) && !me.is_director && (
+          <SettingsSection title="Команда">
+            <SettingsRow icon={<Users size={18} />} tone="info" title="Сотрудники" hint="Ваша команда" onClick={() => navigate('/employees')} />
+            <SettingsRow icon={<Network size={18} />} tone="violet" title="Дерево ролей" hint="Иерархия компании — только просмотр" onClick={() => navigate('/roles')} />
+            <SettingsRow icon={<FileSpreadsheet size={18} />} tone="info" title="Импорт из Excel" hint="Загрузка KPI и отчётов продаж" onClick={() => navigate('/import')} />
           </SettingsSection>
         )}
 
         <SettingsSection title="Приложение">
-          <SettingsRow icon={<Palette size={18} />} title="Оформление" hint="Тема, цвет, размер текста" onClick={() => navigate('/settings/appearance')} />
+          <SettingsRow icon={<Palette size={18} />} title="Внешний вид" hint="Тема, цвет, размер текста" onClick={() => navigate('/settings/appearance')} />
           <SettingsRow icon={<Bell size={18} />} tone="danger" title="Уведомления" hint="Сообщения и задачи на этом компьютере" onClick={() => navigate('/settings/notifications')} />
         </SettingsSection>
 

@@ -5,9 +5,12 @@ import {
   Bell,
   BellOff,
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Copy,
+  Download,
   CornerUpLeft,
   CornerUpRight,
   Forward,
@@ -18,6 +21,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Search,
   Square,
   Trash2,
   Undo2,
@@ -25,9 +29,9 @@ import {
   X,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
-import { api, ApiError, openFile } from '../../lib/http';
+import { api, ApiError, downloadFile, openFile } from '../../lib/http';
 import { emitEvent, subscribe } from '../../lib/socket';
-import { lastSeenLabel, plural } from '../../lib/format';
+import { formatDate, lastSeenLabel, plural } from '../../lib/format';
 import { useIsMobile } from '../../lib/useMedia';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
@@ -39,7 +43,7 @@ import { DateTimeDialog, SCHEDULE_PRESETS } from '../../ui/DateTimeDialog';
 import { useFeedback } from '../../ui/feedback';
 import { chatKeys, isMuted, useChatDetail, useTopics } from './queries';
 import { MUTE_OPTIONS, markChatRead, setChatMute } from './chatActions';
-import { buildFeed, isVisualMedia, messagePreview, rowMain, rowMessages, type Row } from './model';
+import { buildFeed, isVisualMedia, isVoiceLike, messagePreview, rowMain, rowMessages, saveName, type Row } from './model';
 import { useChatMessages } from './useChatMessages';
 import { clearActiveChat, setActiveChat } from './activeChat';
 import MessageBubble, { ServiceLine } from './MessageBubble';
@@ -51,13 +55,32 @@ import ChatPicker from './ChatPicker';
 import MediaViewer, { type ViewerItem } from './MediaViewer';
 import { DeleteDialog, ScheduledList } from './ChatDialogs';
 import { TopicIcon } from './topicIcons';
-import type { Message, ScheduledMessage } from './types';
+import ReactionPicker from './ReactionPicker';
+import VoicePlayerBar from './voice/VoicePlayerBar';
+import { seekVoice, setVoiceHandlers, toggleVoice } from './voice/voicePlayer';
+import type { Recording } from './voice/useRecorder';
+import type { Message, Reaction, ScheduledMessage } from './types';
 import s from './ChatView.module.css';
 
 type Typing = Record<number, { name: string; at: number }>;
 
 /** Расстояние от низа ленты, после которого показывается кнопка «вниз». */
 const AWAY_PX = 400;
+
+/** Своя реакция: та же — снимается, другая — заменяет прежнюю (как на сервере). */
+function applyReaction(list: Reaction[] | null | undefined, emoji: string, meId: number): Reaction[] | null {
+  const prev = (list || []).find((r) => r.user_ids.includes(meId))?.emoji ?? null;
+  let next = (list || [])
+    .map((r) => (r.user_ids.includes(meId) ? { ...r, count: r.count - 1, user_ids: r.user_ids.filter((id) => id !== meId) } : r))
+    .filter((r) => r.count > 0);
+  if (prev !== emoji) {
+    const at = next.findIndex((r) => r.emoji === emoji);
+    if (at >= 0) next = next.map((r, i) => (i === at ? { ...r, count: r.count + 1, user_ids: [...r.user_ids, meId] } : r));
+    else next = [...next, { emoji, count: 1, user_ids: [meId] }];
+  }
+  return next.length ? next : null;
+}
+
 
 /**
  * Переписка — как ChatScreen в приложении: лента с альбомами и сериями,
@@ -82,7 +105,10 @@ export default function ChatView() {
   const { data: topics } = useTopics(chatId, { enabled: inTopicRoute });
   const topic = topicId ? (topics?.find((t) => t.id === topicId) ?? null) : null;
   const feed = useChatMessages(chatId, topicId, me.id);
-  const { messages, loadUntil, loadOlder, hasOlder, loadingOlder } = feed;
+  const { messages, loadUntil, loadOlder, hasOlder, loadingOlder, update: updateMessage } = feed;
+  // Свежий список для обработчиков, которые не должны меняться при каждом сообщении (пузыри не перерисовываются).
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const isGroup = chat?.type === 'group';
   const rights = chat?.my_rights;
@@ -114,6 +140,9 @@ export default function ChatView() {
   const [away, setAway] = useState(false);
   const [newWhileAway, setNewWhileAway] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  /** Выделенные сообщения (режим выделения, как в Telegram); null — режим выключен. */
+  const [selection, setSelection] = useState<number[] | null>(null);
+  const [search, setSearch] = useState<{ q: string; results: Message[]; index: number; loading: boolean; error: string | null } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<ComposerHandle>(null);
@@ -465,14 +494,194 @@ export default function ChatView() {
 
   // ===== Действия с сообщениями =====
   const deleteMessages = async (targets: Message[], scope: 'me' | 'all') => {
+    const ids = targets.map((t) => t.id).filter((id) => id > 0);
     try {
-      for (const t of targets) await api.delete(`/api/messages/${t.id}`, { scope });
-      feed.remove(targets.map((t) => t.id));
+      // Одним запросом (по 100), как выделение в Telegram; старый сервер — по одному.
+      for (let i = 0; i < ids.length; i += 100) {
+        const part = ids.slice(i, i + 100);
+        try {
+          await api.post('/api/messages/bulk-delete', { ids: part, scope });
+        } catch (e) {
+          if (!(e instanceof ApiError && e.status === 404)) throw e;
+          for (const id of part) await api.delete(`/api/messages/${id}`, { scope });
+        }
+      }
+      feed.remove(ids);
+      setSelection(null);
     } catch (e) {
       toast.error(e, 'Не удалось удалить');
       throw e;
     }
   };
+
+  // ===== Реакции =====
+  const react = useCallback(
+    async (m: Message, emoji: string) => {
+      if (m.id < 0 || m.pending || m.content_type === 'service') return;
+      const before = m.reactions ?? null;
+      updateMessage(m.id, { reactions: applyReaction(before, emoji, me.id) });
+      try {
+        const r = await api.post<{ id: number; reactions: Reaction[] | null }>(`/api/messages/${m.id}/reactions`, { emoji });
+        updateMessage(m.id, { reactions: r.reactions });
+      } catch (e) {
+        updateMessage(m.id, { reactions: before });
+        toast.error(e instanceof ApiError && e.status === 404 ? 'Реакции заработают после обновления сервера' : e, 'Не удалось поставить реакцию');
+      }
+    },
+    [updateMessage, me.id, toast],
+  );
+
+  // ===== Голосовые и кружочки =====
+  /** Голосовые после этого — плеер включит их по очереди. */
+  const voiceQueueAfter = useCallback(
+    (m: Message) => messagesRef.current.filter((x) => x.media_kind === 'voice' && !x.pending && x.id > 0 && !x.deleted_for_all && x.id > m.id),
+    [],
+  );
+  const markListened = useCallback(
+    (m: Message) => {
+      if (m.id < 0 || m.sender_id === me.id || (m.listened_by || []).includes(me.id)) return;
+      if (String(m.chat_id) === String(chatId)) updateMessage(m.id, { listened_by: [...(m.listened_by || []), me.id] });
+      api.post(`/api/messages/${m.id}/listened`).catch(() => undefined);
+    },
+    [chatId, updateMessage, me.id],
+  );
+  useEffect(() => {
+    setVoiceHandlers({
+      onStart: markListened,
+      onError: (e) =>
+        toast.error(
+          e instanceof DOMException && e.name === 'NotSupportedError' ? 'Браузер не умеет проигрывать этот формат. Откройте сайт в Chrome, Edge, Яндекс Браузере, Firefox или Safari' : e,
+          'Не удалось воспроизвести',
+        ),
+    });
+    return () =>
+      // Голосовое играет и после ухода из чата — «прослушано» всё равно отмечаем.
+      setVoiceHandlers({
+        onStart: (m) => {
+          if (m.sender_id !== me.id && m.id > 0) api.post(`/api/messages/${m.id}/listened`).catch(() => undefined);
+        },
+      });
+  }, [markListened, toast, me.id]);
+  const onPlayVoice = useCallback((m: Message) => toggleVoice(m, voiceQueueAfter(m)), [voiceQueueAfter]);
+  const onSeekVoice = useCallback((m: Message, ratio: number) => seekVoice(m, ratio, voiceQueueAfter(m)), [voiceQueueAfter]);
+
+  const sendRecording = (r: Recording) => {
+    const reply = replyTo?.id ?? null;
+    setReplyTo(null);
+    scrollToBottom(false);
+    feed
+      .sendRecording(r, reply)
+      .catch((e) => toast.error(e instanceof ApiError && e.status === 413 ? 'Запись слишком большая' : e, r.kind === 'voice' ? 'Голосовое не отправлено' : 'Видеосообщение не отправлено'));
+  };
+
+  const saveFile = (m: Message) => {
+    if (m.file_url && !m.pending) downloadFile(m.file_url, saveName(m)).catch((e) => toast.error(e, 'Не удалось сохранить'));
+  };
+
+  // ===== Выделение =====
+  const selectedMsgs = useMemo(
+    () => (selection ? messages.filter((m) => selection.includes(m.id)).sort((a, b) => a.id - b.id) : []),
+    [messages, selection],
+  );
+  const startSelect = (row: Row) => setSelection(rowMessages(row).filter((m) => m.id > 0).map((m) => m.id));
+  const toggleSelect = useCallback((row: Row) => {
+    const ids = rowMessages(row)
+      .filter((m) => m.id > 0)
+      .map((m) => m.id);
+    if (!ids.length) return;
+    setSelection((cur) => {
+      const now = cur || [];
+      const all = ids.every((id) => now.includes(id));
+      const next = all ? now.filter((id) => !ids.includes(id)) : [...now, ...ids.filter((id) => !now.includes(id))];
+      // Сняли последнее — выходим из режима выделения, как в Telegram.
+      return next.length ? next : null;
+    });
+  }, []);
+
+  /** Текст выделенного: одно сообщение — как есть, несколько — с именами и временем. */
+  const selectionText = (list: Message[]) => {
+    const withText = list.filter((m) => m.text && m.content_type !== 'service');
+    if (withText.length === 1) return withText[0].text!;
+    return withText
+      .map((m) => `${m.sender_id === me.id ? me.display_name || me.username : senderNameOf(m)}, [${formatDate(m.created_at, true)}]\n${m.text}`)
+      .join('\n\n');
+  };
+
+  /** «Сохранить»: файлы — скачиваются, текст — одним .txt. */
+  const saveSelection = (list: Message[]) => {
+    list.filter((m) => m.file_url).forEach(saveFile);
+    const text = selectionText(list.filter((m) => m.text && !m.file_url));
+    if (text) {
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(chatName || 'Чат').replace(/[\\/:*?"<>|]+/g, ' ').trim()} — сообщения.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+    setSelection(null);
+  };
+
+  // ===== Поиск по чату =====
+  const searchQ = search?.q.trim() ?? '';
+  useEffect(() => {
+    if (!search || searchQ.length < 1) return;
+    let alive = true;
+    setSearch((cur) => (cur ? { ...cur, loading: true, error: null } : cur));
+    const t = setTimeout(async () => {
+      try {
+        const results = await api.get<Message[]>(`/api/messages/${chatId}/search`, { q: searchQ, topic_id: topicId ?? undefined });
+        if (!alive) return;
+        setSearch((cur) => (cur ? { ...cur, results, index: 0, loading: false } : cur));
+        if (results[0]) jumpTo(results[0].id);
+      } catch (e) {
+        if (!alive) return;
+        const text = e instanceof ApiError && e.status === 404 ? 'Поиск заработает после обновления сервера' : e instanceof Error ? e.message : 'Не удалось найти';
+        setSearch((cur) => (cur ? { ...cur, results: [], loading: false, error: text } : cur));
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQ, chatId, topicId, search !== null]);
+
+  const searchStep = (dir: 1 | -1) => {
+    if (!search?.results.length) return;
+    const index = Math.max(0, Math.min(search.results.length - 1, search.index + dir));
+    if (index === search.index) return;
+    setSearch({ ...search, index });
+    jumpTo(search.results[index].id);
+  };
+
+  const openSearch = () => {
+    setSelection(null);
+    setSearch((cur) => cur ?? { q: '', results: [], index: 0, loading: false, error: null });
+  };
+
+  // Ctrl+F — поиск по чату, Esc — выйти из поиска или выделения (как в Telegram).
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyF') {
+        e.preventDefault();
+        openSearch();
+      } else if (e.key === 'Escape' && !e.defaultPrevented) {
+        if (selection) setSelection(null);
+        else if (search) setSearch(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
+  // Другой чат — без выделения и поиска.
+  useEffect(() => {
+    setSelection(null);
+    setSearch(null);
+  }, [chatId, topicId]);
 
   const togglePin = async (m: Message) => {
     try {
@@ -517,6 +726,9 @@ export default function ChatView() {
     const list: MenuItem[] = [{ key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={19} />, onSelect: () => startReply(main) }];
     if (main.text && main.content_type !== 'note') list.push({ key: 'copy', label: 'Копировать текст', icon: <Copy size={19} />, onSelect: () => copyText(main.text!) });
     if (isVisualMedia(main)) list.push({ key: 'open', label: 'Открыть', icon: <ImageIcon size={19} />, onSelect: () => openMedia(main) });
+    if (main.file_url && !main.poll_id && (isVoiceLike(main) || isVisualMedia(main))) {
+      list.push({ key: 'save', label: 'Сохранить', icon: <Download size={19} />, onSelect: () => all.forEach(saveFile) });
+    }
     if (!main.poll_id) {
       list.push({ key: 'forward', label: 'Переслать', icon: <Forward size={19} />, onSelect: () => setForward({ ids: all.map((m) => m.id), mode: 'forward' }) });
       list.push({ key: 'replyElsewhere', label: 'Ответить в другом чате', icon: <CornerUpRight size={19} />, onSelect: () => setForward({ ids: [main.id], mode: 'reply' }) });
@@ -547,6 +759,7 @@ export default function ChatView() {
         },
       });
     }
+    if (all.length) list.push({ key: 'select', label: 'Выбрать', icon: <CheckCircle2 size={19} />, onSelect: () => startSelect(row) });
     list.push({ key: 'delete', label: 'Удалить', danger: true, icon: <Trash2 size={19} />, onSelect: () => setToDelete(all) });
     return list;
   };
@@ -613,6 +826,7 @@ export default function ChatView() {
     for (let i = 0; i < f.ids.length; i++) {
       await api.post('/api/messages/forward', { messageId: f.ids[i], toChatId, topicId: toTopicId, comment: i === 0 && comment ? comment : undefined });
     }
+    setSelection(null);
     toast.success(f.ids.length > 1 ? 'Сообщения пересланы' : 'Сообщение переслано');
   };
 
@@ -647,6 +861,7 @@ export default function ChatView() {
       ]
     : [
         { key: 'info', label: inTopicRoute && topicId ? 'О теме' : chat?.type === 'private' ? 'Профиль' : 'Информация', icon: <Info size={19} />, onSelect: () => navigate(infoPath) },
+        { key: 'search', label: 'Поиск', icon: <Search size={19} />, onSelect: openSearch },
         { key: 'media', label: 'Медиа и файлы', icon: <Images size={19} />, onSelect: () => navigate(`${base}/media`) },
         muted
           ? {
@@ -657,6 +872,19 @@ export default function ChatView() {
             }
           : { key: 'mute', label: 'Отключить уведомления', icon: <BellOff size={19} />, onSelect: () => setTimeout(() => setHeaderMenu({ anchor: headerAnchor.current, mute: true }), 0) },
         { key: 'scheduled', label: `Запланированные${scheduled.length ? ` (${scheduled.length})` : ''}`, icon: <CalendarClock size={19} />, onSelect: () => setScheduledOpen(true) },
+        ...(messages.some((m) => m.id > 0 && m.content_type !== 'service')
+          ? [
+              {
+                key: 'select',
+                label: 'Выбрать сообщения',
+                icon: <CheckCircle2 size={19} />,
+                onSelect: () => {
+                  setSearch(null);
+                  setSelection([]);
+                },
+              },
+            ]
+          : []),
       ];
 
   const goBack = () => navigate(inTopicRoute ? `/chats/${chatId}` : '/chats');
@@ -682,36 +910,152 @@ export default function ChatView() {
   return (
     <div className={s.view} {...dragHandlers}>
       {/* ===== Шапка ===== */}
-      <header className={s.header}>
-        {(isMobile || inTopicRoute) && (
-          <IconButton label="Назад" onClick={goBack}>
+      {selection ? (
+        <header className={[s.header, s.selectHeader].join(' ')}>
+          <IconButton label="Отменить выделение" onClick={() => setSelection(null)}>
+            <X size={22} />
+          </IconButton>
+          <span className={s.selectTitle}>
+            {selectedMsgs.length
+              ? `${selectedMsgs.length} ${plural(selectedMsgs.length, ['сообщение', 'сообщения', 'сообщений'])}`
+              : 'Выберите сообщения'}
+          </span>
+          {(() => {
+            const one = selectedMsgs.length === 1 ? selectedMsgs[0] : null;
+            const canEdit = !!one && one.sender_id === me.id && !one.poll_id && !one.note_share_id && !isVoiceLike(one) && one.content_type !== 'service';
+            const hasText = selectedMsgs.some((m) => m.text && m.content_type !== 'service');
+            const canForward = selectedMsgs.length > 0 && selectedMsgs.every((m) => !m.poll_id);
+            return (
+              <>
+                {canEdit && (
+                  <IconButton
+                    label="Изменить"
+                    onClick={() => {
+                      setSelection(null);
+                      startEdit(one!);
+                    }}
+                  >
+                    <Pencil size={20} />
+                  </IconButton>
+                )}
+                {hasText && (
+                  <IconButton
+                    label="Копировать"
+                    onClick={() => {
+                      copyText(selectionText(selectedMsgs));
+                      setSelection(null);
+                    }}
+                  >
+                    <Copy size={20} />
+                  </IconButton>
+                )}
+                {selectedMsgs.length > 0 && (
+                  <IconButton label="Сохранить" onClick={() => saveSelection(selectedMsgs)}>
+                    <Download size={20} />
+                  </IconButton>
+                )}
+                {canForward && (
+                  <IconButton label="Переслать" onClick={() => setForward({ ids: selectedMsgs.map((m) => m.id), mode: 'forward' })}>
+                    <Forward size={20} />
+                  </IconButton>
+                )}
+                {selectedMsgs.length > 0 && (
+                  <IconButton label="Удалить" tone="danger" onClick={() => setToDelete(selectedMsgs)}>
+                    <Trash2 size={20} />
+                  </IconButton>
+                )}
+              </>
+            );
+          })()}
+        </header>
+      ) : search ? (
+        <header className={[s.header, s.searchHeader].join(' ')}>
+          <IconButton label="Закрыть поиск" onClick={() => setSearch(null)}>
             <ChevronLeft size={26} />
           </IconButton>
-        )}
-        <button type="button" className={s.headerMain} onClick={() => navigate(infoPath)}>
-          {inTopicRoute ? (
-            <TopicIcon topic={topic} size={40} />
-          ) : (
-            <Avatar name={chatName} src={chat?.avatar_url} size={40} online={chat?.type === 'private' && !!peerPresence?.online} />
-          )}
-          <span className={s.titles}>
-            <span className={s.title}>
-              {title}
-              {muted && <BellOff size={14} className={s.mutedIcon} />}
-            </span>
-            {subtitle && <span className={[s.subtitle, subtitleActive && s.subtitleActive].filter(Boolean).join(' ')}>{subtitle}</span>}
+          <div className={s.searchField}>
+            <Search size={17} className={s.searchIcon} />
+            <input
+              autoFocus
+              className={s.searchInput}
+              value={search.q}
+              placeholder="Поиск в чате"
+              aria-label="Поиск в чате"
+              onChange={(e) => setSearch({ ...search, q: e.target.value, ...(e.target.value.trim() ? {} : { results: [], index: 0, error: null }) })}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setSearch(null);
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  searchStep(e.shiftKey ? -1 : 1);
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  searchStep(1);
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  searchStep(-1);
+                }
+              }}
+            />
+            {search.loading && <Spinner size={16} />}
+          </div>
+          <span className={s.searchCount}>
+            {search.error
+              ? search.error
+              : searchQ && !search.loading
+                ? search.results.length
+                  ? `${search.index + 1} из ${search.results.length}`
+                  : 'Не найдено'
+                : ''}
           </span>
-        </button>
-        <IconButton
-          label="Меню чата"
-          onClick={(e) => {
-            headerAnchor.current = anchorFrom(e.currentTarget);
-            setHeaderMenu({ anchor: headerAnchor.current });
-          }}
-        >
-          <MoreVertical size={21} />
-        </IconButton>
-      </header>
+          <IconButton label="Раньше" size={36} disabled={!search.results.length || search.index >= search.results.length - 1} onClick={() => searchStep(1)}>
+            <ChevronUp size={21} />
+          </IconButton>
+          <IconButton label="Позже" size={36} disabled={!search.results.length || search.index <= 0} onClick={() => searchStep(-1)}>
+            <ChevronDown size={21} />
+          </IconButton>
+        </header>
+      ) : (
+        <header className={s.header}>
+          {(isMobile || inTopicRoute) && (
+            <IconButton label="Назад" onClick={goBack}>
+              <ChevronLeft size={26} />
+            </IconButton>
+          )}
+          <button type="button" className={s.headerMain} onClick={() => navigate(infoPath)}>
+            {inTopicRoute ? (
+              <TopicIcon topic={topic} size={40} />
+            ) : (
+              <Avatar name={chatName} src={chat?.avatar_url} size={40} online={chat?.type === 'private' && !!peerPresence?.online} />
+            )}
+            <span className={s.titles}>
+              <span className={s.title}>
+                {title}
+                {muted && <BellOff size={14} className={s.mutedIcon} />}
+              </span>
+              {subtitle && <span className={[s.subtitle, subtitleActive && s.subtitleActive].filter(Boolean).join(' ')}>{subtitle}</span>}
+            </span>
+          </button>
+          <IconButton
+            label="Меню чата"
+            onClick={(e) => {
+              headerAnchor.current = anchorFrom(e.currentTarget);
+              setHeaderMenu({ anchor: headerAnchor.current });
+            }}
+          >
+            <MoreVertical size={21} />
+          </IconButton>
+        </header>
+      )}
+
+      <VoicePlayerBar
+        nameOf={(m) => (m.sender_id === me.id ? 'Вы' : senderNameOf(m))}
+        onOpen={(m) => {
+          if (String(m.chat_id) === String(chatId) && (m.topic_id ?? null) === topicId) jumpTo(m.id);
+          else navigate(`/chats/${m.chat_id}${m.topic_id ? `/topic/${m.topic_id}` : ''}?m=${m.id}`);
+        }}
+      />
 
       {/* ===== Закреп ===== */}
       {currentPinned && (
@@ -810,6 +1154,14 @@ export default function ChatView() {
                     onCancel={feed.discard}
                     onSenderClick={onSenderClick}
                     onNoteAccepted={onNoteAccepted}
+                    onReact={react}
+                    onPlayVoice={onPlayVoice}
+                    onSeekVoice={onSeekVoice}
+                    onVideoNotePlayed={markListened}
+                    selecting={!!selection}
+                    selected={!!selection && rowMessages(it.row).every((m) => selection.includes(m.id))}
+                    onToggleSelect={toggleSelect}
+                    searchQuery={search && searchQ ? searchQ : undefined}
                   />
                 );
               })
@@ -833,7 +1185,7 @@ export default function ChatView() {
       </div>
 
       {/* ===== Плашки над вводом ===== */}
-      {(replyTo || editing) && (
+      {!selection && (replyTo || editing) && (
         <div className={s.plate}>
           {replyTo ? <CornerUpLeft size={20} className={s.plateIcon} /> : <Pencil size={20} className={s.plateIcon} />}
           <button type="button" className={s.plateBody} onClick={() => jumpTo((replyTo || editing)!.id)}>
@@ -852,7 +1204,7 @@ export default function ChatView() {
           </IconButton>
         </div>
       )}
-      {scheduled.length > 0 && !editing && (
+      {scheduled.length > 0 && !editing && !selection && (
         <button type="button" className={[s.plate, s.plateButton].join(' ')} onClick={() => setScheduledOpen(true)}>
           <CalendarClock size={20} className={s.plateIcon} />
           <span className={s.plateBody}>
@@ -862,6 +1214,30 @@ export default function ChatView() {
         </button>
       )}
 
+      {selection ? (
+        <div className={s.selectBar}>
+          <Button
+            variant="secondary"
+            icon={<CornerUpLeft size={18} />}
+            disabled={selectedMsgs.length !== 1}
+            className={selectedMsgs.length > 1 ? s.selectBarHidden : undefined}
+            onClick={() => {
+              const m = selectedMsgs[0];
+              setSelection(null);
+              if (m) startReply(m);
+            }}
+          >
+            Ответить
+          </Button>
+          <Button
+            icon={<Forward size={18} />}
+            disabled={!selectedMsgs.length || selectedMsgs.some((m) => !!m.poll_id)}
+            onClick={() => setForward({ ids: selectedMsgs.map((m) => m.id), mode: 'forward' })}
+          >
+            Переслать
+          </Button>
+        </div>
+      ) : (
       <Composer
         ref={composerRef}
         draftKey={`${chatId}.${topicId ?? 'main'}`}
@@ -879,14 +1255,32 @@ export default function ChatView() {
         onEditLast={editLast}
         onTyping={() => emitEvent('typing', { chatId: Number(chatId) })}
         onStopTyping={() => emitEvent('stop_typing', { chatId: Number(chatId) })}
+        onRecorded={sendRecording}
+        onRecordError={(e) => toast.error(e)}
       />
+      )}
 
       {/* ===== Окна ===== */}
       <ActionMenu
         open={!!menu}
         anchor={menu?.anchor ?? null}
         title={menuMain ? (menuMain.sender_id === me.id ? 'Вы' : senderNameOf(menuMain)) : undefined}
-        header={isMobile && menuMain ? <div className={s.menuPreview}>{messagePreview(menuMain)}</div> : undefined}
+        header={
+          menuMain ? (
+            <>
+              {menuMain.id > 0 && menuMain.content_type !== 'service' && (
+                <ReactionPicker
+                  current={(menuMain.reactions || []).find((r) => r.user_ids.includes(me.id))?.emoji}
+                  onPick={(emoji) => {
+                    setMenu(null);
+                    react(menuMain, emoji);
+                  }}
+                />
+              )}
+              {isMobile && <div className={s.menuPreview}>{messagePreview(menuMain)}</div>}
+            </>
+          ) : undefined
+        }
         items={menu ? menuItems(menu.row) : []}
         onClose={() => setMenu(null)}
       />

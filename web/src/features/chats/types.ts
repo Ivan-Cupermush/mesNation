@@ -63,7 +63,14 @@ export interface ChatDetail extends Chat {
   my_rights: ChatRights;
 }
 
-export type MediaKind = 'photo' | 'video' | 'file';
+export type MediaKind = 'photo' | 'video' | 'file' | 'voice' | 'video_note';
+
+/** Реакции одного вида на сообщение (как в Telegram: одна реакция от человека). */
+export interface Reaction {
+  emoji: string;
+  count: number;
+  user_ids: number[];
+}
 
 export interface NoteShareInfo {
   id: number;
@@ -126,6 +133,11 @@ export interface Message {
   media_duration: number | string | null;
   file_size: number | string | null;
   mime_type: string | null;
+  /** Волна голосового: до 100 уровней 0..31 через запятую. */
+  media_waveform?: string | null;
+  /** Кто прослушал голосовое или кружочек. */
+  listened_by?: number[] | null;
+  reactions?: Reaction[] | null;
   note_share_id: number | null;
   note_share: NoteShareInfo | null;
   poll_question: string | null;

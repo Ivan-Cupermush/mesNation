@@ -412,25 +412,178 @@
   overflow: hidden;
 }
 
-/* ---------- Кольцо загрузки ---------- */
+/* ---------- Выделение ---------- */
 
-.ring {
+.row.rowSelecting {
   position: relative;
+  padding-left: 48px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rowSelecting .bubble,
+.rowSelecting .mediaOnly,
+.rowSelecting .noteCol {
+  pointer-events: none;
+}
+
+.rowSelected {
+  background: color-mix(in srgb, var(--c-accent) 12%, transparent);
+}
+
+.selectBox {
+  position: absolute;
+  left: 14px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--c-text-muted) 80%, transparent);
+  background: color-mix(in srgb, var(--c-card) 70%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.35);
+  color: var(--c-on-accent);
+  animation: selectIn 0.15s var(--ease);
+}
+
+.selectBoxOn {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+}
+
+@keyframes selectIn {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* ---------- Кружочек ---------- */
+
+.noteCol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 86%;
+}
+
+.noteColMine {
+  align-items: flex-end;
+}
+
+.noteHeader {
+  max-width: 260px;
+  padding: 5px 9px;
+  border-radius: 14px;
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.08);
+}
+
+.noteHeader .quote {
+  margin-bottom: 0;
+}
+
+.noteFailed {
+  text-align: right;
+}
+
+/* ---------- Реакции ---------- */
+
+.reactionsWrap {
+  padding-right: 64px;
+  margin-top: 5px;
+}
+
+.reactionsInMedia {
+  padding: 2px 70px 4px 6px;
+}
+
+.reactionsUnderMedia {
+  padding: 5px 72px 2px 0;
+}
+
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px 0 7px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 0.12s, background 0.15s;
+}
+
+.reaction:active {
+  transform: scale(0.93);
+}
+
+.reactionIn {
+  background: color-mix(in srgb, var(--c-accent) 13%, transparent);
+  color: var(--c-accent);
+}
+
+.reactionIn.reactionMy {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.reactionOut {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--c-my-message-text);
+}
+
+.reactionOut.reactionMy {
+  background: var(--c-my-message-text);
+  color: var(--c-my-message-bubble);
+}
+
+.reactionsOnMedia .reaction {
+  background: rgba(0, 0, 0, 0.42);
   color: #fff;
+  backdrop-filter: blur(8px);
 }
 
-.ring svg {
-  position: absolute;
-  inset: 0;
+.reactionsOnMedia .reactionMy {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
 }
 
-.ringX {
-  position: relative;
+.mediaOnly .reactionIn,
+.mediaOnly .reactionOut {
+  background: var(--c-card);
+  color: var(--c-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.mediaOnly .reactionMy {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.reactionEmoji {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.reactionCount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Поиск ---------- */
+
+.mark {
+  background: color-mix(in srgb, #facc15 55%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
 }
 
 /* ---------- Служебные строки ---------- */

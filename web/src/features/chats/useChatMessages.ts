@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api, upload, UploadCancelled } from '../../lib/http';
 import { joinChat, makeClientId, onConnectionChange, sendMessageViaSocket, subscribe } from '../../lib/socket';
-import type { Message, Poll } from './types';
+import type { Message, Poll, Reaction } from './types';
+import type { Recording } from './voice/useRecorder';
 
 const PAGE = 60;
 let localSeq = 0;
@@ -150,6 +151,16 @@ export function useChatMessages(chatId: string, topicId: number | null, meId: nu
         setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg, poll: m.poll, my_votes: m.my_votes } : m)));
       }),
       subscribe<{ id: number }>('message_deleted', ({ id }) => setMessages((prev) => prev.filter((m) => m.id !== id))),
+      subscribe<{ id: number; chat_id: number; reactions: Reaction[] | null }>('message_reactions', (e) => {
+        if (String(e.chat_id) !== String(chatId)) return;
+        setMessages((prev) => prev.map((m) => (m.id === e.id ? { ...m, reactions: e.reactions } : m)));
+      }),
+      subscribe<{ id: number; chat_id: number; user_id: number }>('message_listened', (e) => {
+        if (String(e.chat_id) !== String(chatId)) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === e.id && !(m.listened_by || []).includes(e.user_id) ? { ...m, listened_by: [...(m.listened_by || []), e.user_id] } : m)),
+        );
+      }),
       subscribe<{ id: number; pinned: boolean }>('message_pinned', ({ id }) => setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: true } : m)))),
       subscribe<{ id: number }>('message_unpinned', ({ id }) => setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: false } : m)))),
       subscribe<{ poll_id: number }>('poll_updated', async ({ poll_id }) => {
@@ -233,6 +244,10 @@ export function useChatMessages(chatId: string, topicId: number | null, meId: nu
               reply_to_message_id: local.reply_to_message_id ?? undefined,
               media_group_id: local.media_group_id ?? undefined,
               as_file: local.asFile ? 'true' : undefined,
+              // Голосовое и кружочек: длительность и волна — с записи.
+              ...(local.media_kind === 'voice' || local.media_kind === 'video_note'
+                ? { kind: local.media_kind, duration: local.media_duration ?? undefined, waveform: local.media_waveform ?? undefined }
+                : {}),
             },
             (p) => patchLocal(clientId, { progress: p }),
           );
@@ -314,6 +329,32 @@ export function useChatMessages(chatId: string, topicId: number | null, meId: nu
     [baseLocal, deliver],
   );
 
+  /** Голосовое или кружочек: сразу в ленте и слушается у себя, пока грузится. */
+  const sendRecording = useCallback(
+    (r: Recording, replyToId: number | null) => {
+      const local: Message = {
+        ...baseLocal(),
+        content_type: r.kind,
+        reply_to_message_id: replyToId,
+        media_kind: r.kind,
+        media_duration: r.duration,
+        media_waveform: r.waveform,
+        media_width: r.kind === 'video_note' ? 480 : null,
+        media_height: r.kind === 'video_note' ? 480 : null,
+        file_url: 'local',
+        file_name: r.file.name,
+        file_size: r.file.size,
+        mime_type: r.file.type,
+        localUrl: r.url,
+        localFile: r.file,
+        listened_by: [],
+      };
+      setMessages((prev) => [...prev, local]);
+      return deliver(local);
+    },
+    [baseLocal, deliver],
+  );
+
   const retry = useCallback((m: Message) => deliver(m), [deliver]);
 
   const discard = useCallback((m: Message) => {
@@ -329,5 +370,5 @@ export function useChatMessages(chatId: string, topicId: number | null, meId: nu
   const update = useCallback((id: number, patch: Partial<Message>) => setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m))), []);
   const remove = useCallback((ids: number[]) => setMessages((prev) => prev.filter((m) => !ids.includes(m.id))), []);
 
-  return { messages, loading, loadingOlder, hasOlder, error, reload: load, loadOlder, loadUntil, sendText, sendFiles, retry, discard, update, remove };
+  return { messages, loading, loadingOlder, hasOlder, error, reload: load, loadOlder, loadUntil, sendText, sendFiles, sendRecording, retry, discard, update, remove };
 }

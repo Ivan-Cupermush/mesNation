@@ -8,6 +8,15 @@ import { logger } from '../lib/logger';
 const run = promisify(execFile);
 
 /**
+ * ffmpeg/ffprobe: из FFMPEG_DIR, если задан (служба Windows от LocalSystem
+ * не видит PATH пользователя, куда их ставит winget), иначе — из PATH.
+ */
+function bin(name: 'ffmpeg' | 'ffprobe') {
+  const dir = process.env.FFMPEG_DIR?.trim();
+  return dir ? path.join(dir, name) : name;
+}
+
+/**
  * Обработка медиа для чата: превью и размеры фото, кадр-обложка и длительность
  * видео. Размеры нужны клиенту, чтобы сразу нарисовать пузырь правильной
  * формы (как в Telegram), не дожидаясь загрузки картинки.
@@ -19,21 +28,23 @@ export interface MediaInfo {
   width: number | null;
   height: number | null;
   duration: number | null;
+  /** Файл пересохранён в общий формат (голосовое из браузера → m4a, кружочек → mp4). */
+  converted?: { path: string; filename: string; mime: string; size: number };
 }
 
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.3gp', '.mkv', '.avi']);
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif', '.bmp']);
 
 let ffmpegAvailable: boolean | null = null;
-async function hasFfmpeg(): Promise<boolean> {
+export async function hasFfmpeg(): Promise<boolean> {
   if (ffmpegAvailable === null) {
     try {
-      await run('ffprobe', ['-version'], { timeout: 5000 });
-      await run('ffmpeg', ['-version'], { timeout: 5000 });
+      await run(bin('ffprobe'), ['-version'], { timeout: 5000 });
+      await run(bin('ffmpeg'), ['-version'], { timeout: 5000 });
       ffmpegAvailable = true;
     } catch {
       ffmpegAvailable = false;
-      logger.warn('ffmpeg не найден: у видео в чате не будет обложки и длительности');
+      logger.warn('ffmpeg не найден: у видео нет обложки и длительности, голосовые и кружочки из браузера не перекодируются');
     }
   }
   return ffmpegAvailable;
@@ -64,7 +75,7 @@ async function processVideo(filePath: string, fileName: string): Promise<MediaIn
   if (!(await hasFfmpeg())) return info;
   try {
     const { stdout } = await run(
-      'ffprobe',
+      bin('ffprobe'),
       ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:stream_tags=rotate:format=duration', '-of', 'json', filePath],
       { timeout: 15000 },
     );
@@ -76,7 +87,7 @@ async function processVideo(filePath: string, fileName: string): Promise<MediaIn
     info.duration = probe.format?.duration ? Math.round(Number(probe.format.duration) * 100) / 100 : null;
     const name = thumbName(fileName);
     const at = info.duration && info.duration > 2 ? '1' : '0';
-    await run('ffmpeg', ['-y', '-ss', at, '-i', filePath, '-frames:v', '1', '-vf', 'scale=720:-2', '-q:v', '4', path.join(UPLOAD_DIRS.thumbs, name)], {
+    await run(bin('ffmpeg'), ['-y', '-ss', at, '-i', filePath, '-frames:v', '1', '-vf', 'scale=720:-2', '-q:v', '4', path.join(UPLOAD_DIRS.thumbs, name)], {
       timeout: 30000,
     });
     info.thumbUrl = `/uploads/thumbs/${name}`;
@@ -90,10 +101,42 @@ async function processVideo(filePath: string, fileName: string): Promise<MediaIn
 async function audioDuration(filePath: string): Promise<number | null> {
   if (!(await hasFfmpeg())) return null;
   try {
-    const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', filePath], { timeout: 15000 });
+    const { stdout } = await run(bin('ffprobe'), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', filePath], { timeout: 15000 });
     const d = Number(JSON.parse(stdout).format?.duration);
     return Number.isFinite(d) ? Math.round(d * 100) / 100 : null;
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Голосовые и кружочки из браузера приходят в WebM: его нельзя перематывать
+ * (нет длительности), а iPhone и часть Android его не играют. Пересохраняем
+ * в AAC/M4A и H.264/MP4 — как пишет приложение. Без ffmpeg — оставляем как есть.
+ */
+async function normalize(file: Express.Multer.File, kind: 'voice' | 'video_note'): Promise<MediaInfo['converted'] | null> {
+  const ext = path.extname(file.filename).toLowerCase();
+  const isMp4 = ['.m4a', '.mp4', '.aac', '.mov', '.3gp'].includes(ext) || /^(audio|video)\/(mp4|aac|x-m4a)$/.test(file.mimetype);
+  if (isMp4 || !(await hasFfmpeg())) return null;
+  const outExt = kind === 'voice' ? '.m4a' : '.mp4';
+  const filename = path.basename(file.filename, ext) + outExt;
+  const out = path.join(path.dirname(file.path), filename);
+  const args =
+    kind === 'voice'
+      ? ['-y', '-i', file.path, '-vn', '-ac', '1', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', out]
+      : [
+          '-y', '-i', file.path,
+          // Кружочек — квадрат: обрезаем по центру, как это делает Telegram.
+          '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=480:480",
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', out,
+        ];
+  try {
+    await run(bin('ffmpeg'), args, { timeout: 120000 });
+    const { size } = await import('fs').then((fs) => fs.promises.stat(out));
+    return { path: out, filename, mime: kind === 'voice' ? 'audio/mp4' : 'video/mp4', size };
+  } catch (err) {
+    logger.warn({ err }, 'Не удалось пересохранить голосовое/кружочек — оставляю исходный файл');
     return null;
   }
 }
@@ -105,11 +148,14 @@ export async function processUpload(
 ): Promise<MediaInfo> {
   const ext = path.extname(file.originalname || file.filename).toLowerCase();
   if (special === 'voice') {
-    return { kind: 'voice', thumbUrl: null, width: null, height: null, duration: await audioDuration(file.path) };
+    const converted = await normalize(file, 'voice');
+    const info: MediaInfo = { kind: 'voice', thumbUrl: null, width: null, height: null, duration: await audioDuration(converted?.path ?? file.path) };
+    return converted ? { ...info, converted } : info;
   }
   if (special === 'video_note') {
-    const v = await processVideo(file.path, file.filename);
-    return { ...v, kind: 'video_note' };
+    const converted = await normalize(file, 'video_note');
+    const v = await processVideo(converted?.path ?? file.path, converted?.filename ?? file.filename);
+    return converted ? { ...v, kind: 'video_note', converted } : { ...v, kind: 'video_note' };
   }
   if (!asFile) {
     if (file.mimetype.startsWith('image/') || IMAGE_EXT.has(ext)) {

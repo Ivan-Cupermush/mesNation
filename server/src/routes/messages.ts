@@ -1,3 +1,4 @@
+import path from 'path';
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
@@ -358,12 +359,26 @@ const uploadSchema = z.object({
 router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: Response) => {
   const file = req.file;
   if (!file) throw badRequest('Файл не получен');
+  let convertedPath: string | null = null;
   try {
     // Отправитель — всегда владелец токена; senderId из запроса игнорируется.
     const body = uploadSchema.parse(req.body);
     await assertChatMember(body.chatId, req.userId!);
     const media = await processUpload(file, body.as_file === 'true', body.kind);
     const isVoice = media.kind === 'voice';
+    // Пересохранено в общий формат — исходник больше не нужен.
+    const stored = media.converted
+      ? {
+          filename: media.converted.filename,
+          name: file.originalname.replace(/\.[^.]+$/, '') + path.extname(media.converted.filename),
+          mime: media.converted.mime,
+          size: media.converted.size,
+        }
+      : { filename: file.filename, name: file.originalname, mime: file.mimetype, size: file.size };
+    if (media.converted) {
+      convertedPath = media.converted.path;
+      removeFile(file.path);
+    }
     const message = await createMessage({
       chatId: body.chatId,
       senderId: req.userId!,
@@ -371,8 +386,8 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
       text: body.caption || null,
       clientId: body.client_id ?? null,
       replyToMessageId: body.reply_to_message_id ?? null,
-      fileUrl: `/uploads/${file.filename}`,
-      fileName: file.originalname,
+      fileUrl: `/uploads/${stored.filename}`,
+      fileName: stored.name,
       thumbUrl: media.thumbUrl,
       contentType: media.kind === 'file' ? 'file' : media.kind,
       // Файлы, отправленные вместе, тоже группируются (как документы в Telegram).
@@ -382,12 +397,13 @@ router.post('/upload', chatUpload.single('file'), async (req: AuthRequest, res: 
       mediaHeight: media.height,
       mediaDuration: media.duration ?? (body.kind ? body.duration ?? null : null),
       mediaWaveform: isVoice ? body.waveform ?? null : null,
-      fileSize: file.size,
-      mimeType: file.mimetype,
+      fileSize: stored.size,
+      mimeType: stored.mime,
     });
     res.status(201).json(message);
   } catch (err) {
     removeFile(file.path);
+    if (convertedPath) removeFile(convertedPath);
     throw err;
   }
 });

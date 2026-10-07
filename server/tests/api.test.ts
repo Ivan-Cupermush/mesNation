@@ -662,6 +662,55 @@ describe('мессенджер как в Telegram', () => {
     expect((await as(c.acc).get(`/api/messages/${chat.body.id}/search?q=договор`)).status).toBe(403);
   });
 
+  it('голосовое и кружочек из браузера (WebM) пересохраняются в m4a и mp4', async () => {
+    const { execFileSync } = await import('child_process');
+    const { mkdtempSync, readFileSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    try {
+      execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+    } catch {
+      return; // без ffmpeg сервер оставляет файл как есть — проверять нечего
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'offix-media-'));
+    const voicePath = join(dir, 'voice.webm');
+    const notePath = join(dir, 'note.webm');
+    execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5', '-c:a', 'libopus', voicePath], { stdio: 'ignore' });
+    execFileSync(
+      'ffmpeg',
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=size=640x480:rate=15:duration=2', '-f', 'lavfi', '-i', 'sine=duration=2', '-c:v', 'libvpx', '-c:a', 'libopus', '-shortest', notePath],
+      { stdio: 'ignore' },
+    );
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Голос с сайта', user_ids: [c.mgr2.id] });
+    const voice = await as(c.mgr1)
+      .upload('/api/upload', 'file', readFileSync(voicePath), 'voice.webm')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'voice')
+      .field('duration', '1.5');
+    expect(voice.status).toBe(201);
+    expect(voice.body).toMatchObject({ media_kind: 'voice', mime_type: 'audio/mp4', file_name: 'voice.m4a' });
+    expect(voice.body.file_url).toMatch(/\.m4a$/);
+    expect(Number(voice.body.media_duration)).toBeGreaterThan(1);
+
+    const note = await as(c.mgr1)
+      .upload('/api/upload', 'file', readFileSync(notePath), 'note.webm')
+      .field('chatId', String(chat.body.id))
+      .field('kind', 'video_note')
+      .field('duration', '2');
+    expect(note.status).toBe(201);
+    expect(note.body).toMatchObject({ media_kind: 'video_note', mime_type: 'video/mp4', media_width: 480, media_height: 480 });
+    expect(note.body.file_url).toMatch(/\.mp4$/);
+    expect(note.body.thumb_url).toMatch(/^\/uploads\/thumbs\//);
+  }, 60_000);
+
+  it('здоровье сервера показывает версию и последнюю миграцию', async () => {
+    const r = await client(app).get('/api/health');
+    expect(r.status).toBe(200);
+    expect(r.body.migration).toMatch(/^\d{4}_/);
+    expect(r.body).toHaveProperty('version');
+    expect(r.body.media).toHaveProperty('ffmpeg');
+  });
+
   it('удаление выделенных сообщений одним запросом', async () => {
     const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Выделение', user_ids: [c.mgr2.id] });
     const send = (who: Actor, text: string) => as(who).post(`/api/chats/${chat.body.id}/messages`, { text });

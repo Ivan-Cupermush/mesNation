@@ -76,6 +76,8 @@ try {
   if (Test-Path $serverNext) { Remove-Item -Path $serverNext -Recurse -Force }
   Invoke-Native 'npx.cmd' @('tsc', '-p', 'tsconfig.json', '--outDir', 'dist-next') $server
   Copy-Item -Path (Join-Path $server 'src\db\migrations') -Destination (Join-Path $serverNext 'src\db\migrations') -Recurse
+  # Коммит сборки — его показывает /api/health (поле version).
+  Set-Content -Path (Join-Path $serverNext 'VERSION') -Value $version -Encoding ASCII
 
   if (-not $stopped) {
     Step "Останавливаю службу $Service"
@@ -93,6 +95,7 @@ try {
   $stopped = $false
   Wait-Health $port 90
   Ok "Обновлено до версии $version"
+  Show-HealthInfo $port
 } catch {
   Bad $_.Exception.Message
   if ($stopped) {

@@ -22,8 +22,7 @@ foreach ($dir in @((Join-Path $server 'dist-prev'), (Join-Path $web 'dist-prev')
 }
 
 Step "Останавливаю службу $Service"
-Stop-Service -Name $Service
-Wait-ServiceStatus $Service 'Stopped' 60
+$dependents = Stop-OffixService $Service
 
 Step 'Возвращаю предыдущую версию'
 foreach ($pair in @(@($server, 'dist'), @($web, 'dist'))) {
@@ -36,6 +35,6 @@ foreach ($pair in @(@($server, 'dist'), @($web, 'dist'))) {
 }
 
 Step "Запускаю службу $Service"
-Start-Service -Name $Service
+Start-OffixService $Service $dependents
 Wait-Health (Get-ServerPort $server) 90
 Ok 'Откат выполнен. Неудачная версия лежит в *-failed для разбора.'

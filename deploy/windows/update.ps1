@@ -62,11 +62,11 @@ if (Test-Path $oldAssets) {
 
 $depsChanged = Test-DependenciesChanged $server
 $stopped = $false
+$dependents = @()
 try {
   if ($depsChanged) {
     Step "Зависимости сервера изменились — останавливаю службу $Service на время установки"
-    Stop-Service -Name $Service
-    Wait-ServiceStatus $Service 'Stopped' 60
+    $dependents = Stop-OffixService $Service
     $stopped = $true
     Install-Dependencies $server
   }
@@ -81,8 +81,7 @@ try {
 
   if (-not $stopped) {
     Step "Останавливаю службу $Service"
-    Stop-Service -Name $Service
-    Wait-ServiceStatus $Service 'Stopped' 60
+    $dependents = Stop-OffixService $Service
     $stopped = $true
   }
 
@@ -91,7 +90,7 @@ try {
   Switch-Folder (Join-Path $web 'dist') $webNext
 
   Step "Запускаю службу $Service"
-  Start-Service -Name $Service
+  Start-OffixService $Service $dependents
   $stopped = $false
   Wait-Health $port 90
   Ok "Обновлено до версии $version"
@@ -100,7 +99,7 @@ try {
   Bad $_.Exception.Message
   if ($stopped) {
     Warn "Пробую снова запустить службу $Service на прежней версии"
-    Start-Service -Name $Service -ErrorAction SilentlyContinue
+    try { Start-OffixService $Service $dependents } catch { Warn $_.Exception.Message }
   }
   throw
 }

@@ -114,3 +114,19 @@ function Switch-Folder([string]$Target, [string]$Next) {
   if (Test-Path $Target) { Rename-Item -Path $Target -NewName (Split-Path $prev -Leaf) }
   Rename-Item -Path $Next -NewName (Split-Path $Target -Leaf)
 }
+
+# Останавливает службу вместе с зависимыми (OffixTunnel зависит от Offix).
+# Возвращает имена зависимых служб, которые работали, — их потом запускает Start-OffixService.
+function Stop-OffixService([string]$Name) {
+  $running = @((Get-Service -Name $Name).DependentServices | Where-Object { $_.Status -eq 'Running' } | ForEach-Object { $_.Name })
+  Stop-Service -Name $Name -Force
+  Wait-ServiceStatus $Name 'Stopped' 60 | Out-Null
+  return ,$running
+}
+
+function Start-OffixService([string]$Name, [string[]]$Dependents = @()) {
+  Start-Service -Name $Name
+  foreach ($d in $Dependents) {
+    if ($d) { Start-Service -Name $d -ErrorAction SilentlyContinue }
+  }
+}

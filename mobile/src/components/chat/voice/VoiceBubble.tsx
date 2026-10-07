@@ -6,7 +6,7 @@ import { withAlpha } from '../../../theme/palettes';
 import { C, formatDuration } from '../chatUtils';
 import UploadProgress from '../UploadProgress';
 import Waveform from './Waveform';
-import { decodeWaveform } from './waveform';
+import { decodeWaveform } from './waveformData';
 import { useVoiceFor } from './useVoice';
 
 /** Треугольник «играть» и «пауза» — залитые, как в Telegram. */

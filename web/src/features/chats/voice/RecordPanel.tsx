@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronUp, Lock, Square, Trash2 } from 'lucide-react';
 import { formatDuration } from '../../../lib/format';
 import type { RecorderApi } from './useRecorder';
 import { VIDEO_NOTE_MAX_S } from './useRecorder';
-import { decodeWaveform, recordTimer } from './waveform';
+import { decodeWaveform, recordTimer } from './waveformData';
 import { Waveform } from './Waveform';
 import { PlayGlyph } from './VoiceBubble';
 import s from './record.module.css';

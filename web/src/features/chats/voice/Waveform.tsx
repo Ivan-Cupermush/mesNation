@@ -1,5 +1,5 @@
 import { useMemo, useRef, type PointerEvent } from 'react';
-import { resample } from './waveform';
+import { resample } from './waveformData';
 
 const BAR = 2.5;
 const GAP = 1.5;

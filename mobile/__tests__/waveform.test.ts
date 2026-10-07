@@ -1,4 +1,4 @@
-import { dbToLevel, decodeWaveform, encodeWaveform, recordTimer, resample } from '../src/components/chat/voice/waveform';
+import { dbToLevel, decodeWaveform, encodeWaveform, recordTimer, resample } from '../src/components/chat/voice/waveformData';
 import { isUnlistened } from '../src/components/chat/chatUtils';
 
 describe('волна голосового', () => {

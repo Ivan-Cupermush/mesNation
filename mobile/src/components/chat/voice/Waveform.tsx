@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, PanResponder, LayoutChangeEvent } from 'react-native';
-import { resample } from './waveform';
+import { resample } from './waveformData';
 
 const BAR = 3;
 const GAP = 2;

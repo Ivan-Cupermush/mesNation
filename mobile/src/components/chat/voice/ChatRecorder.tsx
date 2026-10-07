@@ -7,7 +7,7 @@ import { withAlpha } from '../../../theme/palettes';
 import { glass } from '../../../theme/glass';
 import { C, formatDuration } from '../chatUtils';
 import { cancelAudio, ensureCameraPermissions, ensureMicPermission, RecordedAudio, startAudio, stopAudio } from './audioRecorder';
-import { encodeWaveform, recordTimer } from './waveform';
+import { encodeWaveform, recordTimer } from './waveformData';
 import { stopVoice, toggleVoice } from './voicePlayer';
 import { useVoiceFor } from './useVoice';
 import Waveform from './Waveform';

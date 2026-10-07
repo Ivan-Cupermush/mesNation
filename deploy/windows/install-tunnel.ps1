@@ -76,12 +76,20 @@ function Open-KeyForAdmin([string]$Path) {
   Invoke-Native 'icacls.exe' @($Path, '/inheritance:r', '/grant:r', "${sidAdmins}:F", '/grant:r', "${sidSystem}:F") | Out-Null
 }
 function Lock-KeyForSystem([string]$Path) {
+  # Оставляем в списке доступа одну запись — SYSTEM. Делаем средствами PowerShell, а не icacls с именами:
+  # имена пользователей по-русски через командную строку не передаются надёжно (так ключ оставался
+  # открытым для «Администратор» и OpenSSH писал «bad permissions»).
+  $system = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+  $acl = Get-Acl -Path $Path
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($system, 'FullControl', 'Allow')))
+  Set-Acl -Path $Path -AclObject $acl
+  # Владелец — тоже SYSTEM (OpenSSH проверяет и его). Делаем после смены списка доступа.
   Invoke-Native 'icacls.exe' @($Path, '/setowner', $sidSystem) | Out-Null
-  Invoke-Native 'icacls.exe' @($Path, '/inheritance:r', '/grant:r', "${sidSystem}:F") | Out-Null
-  # Убираем всё остальное: администраторов и текущего пользователя (ошибка «нет такой записи» не страшна).
-  foreach ($who in @($sidAdmins, "$env:USERDOMAIN\$env:USERNAME", 'BUILTIN\Users', 'Everyone', 'NT AUTHORITY\Authenticated Users')) {
-    cmd.exe /c "icacls.exe `"$Path`" /remove `"$who`" >nul 2>&1"
-  }
+  $left = @((Get-Acl -Path $Path).Access | ForEach-Object { $_.IdentityReference.Value })
+  if ($left.Count -ne 1) { throw "Не удалось закрыть ключ: доступ остался у $($left -join ', ')" }
+  Ok 'Ключ доступен только SYSTEM'
 }
 
 $net = Test-NetConnection -ComputerName $VpsHost -Port $SshPort -WarningAction SilentlyContinue

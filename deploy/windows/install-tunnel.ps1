@@ -48,7 +48,12 @@ if (-not (Test-Path $ssh)) {
   Add-WindowsCapability -Online -Name 'OpenSSH.Client~~~~0.0.1.0' | Out-Null
   if (-not (Test-Path $ssh)) { throw 'Не удалось установить OpenSSH.Client. Установите: Параметры → Приложения → Дополнительные компоненты → Клиент OpenSSH.' }
 }
-Ok "OpenSSH: $(& $ssh -V 2>&1)"
+# ssh -V печатает версию в поток ошибок: в Windows PowerShell 5.1 при $ErrorActionPreference='Stop' это считалось бы сбоем.
+$prevPref = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$sshVersion = ((& $ssh -V 2>&1) | Out-String).Trim()
+$ErrorActionPreference = $prevPref
+Ok "OpenSSH: $sshVersion"
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
   throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
 }

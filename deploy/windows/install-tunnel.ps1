@@ -49,10 +49,7 @@ if (-not (Test-Path $ssh)) {
   if (-not (Test-Path $ssh)) { throw 'Не удалось установить OpenSSH.Client. Установите: Параметры → Приложения → Дополнительные компоненты → Клиент OpenSSH.' }
 }
 # ssh -V печатает версию в поток ошибок: в Windows PowerShell 5.1 при $ErrorActionPreference='Stop' это считалось бы сбоем.
-$prevPref = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-$sshVersion = ((& $ssh -V 2>&1) | Out-String).Trim()
-$ErrorActionPreference = $prevPref
+$sshVersion = ((cmd.exe /c "`"$ssh`" -V 2>&1") | Out-String).Trim()
 Ok "OpenSSH: $sshVersion"
 if (-not (Get-Command $Nssm -ErrorAction SilentlyContinue)) {
   throw 'NSSM не найден. Установите: winget install NSSM.NSSM (или укажите путь: -Nssm C:\tools\nssm.exe)'
@@ -64,6 +61,27 @@ try {
   Wait-Health $localPort 5
 } catch {
   Warn "Сервер Offix не отвечает на 127.0.0.1:$localPort — туннель поднимется, но сайт покажет «сервер недоступен», пока служба Offix не запущена."
+}
+
+# Права на ключ. OpenSSH для Windows отказывается читать ключ, если у него есть доступ у «чужих»:
+# службе (она работает от SYSTEM) нужен ключ, доступный ТОЛЬКО SYSTEM, а вам для проверки входа —
+# доступный администратору. Поэтому перед проверкой ключ открываем, перед запуском службы закрываем.
+$sidSystem = '*S-1-5-18'
+$sidAdmins = '*S-1-5-32-544'
+function Open-KeyForAdmin([string]$Path) {
+  if (-not (Test-Path $Path)) { return }
+  # Через cmd: вывод ошибок программы в PowerShell 5.1 считался бы сбоем скрипта.
+  cmd.exe /c "takeown.exe /f `"$Path`" >nul 2>&1"
+  if ($LASTEXITCODE -ne 0) { Warn "Не удалось сменить владельца ключа (код $LASTEXITCODE) — продолжаю" }
+  Invoke-Native 'icacls.exe' @($Path, '/inheritance:r', '/grant:r', "${sidAdmins}:F", '/grant:r', "${sidSystem}:F") | Out-Null
+}
+function Lock-KeyForSystem([string]$Path) {
+  Invoke-Native 'icacls.exe' @($Path, '/setowner', $sidSystem) | Out-Null
+  Invoke-Native 'icacls.exe' @($Path, '/inheritance:r', '/grant:r', "${sidSystem}:F") | Out-Null
+  # Убираем всё остальное: администраторов и текущего пользователя (ошибка «нет такой записи» не страшна).
+  foreach ($who in @($sidAdmins, "$env:USERDOMAIN\$env:USERNAME", 'BUILTIN\Users', 'Everyone', 'NT AUTHORITY\Authenticated Users')) {
+    cmd.exe /c "icacls.exe `"$Path`" /remove `"$who`" >nul 2>&1"
+  }
 }
 
 $net = Test-NetConnection -ComputerName $VpsHost -Port $SshPort -WarningAction SilentlyContinue
@@ -87,6 +105,7 @@ if (-not (Test-Path $key)) {
 $known = Join-Path $Dir 'known_hosts'
 $hostEntry = if ($SshPort -eq 22) { $VpsHost } else { "[$VpsHost]:$SshPort" }
 Set-Content -Path $known -Value "$hostEntry $HostKey" -Encoding ASCII
+Open-KeyForAdmin $key
 $pub = (Get-Content "$key.pub" -Raw).Trim()
 
 Write-Host ''
@@ -128,6 +147,7 @@ if ($probe.HasExited) {
 Stop-Process -Id $probe.Id -Force
 Ok 'Вход по ключу работает, туннель открывается'
 
+Lock-KeyForSystem $key
 Step "Служба $Service"
 $logs = Join-Path $Root 'logs'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, ChartColumn, ListTodo, MessageCircle, NotebookPen, Settings, WifiOff } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthProvider';
-import { isManager } from '../features/auth/roles';
 import { useUnreadChatsCount } from '../features/chats/queries';
 import { useChatNotifications } from '../features/chats/notifications';
 import { useTaskNotifications } from '../features/tasks/notifications';
@@ -19,7 +18,8 @@ const NAV = [
   { to: '/stats', label: 'Статистика', icon: ChartColumn },
   { to: '/chats', label: 'Чаты', icon: MessageCircle },
   { to: '/knowledge', label: 'База', icon: BookOpen },
-  { to: '/settings', label: 'Настройки', icon: Settings, managersOnly: true },
+  // Настройки компании — только у директора (корень дерева ролей), как в приложении.
+  { to: '/settings', label: 'Настройки', icon: Settings, directorOnly: true },
 ] as const;
 
 /** Корневые экраны разделов: на телефоне только на них видны нижние вкладки (как в приложении). */
@@ -41,7 +41,7 @@ export default function AppShell() {
   // Задачи обновляются в реальном времени на всех экранах (и для уведомлений).
   useTaskNotifications();
   const offline = useOfflineBanner();
-  const items = NAV.filter((n) => !('managersOnly' in n) || isManager(user));
+  const items = NAV.filter((n) => !('directorOnly' in n) || !!user?.is_director);
   const isRoot = ROOT_PATHS.has(location.pathname.replace(/\/$/, ''));
 
   useEffect(() => {

@@ -21,6 +21,23 @@ const SERIES_GAP_MS = 10 * 60 * 1000;
 export const isVisualMedia = (m: Pick<Message, 'deleted_for_all' | 'media_kind' | 'thumb_url'>) =>
   !m.deleted_for_all && (m.media_kind === 'photo' || m.media_kind === 'video' || (!m.media_kind && !!m.thumb_url));
 
+/** Набор реакций — тот же, что на сервере и в приложении. */
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🙏', '👎', '🎉', '👏', '💯', '🤝'];
+
+/** Голосовое или кружочек. */
+export const isVoiceLike = (m: Pick<Message, 'deleted_for_all' | 'media_kind'> | null | undefined) =>
+  !!m && !m.deleted_for_all && (m.media_kind === 'voice' || m.media_kind === 'video_note');
+
+/**
+ * Не прослушано: получатель ещё не включал; у отправителя — никто, кроме
+ * него, ещё не послушал (точка как в Telegram).
+ */
+export function isUnlistened(m: Message, meId: number): boolean {
+  if (!isVoiceLike(m) || isLocal(m)) return false;
+  const by = m.listened_by || [];
+  return m.sender_id === meId ? !by.some((id) => id !== meId) : !by.includes(meId);
+}
+
 export const isDocument = (m: Message) => !m.deleted_for_all && !m.poll_id && !!m.file_url && m.media_kind === 'file';
 
 export const rowMessages = (row: Row): Message[] => (row.type === 'album' ? row.msgs : [row.msg]);
@@ -37,6 +54,8 @@ export function messagePreview(m: (Partial<Message> & Partial<LastMessage>) | nu
   if (m.poll_id || m.content_type === 'poll') return `📊 ${m.poll?.question || m.poll_question || 'Опрос'}`;
   if (m.note_share_id || m.content_type === 'note') return m.text || '📝 Заметка';
   const caption = m.text ? ` ${m.text}` : '';
+  if (m.media_kind === 'voice') return `🎤 Голосовое сообщение${caption}`;
+  if (m.media_kind === 'video_note') return '📹 Видеосообщение';
   if (m.media_kind === 'video') return `🎬 Видео${caption}`;
   if (m.media_kind === 'photo' || (!m.media_kind && m.thumb_url)) return `🖼 Фото${caption}`;
   if (m.file_url) return `📎 ${m.file_name || 'Файл'}${caption}`;
@@ -103,6 +122,16 @@ export function buildFeed(messages: Message[], meId: number, unreadAnchor: numbe
     });
   }
   return out;
+}
+
+/** Имя файла для «Сохранить»: у голосового и кружочка — понятное, с датой. */
+export function saveName(m: Message) {
+  if (m.media_kind !== 'voice' && m.media_kind !== 'video_note') return m.file_name;
+  const ext = (m.file_name?.match(/\.[a-z0-9]+$/i)?.[0] || (m.media_kind === 'voice' ? '.m4a' : '.mp4')).toLowerCase();
+  const d = new Date(m.created_at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}`;
+  return `${m.media_kind === 'voice' ? 'Голосовое' : 'Видеосообщение'} ${stamp}${ext}`;
 }
 
 /** Ссылки в тексте сообщения → кликабельные куски. */

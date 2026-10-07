@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { BarChart3, Check, CheckSquare, ChevronLeft, Download, ExternalLink, FileText, Forward, Link2, MessageSquareText, Play, X } from 'lucide-react';
+import { BarChart3, Check, CheckSquare, ChevronLeft, Download, ExternalLink, FileText, Forward, Link2, MessageSquareText, Mic, Play, X } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, downloadFile, openFile } from '../../lib/http';
 import { fileBadge, formatDate, formatDuration, formatSize, plural } from '../../lib/format';
@@ -11,17 +11,20 @@ import { EmptyState } from '../../ui/EmptyState';
 import { Spinner } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
 import { useChatDetail } from './queries';
-import { linkify } from './model';
+import { linkify, saveName } from './model';
 import MediaViewer, { type ViewerItem } from './MediaViewer';
+import { PlayGlyph } from './voice/VoiceBubble';
+import { toggleVoice, useVoiceFor } from './voice/voicePlayer';
 import ChatPicker from './ChatPicker';
 import type { Message } from './types';
 import s from './MediaList.module.css';
 
-type Kind = 'media' | 'files' | 'links' | 'polls';
+type Kind = 'media' | 'files' | 'voice' | 'links' | 'polls';
 const PAGE = 40;
 const TABS: { key: Kind; label: string }[] = [
   { key: 'media', label: 'Медиа' },
   { key: 'files', label: 'Файлы' },
+  { key: 'voice', label: 'Голосовые' },
   { key: 'links', label: 'Ссылки' },
   { key: 'polls', label: 'Опросы' },
 ];
@@ -77,7 +80,11 @@ export default function MediaList() {
   const onItem = (m: Message, index: number) => {
     if (selecting) return toggle(m.id);
     if (kind === 'media') setViewer(index);
-    else if (kind !== 'files') showInChat(m.id);
+    else if (kind === 'voice') {
+      // Голосовое играет прямо здесь (и дальше по списку), кружочек — открываем в чате.
+      if (m.media_kind === 'voice') toggleVoice(m, items.filter((x, i) => i < index && x.media_kind === 'voice').reverse());
+      else showInChat(m.id);
+    } else if (kind !== 'files') showInChat(m.id);
     else if (m.file_url) openFile(m.file_url).catch((e) => toast.error(e, 'Не удалось открыть файл'));
   };
 
@@ -130,8 +137,18 @@ export default function MediaList() {
         ) : items.length === 0 ? (
           <EmptyState
             compact
-            icon={kind === 'files' ? <FileText size={40} /> : kind === 'links' ? <Link2 size={40} /> : kind === 'polls' ? <BarChart3 size={40} /> : undefined}
-            title={kind === 'media' ? 'Фото и видео пока нет' : kind === 'files' ? 'Файлов пока нет' : kind === 'links' ? 'Ссылок пока нет' : 'Опросов пока нет'}
+            icon={kind === 'files' ? <FileText size={40} /> : kind === 'voice' ? <Mic size={40} /> : kind === 'links' ? <Link2 size={40} /> : kind === 'polls' ? <BarChart3 size={40} /> : undefined}
+            title={
+              kind === 'media'
+                ? 'Фото и видео пока нет'
+                : kind === 'files'
+                  ? 'Файлов пока нет'
+                  : kind === 'voice'
+                    ? 'Голосовых и видеосообщений пока нет'
+                    : kind === 'links'
+                      ? 'Ссылок пока нет'
+                      : 'Опросов пока нет'
+            }
           />
         ) : kind === 'media' ? (
           <div className={s.grid}>
@@ -155,6 +172,8 @@ export default function MediaList() {
                 {check(m)}
                 {kind === 'files' ? (
                   renderFile(m)
+                ) : kind === 'voice' ? (
+                  <VoiceRow msg={m} sender={senderLabel(m)} />
                 ) : kind === 'links' ? (
                   renderLink(m)
                 ) : (
@@ -167,13 +186,13 @@ export default function MediaList() {
                 )}
                 {!selecting && (
                   <span className={s.itemActions}>
-                    {kind === 'files' && m.file_url && (
+                    {(kind === 'files' || kind === 'voice') && m.file_url && (
                       <IconButton
                         label="Скачать"
                         size={34}
                         onClick={(e) => {
                           e.stopPropagation();
-                          downloadFile(m.file_url!, m.file_name).catch((err) => toast.error(err));
+                          downloadFile(m.file_url!, saveName(m)).catch((err) => toast.error(err));
                         }}
                       >
                         <Download size={17} />
@@ -276,4 +295,30 @@ export default function MediaList() {
       </>
     );
   }
+}
+
+/** Голосовое или кружочек в списке: кнопка (играет прямо здесь), кто и когда, длительность. */
+function VoiceRow({ msg, sender }: { msg: Message; sender: string }) {
+  const st = useVoiceFor(msg);
+  const playing = !!st?.playing || !!st?.loading;
+  const note = msg.media_kind === 'video_note';
+  return (
+    <>
+      {note ? (
+        <span className={[s.badge, s.noteThumb].join(' ')}>{msg.thumb_url ? <img src={msg.thumb_url} alt="" /> : <Play size={16} fill="currentColor" />}</span>
+      ) : (
+        <span className={[s.badge, s.voiceBadge].join(' ')}>
+          <PlayGlyph playing={playing} size={18} />
+        </span>
+      )}
+      <span className={s.itemBody}>
+        <span className={s.itemTitle}>
+          {note ? 'Видеосообщение' : 'Голосовое сообщение'} · {formatDuration(st && (playing || st.position > 0) ? st.position / 1000 : msg.media_duration)}
+        </span>
+        <span className={s.itemSub}>
+          {sender} · {formatDate(msg.created_at, true)}
+        </span>
+      </span>
+    </>
+  );
 }

@@ -1,0 +1,251 @@
+.panel {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  overflow: hidden;
+  animation: panelIn 0.16s var(--ease);
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+.timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-primary);
+  flex-shrink: 0;
+}
+
+.redDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.redDotWait {
+  background: var(--c-text-muted);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.slide {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--c-text-muted);
+  font-size: 14px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.hint {
+  flex: 1;
+  color: var(--c-text-muted);
+  font-size: 14px;
+}
+
+.trash {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-danger);
+}
+
+.trash:hover {
+  background: var(--c-danger-soft);
+}
+
+.stop {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ef4444;
+  border: 2px solid currentColor;
+}
+
+.stop:hover {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+
+.live {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  overflow: hidden;
+  color: var(--c-accent);
+}
+
+.live span {
+  width: 2.5px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  background: currentColor;
+  transition: height 0.08s linear;
+}
+
+.lock {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  margin-left: -17px;
+  width: 34px;
+  padding: 7px 0 5px;
+  border-radius: 17px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  background: var(--c-elevated);
+  border: 1px solid var(--c-border);
+  box-shadow: var(--shadow-md);
+  color: var(--c-text-secondary);
+  pointer-events: none;
+  animation: lockIn 0.2s var(--ease);
+}
+
+.lockArrow {
+  animation: nudge 1.2s ease-in-out infinite;
+}
+
+@keyframes lockIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes nudge {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* ---------- Прослушивание перед отправкой ---------- */
+
+.preview {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 4px;
+  border-radius: 18px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.previewPlay {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-on-accent);
+  color: var(--c-accent);
+}
+
+.previewWave {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.previewTime {
+  margin-left: auto;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Кружок во время записи ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: fadeIn 0.18s var(--ease);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.cam {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camCircle {
+  position: relative;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  transform: translateZ(0);
+}
+
+.camVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* как в зеркале — привычно для фронтальной камеры */
+  transform: scaleX(-1);
+}
+
+.camWait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+}
+
+.camRing {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--c-accent);
+}

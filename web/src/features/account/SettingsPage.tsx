@@ -1,7 +1,6 @@
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Bell, Building2, ChevronRight, FileSpreadsheet, LogOut, Network, Palette, Pencil, Target, UserPlus, Users } from 'lucide-react';
 import { useAuth, useMe } from '../auth/AuthProvider';
-import { isManager } from '../auth/roles';
 import { api } from '../../lib/http';
 import { displayName } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
@@ -12,16 +11,15 @@ import { useFeedback } from '../../ui/feedback';
 import s from './account.module.css';
 
 /**
- * Настройки — как в приложении: профиль, компания (директор может
- * переименовать), администрирование для руководителей, оформление,
- * уведомления, выход.
+ * Настройки компании — как в приложении, только у директора: профиль,
+ * компания (переименование), администрирование, внешний вид, уведомления,
+ * выход.
  */
 export default function SettingsPage() {
   const me = useMe();
   const { logout, patchUser } = useAuth();
   const navigate = useNavigate();
   const { toast, confirm, prompt } = useFeedback();
-  const manager = isManager(me);
 
   const rename = async () => {
     const value = await prompt({ title: 'Название компании', initialValue: me.company_name || '', required: true, maxLength: 255, confirmText: 'Сохранить' });
@@ -34,6 +32,9 @@ export default function SettingsPage() {
       toast.error(e, 'Не удалось переименовать компанию');
     }
   };
+
+  // Раздел только для директора; остальным то же самое (внешний вид, уведомления) — в профиле.
+  if (!me.is_director) return <Navigate to="/profile" replace />;
 
   return (
     <Page>
@@ -65,7 +66,7 @@ export default function SettingsPage() {
           </SettingsSection>
         )}
 
-        {manager && (
+        {me.is_director && (
           <SettingsSection title="Администрирование">
             <SettingsRow icon={<Users size={18} />} tone="info" title="Сотрудники" hint="Все сотрудники компании" onClick={() => navigate('/employees')} />
             <SettingsRow icon={<UserPlus size={18} />} tone="warning" title="Новый сотрудник" hint="Добавить пользователя в систему" onClick={() => navigate('/create-user')} />
@@ -76,7 +77,7 @@ export default function SettingsPage() {
         )}
 
         <SettingsSection title="Приложение">
-          <SettingsRow icon={<Palette size={18} />} title="Оформление" hint="Тема, цвет, размер текста" onClick={() => navigate('/settings/appearance')} />
+          <SettingsRow icon={<Palette size={18} />} title="Внешний вид" hint="Тема, цвет, размер текста" onClick={() => navigate('/settings/appearance')} />
           <SettingsRow icon={<Bell size={18} />} tone="danger" title="Уведомления" hint="Сообщения и задачи на этом компьютере" onClick={() => navigate('/settings/notifications')} />
         </SettingsSection>
 

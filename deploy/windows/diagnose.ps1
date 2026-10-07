@@ -66,12 +66,22 @@ foreach ($p in ($expected.Keys | Sort-Object)) {
 }
 
 Step 'Настройки (.env)'
-foreach ($k in @('NODE_ENV', 'HOST', 'PORT', 'WEB_DIST_DIR', 'TRUST_PROXY', 'CORS_ORIGINS', 'DB_HOST', 'DB_NAME', 'LOG_LEVEL')) {
+foreach ($k in @('NODE_ENV', 'HOST', 'PORT', 'WEB_DIST_DIR', 'TRUST_PROXY', 'CORS_ORIGINS', 'DB_HOST', 'DB_NAME', 'LOG_LEVEL', 'FFMPEG_DIR')) {
   Write-Host ("    {0,-13} = {1}" -f $k, $envVars[$k])
 }
 $secretLen = 0
 if ($envVars['JWT_SECRET']) { $secretLen = $envVars['JWT_SECRET'].Length }
 if ($secretLen -ge 32) { Ok "JWT_SECRET задан ($secretLen символов)" } else { Bad "JWT_SECRET короткий или пустой ($secretLen символов)" }
+
+Step 'ffmpeg (видео, голосовые и кружочки)'
+$ffDir = $envVars['FFMPEG_DIR']
+$ffExe = if ($ffDir) { Join-Path $ffDir 'ffmpeg.exe' } else { (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source }
+if ($ffExe -and (Test-Path $ffExe)) {
+  Ok "ffmpeg: $ffExe"
+  if (-not $ffDir) { Warn 'FFMPEG_DIR в server\.env не задан: служба может не увидеть ffmpeg из PATH пользователя. Укажите папку с ffmpeg.exe' }
+} else {
+  Bad 'ffmpeg не найден. Установите (docs\DEPLOY.md, раздел 3.2) и укажите FFMPEG_DIR в server\.env'
+}
 
 Step 'Сборка сайта'
 $index = Join-Path $web 'dist\index.html'
@@ -84,6 +94,9 @@ $base = "http://127.0.0.1:$port"
 try {
   $h = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 5 -UseBasicParsing
   Ok "/api/health: $($h.status), база: $($h.database)"
+  Show-HealthInfo $port
+  $head = (& git -C $Root rev-parse --short HEAD)
+  if ($h.version -and $head -and $h.version -ne $head) { Warn "Запущена версия $($h.version), а в папке код $head — сборка не обновлена. Запустите update.ps1 -SkipPull" }
 } catch { Bad "/api/health не отвечает: $($_.Exception.Message)" }
 try {
   $page = Invoke-WebRequest -Uri "$base/" -Headers @{ Accept = 'text/html' } -TimeoutSec 5 -UseBasicParsing

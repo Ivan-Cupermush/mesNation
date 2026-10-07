@@ -29,6 +29,8 @@ import kpiSalesRouter from './routes/kpiSales';
 import knowledgeRouter from './routes/knowledge';
 import { filesApiRouter, uploadsRouter } from './routes/files';
 import { createWebRouter, resolveWebDist } from './web';
+import { lastMigration, serverCommit } from './lib/version';
+import { hasFfmpeg } from './services/media';
 
 export interface AppOptions {
   /** Папка собранной веб-версии; null — не раздавать сайт (тесты, отдельный фронтенд). */
@@ -97,7 +99,15 @@ export function createApp(options: AppOptions = {}) {
   // ---------- Публичное ----------
   app.get('/api/health', async (_req, res) => {
     const db = await pool.query('SELECT 1').then(() => true).catch(() => false);
-    res.status(db ? 200 : 503).json({ status: db ? 'ok' : 'degraded', database: db, timestamp: new Date().toISOString() });
+    res.status(db ? 200 : 503).json({
+      status: db ? 'ok' : 'degraded',
+      database: db,
+      // Какой код запущен: коммит и последняя миграция (проверка, что сервер обновлён).
+      version: serverCommit(),
+      migration: db ? await lastMigration() : null,
+      media: { ffmpeg: await hasFfmpeg() },
+      timestamp: new Date().toISOString(),
+    });
   });
   app.get('/api/company', async (_req, res) => {
     res.json({ company_name: await getCompanyName() });

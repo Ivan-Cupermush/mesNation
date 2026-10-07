@@ -59,6 +59,20 @@ powershell -ExecutionPolicy Bypass -File deploy\windows\backup.ps1 -BackupDir D:
 
 - **Node.js 22 LTS** (`node -v` → v22.x). Если стоит 20 — обновить.
 - **NSSM** (управляет службой): `winget install NSSM.NSSM`, затем открыть новое окно PowerShell.
+- **ffmpeg** — обложки и длительность видео, голосовые и кружочки, записанные на сайте
+  (браузер пишет WebM, сервер перекодирует в M4A/MP4, которые играют и iPhone, и Android).
+  Без ffmpeg сервер работает, но голосовое с сайта на телефоне может не воспроизвестись:
+
+  ```powershell
+  Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile $env:TEMP\ffmpeg.zip
+  Expand-Archive $env:TEMP\ffmpeg.zip -DestinationPath C:\ffmpeg-tmp
+  Move-Item (Get-ChildItem C:\ffmpeg-tmp)[0].FullName C:\ffmpeg
+  Remove-Item C:\ffmpeg-tmp
+  C:\ffmpeg\bin\ffmpeg.exe -version
+  ```
+
+  и в `server\.env` — `FFMPEG_DIR=C:\ffmpeg\bin` (служба работает от системной учётной записи
+  и не видит PATH пользователя, поэтому папку указываем явно).
 - Git и PostgreSQL уже есть.
 
 ### 3.3. Настройки `server\.env`
@@ -152,6 +166,18 @@ powershell -ExecutionPolicy Bypass -File C:\mesNation\deploy\windows\update.ps1
 ```
 
 Скрипт получает изменения из `main`, собирает сайт и сервер в отдельные папки, останавливает службу на несколько секунд, подменяет версию, запускает и проверяет. Открытые у людей вкладки со старой версией продолжают работать до обновления страницы.
+
+В конце скрипт печатает, что сообщил запущенный сервер: версию кода, последнюю миграцию базы
+и найден ли ffmpeg. То же видно с любого устройства — `https://offixcrm.ru/api/health`:
+
+```json
+{"status":"ok","database":true,"version":"4aafaf0","migration":"0015_message_reactions.sql","media":{"ffmpeg":true}, ...}
+```
+
+- `version` — коммит, из которого собран сервер: должен совпадать с последним коммитом `main` на GitHub.
+  Поля нет совсем — работает старая сборка, `update.ps1` не запускали.
+- `migration` — последняя применённая миграция: имя последнего файла в `server/src/db/migrations`.
+- `media.ffmpeg: false` — ffmpeg не установлен или не указан `FFMPEG_DIR` (раздел 3.2), после правки — `Restart-Service Offix`.
 
 Если после обновления что-то сломалось:
 

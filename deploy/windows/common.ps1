@@ -81,6 +81,17 @@ function Wait-Health([int]$Port, [int]$Seconds) {
   throw "Сервер не ответил на $url за $Seconds с. Смотрите журнал logs\server.log"
 }
 
+# Что сообщает запущенный сервер о себе: версия кода, последняя миграция, ffmpeg.
+function Show-HealthInfo([int]$Port) {
+  try {
+    $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 5 -UseBasicParsing
+  } catch { Bad "/api/health не отвечает: $($_.Exception.Message)"; return }
+  if ($h.version) { Ok "Запущен код версии $($h.version), миграция базы: $($h.migration)" } else { Warn 'Сервер не сообщает версию — запущена старая сборка. Запустите update.ps1' }
+  if ($null -ne $h.media) {
+    if ($h.media.ffmpeg) { Ok 'ffmpeg найден: обложки видео, голосовые и кружочки с сайта работают' } else { Warn 'ffmpeg не найден: голосовые и кружочки, записанные на сайте, не перекодируются, у видео нет обложек. См. docs\DEPLOY.md, раздел 3.2' }
+  }
+}
+
 # npm ci только если package-lock.json изменился с прошлой установки (экономит минуты при обновлении).
 function Test-DependenciesChanged([string]$Dir) {
   $lock = Join-Path $Dir 'package-lock.json'

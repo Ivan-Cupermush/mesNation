@@ -109,6 +109,7 @@ cd C:\mesNation
 git pull
 powershell -ExecutionPolicy Bypass -File deploy\windows\backup.ps1 -BackupDir D:\offix-backup
 winget install NSSM.NSSM          # затем открыть НОВОЕ окно PowerShell (администратор)
+# ffmpeg (видео, голосовые и кружочки с сайта) — DEPLOY.md, раздел 3.2: C:\ffmpeg и FFMPEG_DIR в server\.env
 powershell -ExecutionPolicy Bypass -File deploy\windows\install-service.ps1 -StopOldProcesses
 powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1 -SkipPull
 ```

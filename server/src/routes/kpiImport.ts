@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { withTransaction } from '../db/pool';
 import { AuthRequest, authenticate } from '../middleware/auth';
 import { forbidden, badRequest } from '../lib/errors';
 import { isSubordinate } from '../services/access';
+import { knownGroups, saveKpiFile } from '../services/kpi/imports';
+import { parseKpiFile } from '../services/kpi/kpiFile';
+import { defaultRules, ruleText } from '../services/kpi/rules';
+import { enrichTargets, kpiScope, matchPeople } from '../services/kpi/store';
 
 const router = Router();
 const upload = multer({
@@ -16,122 +19,6 @@ const upload = multer({
     else cb(badRequest('Загрузите файл KPI в формате Excel (.xlsx или .xls)'));
   },
 });
-
-// ================= ХЕЛПЕРЫ ПАРСЕРА =================
-function num(v: any): number {
-  if (typeof v === 'number') return isFinite(v) ? v : 0;
-  if (typeof v === 'string') {
-    let s = v.trim();
-    if (!s) return 0;
-    if (/^да$/i.test(s)) return 1;
-    if (/^нет$/i.test(s)) return 0;
-    if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');
-    s = s.replace(/%/g, '').replace(/\s/g, '').replace(',', '.');
-    const n = parseFloat(s);
-    return isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-
-function rowType(b: string): string | null {
-  const s = (b || '').toLowerCase();
-  if (!s) return null;
-  if (s.includes('план')) return 'plan';
-  if (s.includes('факт')) return 'fact';
-  if (s.includes('бонус')) return 'bonus';
-  if (s.includes('выплат')) return 'payment';
-  if (s.includes('%') || s.includes('выполн')) return 'percent';
-  return null;
-}
-
-const CYCLE = ['plan', 'fact', 'percent', 'bonus', 'payment'];
-function expectedNext(last: string | null): string {
-  if (!last) return 'plan';
-  const i = CYCLE.indexOf(last);
-  if (i === -1 || i === CYCLE.length - 1) return 'plan';
-  return CYCLE[i + 1];
-}
-
-interface Metric {
-  name: string; plan: number; fact: number; percent: number;
-  bonus: number; payment: number; lastType: string | null;
-  fixed: boolean; subItems: string[];
-}
-
-function parseWorkbook(buffer: Buffer): { employeeName: string; metrics: Metric[] } {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-  let employeeName = '';
-  const metrics: Metric[] = [];
-  let current: Metric | null = null;
-
-  for (const row of rows) {
-    if (!row) continue;
-    const a = String(row[0] ?? '').trim();
-    const b = String(row[1] ?? '').trim();
-    const c = row[2];
-    const d = row[3];
-    const low = (a + ' ' + b).toLowerCase();
-    if (low.includes('итого')) continue;
-
-    const t = rowType(b);
-    const cv = num(c), dv = num(d);
-
-    // Имя сотрудника — первая строка с текстом без чисел
-    if (!employeeName && a && !b && !t && cv === 0 && dv === 0 && !/\d/.test(a)) {
-      employeeName = a;
-      continue;
-    }
-
-    // Пустые/служебные строки без значений
-    if (a && !b && !t && cv === 0 && dv === 0) continue;
-    if (!a && !t) continue;
-
-    // Фиксированные выплаты (Оклад, ГСМ)
-    if (a && !b && !t && (cv > 0 || dv > 0)) {
-      current = { name: a, plan: cv, fact: dv, percent: 100, bonus: 0, payment: dv, lastType: null, fixed: true, subItems: [] };
-      metrics.push(current);
-      continue;
-    }
-
-    if (!t) continue;
-
-    // Строка с типом (план/факт/%/бонус/к выплате)
-    let same = false;
-    if (current) {
-      if (!a || a === current.name) same = true;
-      else if (t !== 'plan' && !current.fixed && expectedNext(current.lastType) === t) same = true;
-    }
-
-    if (!same) {
-      current = { name: a || ('KPI ' + (metrics.length + 1)), plan: 0, fact: 0, percent: 100, bonus: 0, payment: 0, lastType: null, fixed: false, subItems: [] };
-      metrics.push(current);
-    }
-
-    if (current && a && a !== current.name) current.subItems.push(a);
-
-    if (current) {
-      if (t === 'plan') current.plan = cv || dv;
-      else if (t === 'fact') { current.fact = dv || cv; if (!current.plan && cv) current.plan = cv; }
-      else if (t === 'percent') { let p = dv || cv; if (p > 0 && p <= 1) p *= 100; current.percent = p; }
-      else if (t === 'bonus') current.bonus = dv || cv;
-      else if (t === 'payment') current.payment = dv || cv;
-      current.lastType = t;
-    }
-  }
-
-  return { employeeName, metrics };
-}
-
-function metricTypeOf(m: Metric): string {
-  const n = m.name.toLowerCase();
-  if (m.plan === 1 && m.fact <= 1) return 'boolean';
-  if (n.includes('руб')) return 'amount';
-  if (n.includes('тт')) return 'quantity';
-  return 'amount';
-}
 
 // ================= ВЕБ-СТРАНИЦА ЗАГРУЗКИ =================
 const PAGE_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -215,41 +102,65 @@ router.get('/upload', (_req: Request, res: Response) => {
 });
 
 // ================= ИМПОРТ KPI =================
+
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+/**
+ * POST /api/kpi/import — файл KPI сотрудника.
+ * dryRun=1 — только разобрать: показатели, правила, месяц из файла и
+ * подходящий сотрудник (по имени в файле, среди своих подчинённых).
+ * Иначе — сохранить сотруднику userId за месяц month (ГГГГ-ММ; по умолчанию —
+ * месяц из файла, а если его нет — текущий).
+ */
 router.post('/import', authenticate, upload.single('file'), async (req: AuthRequest, res: Response) => {
+  if (!req.file) throw badRequest('Файл не загружен');
+  const parsed = parseKpiFile(req.file.buffer);
+  if (!parsed.metrics.length) throw badRequest('В файле не найдено ни одной метрики KPI');
+  const monthParam = String(req.body.month ?? '').trim();
+  if (monthParam && !/^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)) throw badRequest('Месяц в формате ГГГГ-ММ');
+  const month = monthParam ? `${monthParam}-01` : parsed.month ?? currentMonth();
+
+  if (req.body.dryRun === '1' || req.body.dryRun === 'true') {
+    const scope = await kpiScope(req.userId!);
+    if (!scope) throw forbidden('Загружать KPI можно только своим подчинённым');
+    const match = parsed.employeeName ? (await matchPeople([parsed.employeeName], scope.all ? undefined : scope.ids)).values().next().value : null;
+    const groups = await knownGroups();
+    return res.json({
+      success: true,
+      dryRun: true,
+      employeeName: parsed.employeeName,
+      month: month.slice(0, 7),
+      monthFromFile: parsed.month ? parsed.month.slice(0, 7) : null,
+      hasResults: parsed.hasResults,
+      warnings: parsed.warnings,
+      suggestedUser: match?.userId ? { id: match.userId, name: match.userName } : null,
+      metrics: parsed.metrics.map((m) => {
+        const rules = defaultRules(m, groups);
+        return { ...m, factRule: rules.fact, payoutRule: rules.payout, rule: ruleText(rules.payout, m.bonus, m.items.length) };
+      }),
+    });
+  }
+
   const targetUserId = Number(req.body.userId);
   if (!Number.isInteger(targetUserId) || targetUserId <= 0) throw badRequest('Не указан сотрудник');
-  if (!req.file) throw badRequest('Файл не загружен');
   // Загружать KPI можно только своим подчинённым (директор — всем).
   if (!(await isSubordinate(req.userId!, targetUserId))) throw forbidden('Загружать KPI можно только своим подчинённым');
 
-  const { employeeName, metrics } = parseWorkbook(req.file.buffer);
-  if (!metrics.length) throw badRequest('В файле не найдено ни одной метрики KPI');
-
-  const now = new Date();
-  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-  // Замена KPI за период атомарна: при ошибке старые данные остаются на месте.
-  const saved = await withTransaction(async (client) => {
-    await client.query(
-      'DELETE FROM sales_targets WHERE user_id = $1 AND period_start >= $2 AND period_end <= $3',
-      [targetUserId, periodStart, periodEnd],
-    );
-    const out: any[] = [];
-    for (const m of metrics) {
-      const r = await client.query(
-        `INSERT INTO sales_targets
-           (user_id, product_name, metric_type, target_value, current_value,
-            period_start, period_end, bonus_amount, payment_amount, target_percent, description, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-        [targetUserId, m.name, metricTypeOf(m), m.plan, m.fact, periodStart, periodEnd, m.bonus, m.payment, m.percent, m.subItems.join('; '), req.userId],
-      );
-      out.push(r.rows[0]);
-    }
-    return out;
+  // Замена KPI за месяц атомарна: при ошибке старые данные остаются на месте.
+  const saved = await withTransaction((db) => saveKpiFile(db, { userId: targetUserId, month, file: parsed, byUserId: req.userId! }));
+  res.json({
+    success: true,
+    imported: saved.targets.length,
+    replaced: saved.replaced,
+    employeeName: parsed.employeeName,
+    month: month.slice(0, 7),
+    hasResults: parsed.hasResults,
+    warnings: parsed.warnings,
+    kpis: await enrichTargets(saved.targets),
   });
-
-  res.json({ success: true, imported: saved.length, employeeName, kpis: saved });
 });
 
 export default router;

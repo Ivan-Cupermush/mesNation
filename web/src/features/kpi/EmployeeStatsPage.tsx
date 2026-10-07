@@ -14,6 +14,7 @@ import { PageLoader } from '../../ui/Spinner';
 import { statusMeta } from '../tasks/status';
 import { PERIODS, PERIOD_HINT } from './format';
 import { useEmployeeStats } from './queries';
+import { isKpi, KpiMonthBlock } from './KpiMonthBlock';
 import { FactTiles, SalesHistory, Section, TaskStats } from './Sections';
 import { TargetCard } from './TargetCard';
 import { TargetDialog, useTargetActions } from './TargetDialog';
@@ -54,12 +55,16 @@ export default function EmployeeStatsPage() {
   }
 
   const personal = data.kpis.find((k) => k.is_personal_monthly_target);
-  const kpis = data.kpis.filter((k) => !k.is_personal_monthly_target);
+  const allKpis = data.kpis.filter((k) => !k.is_personal_monthly_target);
+  // Показатели из файла KPI — в блоке KPI за месяц; здесь — назначенные вручную цели.
+  const kpis = allKpis.filter((k) => !isKpi(k));
+  const fromFile = kpis.length < allKpis.length;
   const activeTasks = data.tasks.filter((t) => t.status !== 'done').slice(0, 6);
 
-  const goals = (
+  const kpiBlock = <KpiMonthBlock userId={id} self={self} itemsFor={actions.itemsFor} />;
+  const goals = (kpis.length > 0 || !!personal || !fromFile) && (
     <Section
-      title="KPI сотрудника"
+      title={fromFile ? 'Другие цели' : 'KPI сотрудника'}
       count={kpis.length || undefined}
       action={
         !self && (
@@ -160,6 +165,7 @@ export default function EmployeeStatsPage() {
         {wide ? (
           <div className={s.columns}>
             <div className={s.col}>
+              {kpiBlock}
               {tiles}
               {goals}
             </div>
@@ -170,6 +176,7 @@ export default function EmployeeStatsPage() {
           </div>
         ) : (
           <div className={s.col}>
+            {kpiBlock}
             {goals}
             {tiles}
             {tasks}

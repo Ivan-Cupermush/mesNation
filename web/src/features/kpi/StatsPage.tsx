@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FileSpreadsheet, Medal, Plus, ShoppingCart, Target, Trophy, UserCheck } from 'lucide-react';
+import { FileSpreadsheet, Medal, Plus, ShoppingCart, Sparkles, Target, Trophy, Upload, UserCheck } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { isManager } from '../auth/roles';
 import { displayName } from '../../lib/format';
@@ -18,6 +18,7 @@ import { TopProducts } from './Charts';
 import { PERIODS, PERIOD_HINT } from './format';
 import { useSalesSummary, useSubordinates, useTransactions } from './queries';
 import { SaleDialog } from './SaleDialog';
+import { isKpi, KpiMonthBlock } from './KpiMonthBlock';
 import { FactTiles, SalesHistory, Section, TaskStats, TeamList } from './Sections';
 import { TargetCard } from './TargetCard';
 import { TargetDialog, useTargetActions } from './TargetDialog';
@@ -58,6 +59,9 @@ export default function StatsPage() {
 
   const data = summary.data;
   const targets = useMemo(() => data?.targets ?? [], [data]);
+  // Показатели из файла KPI — в блоке KPI; здесь — цели, заведённые вручную.
+  const goalsList = useMemo(() => targets.filter((t) => !isKpi(t)), [targets]);
+  const hasKpi = goalsList.length < targets.length;
   const suggestions = useMemo(
     () => [...new Set([...targets.map((t) => t.product_name || ''), ...(data?.topProducts ?? []).map((p) => p.product_name)].filter(Boolean))],
     [targets, data],
@@ -81,8 +85,15 @@ export default function StatsPage() {
   const addItems: MenuItem[] = [
     { key: 'own', label: 'Добавить свой KPI', icon: <Target size={18} />, onSelect: () => setMode({ kind: 'own' }) },
     { key: 'sale', label: 'Записать продажу', icon: <ShoppingCart size={18} />, onSelect: () => setSale({ preset: null }) },
-    ...(manager ? [{ key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={18} />, onSelect: () => setMode({ kind: 'assign' }) }] : []),
-    { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={18} />, onSelect: () => navigate('/import') },
+    ...(manager
+      ? [
+          { key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={18} />, onSelect: () => setMode({ kind: 'assign' }) },
+          { key: 'report', label: 'Загрузить отчёт о продажах', icon: <Upload size={18} />, onSelect: () => navigate('/import?type=report') },
+          { key: 'kpi', label: 'Загрузить файл KPI', icon: <FileSpreadsheet size={18} />, onSelect: () => navigate('/import?type=kpi') },
+          { key: 'ep', label: 'Клиенты «Есть повод»', icon: <Sparkles size={18} />, onSelect: () => navigate('/stats/clients') },
+        ]
+      : []),
+    { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={18} />, onSelect: () => navigate(manager ? '/import?type=sales' : '/import') },
   ];
 
   const header = (
@@ -110,11 +121,12 @@ export default function StatsPage() {
     const plan = data.personalTarget && (
       <TargetCard target={data.personalTarget} title="Общий план на месяц" tone="accent" icon={<Trophy size={20} />} actions={actions.itemsFor(data.personalTarget)} />
     );
-    const goals = (
-      <Section title="Мои цели" count={targets.length || undefined}>
-        {targets.length ? (
+    const kpiBlock = <KpiMonthBlock userId={me.id} self itemsFor={actions.itemsFor} />;
+    const goals = (goalsList.length > 0 || !hasKpi) && (
+      <Section title="Мои цели" count={goalsList.length || undefined}>
+        {goalsList.length ? (
           <div className={s.targets}>
-            {targets.map((t) => (
+            {goalsList.map((t) => (
               <TargetCard
                 key={t.id}
                 target={t}
@@ -181,6 +193,7 @@ export default function StatsPage() {
     body = wide ? (
       <div className={s.columns}>
         <div className={s.col}>
+          {kpiBlock}
           {tiles}
           {plan}
           {goals}
@@ -194,6 +207,7 @@ export default function StatsPage() {
       </div>
     ) : (
       <div className={s.col}>
+        {kpiBlock}
         {plan}
         {goals}
         {tiles}

@@ -27,6 +27,7 @@ const RolesPage = lazy(() => import('./features/roles/RolesPage'));
 const StatsPage = lazy(() => import('./features/kpi/StatsPage'));
 const EmployeeStatsPage = lazy(() => import('./features/kpi/EmployeeStatsPage'));
 const ImportPage = lazy(() => import('./features/kpi/ImportPage'));
+const ClientListsPage = lazy(() => import('./features/kpi/ClientListsPage'));
 const KnowledgeRoutes = lazy(() => import('./features/knowledge/KnowledgeRoutes'));
 
 const queryClient = new QueryClient({
@@ -69,6 +70,7 @@ function AppRoutes() {
           <Route path="notes/*" element={<NotesRoutes />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="stats/employee/:userId" element={<EmployeeStatsPage />} />
+          <Route path="stats/clients" element={<ClientListsPage />} />
           <Route path="employee/:userId" element={<EmployeeRedirect />} />
           <Route path="import" element={<ImportPage />} />
           <Route path="knowledge/*" element={<KnowledgeRoutes />} />

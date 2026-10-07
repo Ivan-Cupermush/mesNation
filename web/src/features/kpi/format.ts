@@ -28,7 +28,7 @@ export const toNum = (v: unknown): number => {
 };
 
 /** 1 234 567 ₽ */
-export const money = (v: unknown) => `${nf0.format(Math.round(toNum(v)))} ₽`;
+export const money = (v: unknown) => `${nf0.format(Math.round(toNum(v)))}\u00a0₽`;
 /** Короткая запись для графиков: 1,2 млн ₽, 350 тыс ₽. */
 export const moneyShort = (v: unknown) => {
   const n = toNum(v);
@@ -86,3 +86,42 @@ export function targetRights(t: Pick<SalesTarget, 'user_id' | 'created_by'>, vie
 
 /** Дата YYYY-MM-DD в местном времени (для полей type=date). */
 export const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// ---------- Месяцы KPI ----------
+
+const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** «2026-05» для даты (по умолчанию — текущий месяц). */
+export const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+/** «2026-05» → «май 2026». */
+export function monthTitle(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return `${MONTHS[m - 1] ?? ''} ${y}`;
+}
+
+/** Соседний месяц: shiftMonth('2026-01', -1) → '2025-12'. */
+export function shiftMonth(key: string, delta: number): string {
+  const [y, m] = key.split('-').map(Number);
+  return monthKey(new Date(y, m - 1 + delta, 1));
+}
+
+/** «2026-05-15» → «15 мая». */
+export function dayMonth(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d} ${MONTHS_GEN[m - 1] ?? ''}`;
+}
+
+/** Период отчёта: «15 мая», «1–15 мая». */
+export function reportPeriod(start: string, end: string): string {
+  if (start === end) return dayMonth(start);
+  if (start.slice(0, 7) === end.slice(0, 7)) return `${Number(start.slice(8, 10))}–${dayMonth(end)}`;
+  return `${dayMonth(start)} – ${dayMonth(end)}`;
+}
+
+/** Значение показателя KPI с его единицей (ТТ, позиции, ₽). */
+export function kpiValue(t: { metric_type: MetricType; unit?: string | null }, v: unknown): string {
+  if (t.unit && t.metric_type !== 'amount') return `${number(v)} ${t.unit}`;
+  return metricValue(t.metric_type, v);
+}

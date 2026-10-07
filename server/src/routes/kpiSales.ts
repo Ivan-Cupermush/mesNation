@@ -3,7 +3,7 @@ import multer from 'multer';
 import pool from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
-import { isSubordinate, isDirector } from '../services/access';
+import { isSubordinate } from '../services/access';
 import { paramId } from '../lib/validate';
 import { logger } from '../lib/logger';
 import { UPLOAD_DIRS, fixOriginalName } from '../lib/uploads';
@@ -11,6 +11,11 @@ import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
 import xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
+import { withTransaction } from '../db/pool';
+import { importSalesReport, saveKpiFile } from '../services/kpi/imports';
+import { parseKpiSheets } from '../services/kpi/kpiFile';
+import { factRuleSchema, payoutRuleSchema } from '../services/kpi/rules';
+import { enrichTargets, kpiScope, loadLists, matchPeople, monthOfTarget, recalcUserMonth } from '../services/kpi/store';
 
 const router = Router();
 
@@ -42,30 +47,6 @@ async function isManagerOf(managerId: number, targetUserId: number): Promise<boo
   return isSubordinate(managerId, targetUserId);
 }
 
-
-/**
- * Ищет сотрудника по имени из отчёта: сначала точное совпадение имени или
- * логина (без учёта регистра), затем — частичное, но только если оно
- * единственное. Раньше бралось первое ILIKE-совпадение, и «Иван» мог
- * обновить KPI «Иванова».
- */
-async function findUserByName(name: string): Promise<{ id: number; display_name: string; username: string } | null> {
-  const clean = name.trim().replace(/\s+/g, ' ');
-  if (!clean) return null;
-  const exact = await pool.query(
-    `SELECT id, display_name, username FROM users
-     WHERE is_active AND (LOWER(TRIM(display_name)) = LOWER($1) OR LOWER(username) = LOWER($1))`,
-    [clean],
-  );
-  if (exact.rows.length === 1) return exact.rows[0];
-  if (exact.rows.length > 1) return null;
-  const partial = await pool.query(
-    `SELECT id, display_name, username FROM users
-     WHERE is_active AND display_name ILIKE '%' || $1 || '%' LIMIT 2`,
-    [clean],
-  );
-  return partial.rows.length === 1 ? partial.rows[0] : null;
-}
 
 /**
  * Число из ячейки Excel: «1 234,50 ₽», «1234.5», «1,234.50» → число.
@@ -156,7 +137,7 @@ router.get('/targets', async (req: Request, res: Response) => {
       [userId]
     );
     
-    res.json(result.rows);
+    res.json(await enrichTargets(result.rows));
   } catch (error) {
     logger.error({ err: error }, 'KPI: Ошибка получения целей');
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -369,6 +350,16 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const targetId = paramId(req);
     const { current_value, target_value, description } = req.body;
+    // Правила расчёта факта и выплаты, бонус — меняет тот, кто может менять план.
+    const factRule = req.body.fact_rule !== undefined ? factRuleSchema.safeParse(req.body.fact_rule) : null;
+    const payoutRule = req.body.payout_rule !== undefined ? payoutRuleSchema.safeParse(req.body.payout_rule) : null;
+    const bonus = req.body.bonus_amount !== undefined ? num(req.body.bonus_amount) : undefined;
+    if ((factRule && !factRule.success) || (payoutRule && !payoutRule.success)) {
+      return res.status(400).json({ error: 'Некорректное правило расчёта' });
+    }
+    if (bonus !== undefined && !(bonus >= 0)) {
+      return res.status(400).json({ error: 'Бонус должен быть числом не меньше 0' });
+    }
     
     const access = await targetAccess(userId, targetId);
     if (!access) {
@@ -377,7 +368,7 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     if (!access.canView) {
       return res.status(403).json({ error: 'Нет доступа' });
     }
-    if (target_value !== undefined && !access.canEditPlan) {
+    if ((target_value !== undefined || factRule || payoutRule || bonus !== undefined) && !access.canEditPlan) {
       return res.status(403).json({ error: 'План назначил руководитель — изменить его может только он' });
     }
     if (current_value !== undefined && !(num(current_value) >= 0)) {
@@ -403,6 +394,19 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
       updates.push(`description = $${paramIndex++}`);
       values.push(description);
     }
+    if (factRule?.success) {
+      updates.push(`fact_rule = $${paramIndex++}`);
+      values.push(JSON.stringify(factRule.data));
+    }
+    if (payoutRule?.success) {
+      updates.push(`payout_rule = $${paramIndex++}`);
+      values.push(JSON.stringify(payoutRule.data));
+    }
+    if (factRule || payoutRule) updates.push('rules_custom = TRUE');
+    if (bonus !== undefined) {
+      updates.push(`bonus_amount = $${paramIndex++}`);
+      values.push(bonus);
+    }
     
     if (updates.length === 0) {
       return res.status(400).json({ error: 'Нет данных для обновления' });
@@ -418,8 +422,15 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
        RETURNING *`,
       values
     );
+    let row = result.rows[0];
+    // Новое правило факта — сразу пересчитать по отчётам месяца.
+    if (factRule?.success) {
+      const month = monthOfTarget(row.period_start);
+      await withTransaction(async (db) => recalcUserMonth(db, row.user_id, month, await loadLists(db)));
+      row = (await pool.query('SELECT * FROM sales_targets WHERE id = $1', [targetId])).rows[0];
+    }
     
-    res.json(result.rows[0]);
+    res.json((await enrichTargets([row]))[0]);
   } catch (error: any) {
     if (error?.name === 'ZodError') return res.status(400).json({ error: 'Некорректный идентификатор' });
     logger.error({ err: error }, 'KPI: Ошибка обновления цели');
@@ -870,7 +881,8 @@ router.get('/summary', async (req: Request, res: Response) => {
     
     res.json({
       fact: factResult.rows[0],
-      targets: targetsResult.rows,
+      // calc — выплата сейчас, прогноз и пороги (services/kpi/store.ts).
+      targets: await enrichTargets(targetsResult.rows),
       personalTarget: personalTargetResult.rows[0] || null,
       topProducts: topProductsResult.rows,
       period,
@@ -1029,209 +1041,58 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
 
 
 
-// ===================== ОБНОВЛЕНИЕ KPI ИЗ ОТЧЕТА ПРОДАЖ =====================
-router.post('/import-report', upload.single('file'), async (req: Request, res: Response) => {
-  const requesterId: number = (req as any).userId;
+// ===================== ОБНОВЛЕНИЕ KPI ИЗ ОТЧЁТА ПРОДАЖ =====================
+
+/**
+ * POST /api/kpi/sales/import-report — ежедневный отчёт о продажах из 1С.
+ * Отчёт сохраняется, факт всех KPI команды за месяц пересчитывается
+ * (services/kpi/imports.ts). В ответе — итог по каждому менеджеру.
+ */
+router.post('/import-report', upload.single('file'), async (req: AuthRequest, res: Response) => {
+  const file = req.file;
+  if (!file) throw badRequest('Нет файла');
   try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
-
-    const workbook = xlsx.readFile(file.path);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-    const parseNum = parseRuNumber;
-    const lastNum = (cells: string[]) => parseNum(cells[cells.length - 1]);
-
-    let periodStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    let periodEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
-    
-    for (const r of rows) {
-      const rowStr = (r as any[]).map((c) => String(c ?? '').trim()).join(' ');
-      if (rowStr.toLowerCase().includes('период:')) {
-        const match = rowStr.match(/(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})/);
-        if (match) {
-          const [_, startStr, endStr] = match;
-          const [d1, m1, y1] = startStr.split('.');
-          const [d2, m2, y2] = endStr.split('.');
-          periodStart = new Date(parseInt(y1), parseInt(m1) - 1, parseInt(d1));
-          periodEnd = new Date(parseInt(y2), parseInt(m2) - 1, parseInt(d2), 23, 59, 59);
-        }
-        break;
-      }
-    }
-
-    const managerNames = new Set<string>();
-    let flag = false;
-    for (const r of rows) {
-      const cells = (r as any[]).map((c) => String(c ?? '').trim());
-      const first = cells[0] || '';
-      if (first.includes('По менеджерам')) { flag = true; continue; }
-      if (flag && first !== '') { managerNames.add(first); continue; }
-      if (first === '') flag = false;
-    }
-
-    const perManager: Record<string, { total: number; ep: number }> = {};
-    let currentManager: string | null = null;
-    
-    for (const r of rows) {
-      const cells = (r as any[]).map((c) => String(c ?? '').trim());
-      const first = cells[0] || '';
-      
-      if (first !== '') {
-        if (managerNames.has(first)) {
-          currentManager = first;
-          if (!perManager[first]) perManager[first] = { total: 0, ep: 0 };
-          perManager[first].total += lastNum(cells);
-        }
-        continue;
-      }
-      
-      if (currentManager && cells.some((c) => c.toLowerCase().includes('естьповод') || c.toLowerCase().includes('есть повод'))) {
-        perManager[currentManager].ep += lastNum(cells);
-      }
-    }
-
-    const results: any[] = [];
-    for (const name of Object.keys(perManager)) {
-      const total = Math.round(perManager[name].total * 100) / 100;
-      const ep = Math.round(perManager[name].ep * 100) / 100;
-      const noEp = Math.round((total - ep) * 100) / 100;
-
-      const found = await findUserByName(name);
-      if (!found) {
-        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Сотрудник не найден однозначно' });
-        continue;
-      }
-      if (!(await isManagerOf(requesterId, found.id))) {
-        results.push({ manager: name, total, ep, noEp, updated: false, error: 'Нет прав: не ваш подчинённый' });
-        continue;
-      }
-      const userRes = { rows: [found] };
-      const uid = found.id;
-
-      const r1 = await pool.query(
-        `UPDATE sales_targets 
-         SET current_value = $1, updated_at = NOW() 
-         WHERE user_id = $2 
-           AND (product_name ILIKE '%без ЕП%' OR product_name ILIKE '%без еп%')
-           AND period_start <= $3 AND period_end >= $3`,
-        [noEp, uid, periodStart]
-      );
-
-      const r2 = await pool.query(
-        `UPDATE sales_targets 
-         SET current_value = $1, updated_at = NOW() 
-         WHERE user_id = $2 
-           AND (product_name ILIKE '%есть повод%' OR product_name ILIKE '%естьповод%')
-           AND period_start <= $3 AND period_end >= $3`,
-        [ep, uid, periodStart]
-      );
-
-      const updatedCount = (r1.rowCount || 0) + (r2.rowCount || 0);
-      
-      results.push({ 
-        manager: name, 
-        user: userRes.rows[0].display_name || userRes.rows[0].username,
-        total, ep, noEp, 
-        updated: updatedCount > 0,
-        targetsUpdated: updatedCount
-      });
-    }
-
-    try { fs.unlinkSync(file.path); } catch (e) {}
-    res.json({ success: true, results });
-  } catch (error) {
-    dropUpload(req.file);
-    logger.error({ err: error }, 'KPI: Ошибка импорта отчёта');
-    res.status(500).json({ error: 'Ошибка обработки отчёта' });
+    const buffer = await fs.promises.readFile(file.path);
+    res.json(await importSalesReport(buffer, file.originalname, req.userId!));
+  } finally {
+    dropUpload(file);
   }
 });
 
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
 
-router.post('/import-kpi-plan', upload.single('file'), async (req: Request, res: Response) => {
-  const requesterId: number = (req as any).userId;
+/**
+ * POST /api/kpi/sales/import-kpi-plan — файл, где каждый лист — KPI одного
+ * сотрудника (тот же вид, что и файл KPI сотрудника). Сотрудник — по имени
+ * на листе, месяц — из файла.
+ */
+router.post('/import-kpi-plan', upload.single('file'), async (req: AuthRequest, res: Response) => {
+  const file = req.file;
+  if (!file) throw badRequest('Нет файла');
   try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Нет файла' });
-
-    const workbook = xlsx.readFile(file.path);
-    const cellStr = (v: any) => String(v === undefined || v === null ? '' : v).trim();
-    const parseNum = (v: any): number => {
-      const s = cellStr(v);
-      if (!s) return 0;
-      if (/^да$/i.test(s)) return 1;
-      return parseRuNumber(s);
-    };
-
+    const scope = await kpiScope(req.userId!);
+    if (!scope) throw forbidden('Загружать KPI можно только своим подчинённым');
+    const sheets = parseKpiSheets(await fs.promises.readFile(file.path));
+    if (!sheets.length) throw badRequest('В файле не найдено ни одного листа с показателями KPI');
     const results: any[] = [];
-
-    for (const sheetName of workbook.SheetNames) {
-      const rows: any[][] = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
-      if (!rows.length) continue;
-
-      let employee = '';
-      for (const r of rows.slice(0, 3)) {
-        const v = cellStr(r[0]);
-        if (v && !/\d{1,2}\/\d{2}/.test(v) && !/факт/i.test(v)) { employee = v; break; }
+    for (const sheet of sheets) {
+      const employee = sheet.employeeName;
+      const mine = (await matchPeople([employee], scope.all ? undefined : scope.ids)).values().next().value;
+      if (!mine?.userId) {
+        const anyone = scope.all ? null : (await matchPeople([employee])).values().next().value;
+        results.push({ employee, sheet: sheet.sheet, error: anyone?.userId ? 'нет прав: не ваш подчинённый' : 'сотрудник не найден однозначно' });
+        continue;
       }
-      if (!employee) continue;
-
-      const kpis: Record<string, { target: number; current: number }> = {};
-      let cur = '';
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i] as any[];
-        const c0 = cellStr(r[0]);
-        const c1 = cellStr(r[1]).toLowerCase();
-        if (c0) {
-          if (/^итого/i.test(c0)) { cur = ''; continue; }
-          cur = c0;
-          if (!kpis[cur]) kpis[cur] = { target: 0, current: 0 };
-        }
-        if (!cur) continue;
-        if (c1.includes('план')) {
-          kpis[cur].target = parseNum(r[2]);
-        } else if (c1.includes('факт')) {
-          if (!kpis[cur].target) kpis[cur].target = parseNum(r[2]);
-          kpis[cur].current = parseNum(r[3]);
-        } else if (!c1 && (cellStr(r[2]) || cellStr(r[3]))) {
-          kpis[cur].target = parseNum(r[2]);
-          kpis[cur].current = parseNum(r[3]);
-        }
-      }
-
-      const found = await findUserByName(employee);
-      if (!found) { results.push({ employee, error: 'сотрудник не найден однозначно' }); continue; }
-      if (!(await isManagerOf(requesterId, found.id))) { results.push({ employee, error: 'нет прав: не ваш подчинённый' }); continue; }
-      const userRes = { rows: [found] };
-      const uid = found.id;
-
-      let created = 0, updated = 0;
-      for (const name of Object.keys(kpis)) {
-        const t = kpis[name];
-        const metric = /руб/i.test(name) ? 'amount' : 'quantity';
-        const ex = await pool.query("SELECT id FROM sales_targets WHERE user_id = $1 AND product_name = $2 LIMIT 1", [uid, name]);
-        if (ex.rows.length) {
-          await pool.query("UPDATE sales_targets SET target_value = $1, current_value = $2, updated_at = NOW() WHERE id = $3", [t.target, t.current, ex.rows[0].id]);
-          updated++;
-        } else {
-          await pool.query(
-            // created_by — руководитель, загрузивший план: сотрудник не сможет его удалить или занизить.
-            "INSERT INTO sales_targets (user_id, product_name, metric_type, target_value, current_value, period_start, period_end, is_personal_monthly_target, created_by) VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', FALSE, $6)",
-            [uid, name.slice(0, 255), metric, t.target, t.current, requesterId]
-          );
-          created++;
-        }
-      }
-      results.push({ employee, user: userRes.rows[0].display_name || userRes.rows[0].username, created, updated, kpis: Object.keys(kpis).length });
+      const month = sheet.month ?? currentMonth();
+      const saved = await withTransaction((db) => saveKpiFile(db, { userId: mine.userId!, month, file: sheet, byUserId: req.userId! }));
+      results.push({ employee, sheet: sheet.sheet, user: mine.userName, month: month.slice(0, 7), created: saved.targets.length, updated: saved.replaced, kpis: sheet.metrics.length });
     }
-
-    try { fs.unlinkSync(file.path); } catch (e) {}
     res.json({ success: true, results });
-  } catch (error) {
-    dropUpload(req.file);
-    logger.error({ err: error }, 'KPI: Ошибка импорта плана KPI');
-    res.status(500).json({ error: 'Ошибка обработки файла плана' });
+  } finally {
+    dropUpload(file);
   }
 });
 
@@ -1297,7 +1158,7 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
   ]);
   if (!userResult.rows.length) throw notFound('Сотрудник не найден');
 
-  const kpis = kpisResult.rows.map((k) => ({
+  const kpis = (await enrichTargets(kpisResult.rows)).map((k) => ({
     ...k,
     progress: Math.min(100, Math.round((Number(k.current_value) / Math.max(Number(k.target_value) || 1, 1)) * 100)),
   }));

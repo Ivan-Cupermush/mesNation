@@ -8,23 +8,20 @@ import { useMedia } from '../../lib/useMedia';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
 import { EmptyState } from '../../ui/EmptyState';
-import { Segmented } from '../../ui/Field';
 import { Page, PageBody, PageHeader } from '../../ui/Page';
 import { PageLoader } from '../../ui/Spinner';
 import { statusMeta } from '../tasks/status';
-import { PERIODS, PERIOD_HINT } from './format';
 import { useEmployeeStats } from './queries';
-import { isKpi, KpiMonthBlock } from './KpiMonthBlock';
-import { FactTiles, SalesHistory, Section, TaskStats } from './Sections';
+import { isKpi, KpiMonthBlock, SalesSection, useKpiMonthView } from './KpiMonthBlock';
+import { SalesHistory, Section, TaskStats } from './Sections';
 import { TargetCard } from './TargetCard';
 import { TargetDialog, useTargetActions } from './TargetDialog';
-import { usePeriod } from './usePeriod';
 import s from './kpi.module.css';
 
 /**
- * Статистика сотрудника для руководителя — как в приложении: KPI с прогрессом,
- * выручка и сделки за период, задачи и история продаж. Руководитель может
- * назначить KPI, изменить план и выполнение или удалить цель.
+ * Статистика сотрудника для руководителя: продажи по отчётам (квадратики) и KPI
+ * за выбранный месяц — месяцы переключаются, задачи и история продаж.
+ * Руководитель может назначить KPI, изменить план и выполнение или удалить цель.
  */
 export default function EmployeeStatsPage() {
   const { userId } = useParams();
@@ -32,10 +29,12 @@ export default function EmployeeStatsPage() {
   const me = useMe();
   const navigate = useNavigate();
   const wide = useMedia('(min-width: 1100px)');
-  const [period, setPeriod] = usePeriod();
-  const { data, isLoading, error, refetch } = useEmployeeStats(id, period);
+  const { data, isLoading, error, refetch } = useEmployeeStats(id, 'month');
   const self = id === me.id;
-  const actions = useTargetActions({ viewerId: me.id, viewerIsManager: !self });
+  const view = useKpiMonthView(id);
+  // Назначать KPI — тем, кому это можно (руководитель, директор или кому включили функцию).
+  const canAssign = !!view.query.data?.can?.assign;
+  const actions = useTargetActions({ viewerId: me.id, manage: canAssign });
   const name = data ? displayName(data.user) : 'Сотрудник';
   const suggestions = useMemo(() => [...new Set((data?.kpis ?? []).map((k) => k.product_name || '').filter(Boolean))], [data]);
 
@@ -61,13 +60,14 @@ export default function EmployeeStatsPage() {
   const fromFile = kpis.length < allKpis.length;
   const activeTasks = data.tasks.filter((t) => t.status !== 'done').slice(0, 6);
 
-  const kpiBlock = <KpiMonthBlock userId={id} self={self} itemsFor={actions.itemsFor} />;
+  const sales = <SalesSection view={view} />;
+  const kpiBlock = <KpiMonthBlock view={view} self={self} itemsFor={actions.itemsFor} onAssign={() => actions.setMode({ kind: 'assign', user: { id, name } })} />;
   const goals = (kpis.length > 0 || !!personal || !fromFile) && (
     <Section
       title={fromFile ? 'Другие цели' : 'KPI сотрудника'}
       count={kpis.length || undefined}
       action={
-        !self && (
+        canAssign && (
           <Button size="sm" variant="ghost" icon={<UserCheck size={16} />} onClick={() => actions.setMode({ kind: 'assign', user: { id, name } })}>
             Назначить
           </Button>
@@ -85,8 +85,8 @@ export default function EmployeeStatsPage() {
         !personal && (
           <div className={s.emptyCard}>
             <Package size={28} />
-            <p>Нет действующих KPI. Назначьте цель или загрузите файл KPI в разделе «Импорт из Excel».</p>
-            {!self && (
+            <p>{canAssign ? 'Нет действующих целей. Назначьте цель или загрузите файл KPI.' : 'Нет действующих целей.'}</p>
+            {canAssign && (
               <Button size="sm" variant="soft" icon={<UserCheck size={16} />} onClick={() => actions.setMode({ kind: 'assign', user: { id, name } })}>
                 Назначить KPI
               </Button>
@@ -94,11 +94,6 @@ export default function EmployeeStatsPage() {
           </div>
         )
       )}
-    </Section>
-  );
-  const tiles = (
-    <Section title={`Продажи ${PERIOD_HINT[period]}`}>
-      <FactTiles fact={wide ? data.summary : { total_amount: data.summary.total_amount, total_transactions: data.summary.total_transactions }} />
     </Section>
   );
   const tasks = (
@@ -129,7 +124,7 @@ export default function EmployeeStatsPage() {
     </Section>
   );
   const history = data.transactions.length > 0 && (
-    <Section title="История продаж" count={data.transactions.length}>
+    <Section title="История продаж за месяц" count={data.transactions.length}>
       <SalesHistory items={data.transactions} />
     </Section>
   );
@@ -145,11 +140,7 @@ export default function EmployeeStatsPage() {
             <UserRound size={20} />
           </IconButton>
         }
-      >
-        <div className={s.periodBar}>
-          <Segmented options={PERIODS} value={period} onChange={setPeriod} />
-        </div>
-      </PageHeader>
+      />
       <PageBody>
         <div className={s.personCard}>
           <Avatar name={name} src={data.user.avatar_url} size={56} />
@@ -163,22 +154,24 @@ export default function EmployeeStatsPage() {
           </div>
         </div>
         {wide ? (
-          <div className={s.columns}>
-            <div className={s.col}>
-              {kpiBlock}
-              {tiles}
-              {goals}
-            </div>
-            <div className={s.col}>
-              {tasks}
-              {history}
+          <div className={s.col}>
+            {sales}
+            <div className={s.columns}>
+              <div className={s.col}>
+                {kpiBlock}
+                {goals}
+              </div>
+              <div className={s.col}>
+                {tasks}
+                {history}
+              </div>
             </div>
           </div>
         ) : (
           <div className={s.col}>
+            {sales}
             {kpiBlock}
             {goals}
-            {tiles}
             {tasks}
             {history}
           </div>

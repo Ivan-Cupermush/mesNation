@@ -27,7 +27,16 @@ interface Props {
 export function SaleDialog({ open, onClose, targets, preset, suggestions = [] }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Записать продажу" size="md">
-      {open && <SaleForm key={preset?.id ?? 'new'} targets={targets.filter((t) => t.metric_type !== 'boolean')} preset={preset ?? null} suggestions={suggestions} onDone={onClose} />}
+      {/* Продажа вручную идёт только в цели, которые ведутся вручную (не по отчёту и не из файла KPI). */}
+      {open && (
+        <SaleForm
+          key={preset?.id ?? 'new'}
+          targets={targets.filter((t) => t.metric_type !== 'boolean' && t.source !== 'kpi_file' && !t.calc?.tracked && (t.calc?.source ?? 'manual') === 'manual')}
+          preset={preset ?? null}
+          suggestions={suggestions}
+          onDone={onClose}
+        />
+      )}
     </Modal>
   );
 }

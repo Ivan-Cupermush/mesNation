@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
-import { isManager } from '../auth/roles';
+import { can } from '../auth/roles';
 import { api, uploadFile } from '../../lib/http';
 import { formatSize, plural } from '../../lib/format';
 import { Button, IconButton } from '../../ui/Button';
@@ -113,11 +113,11 @@ export default function ClientListsPage() {
   }, [clients.data, filter, kind]);
   const hints = (clients.data ?? []).filter((r) => r.ep_hint && !r.ep).length;
 
-  if (!isManager(me)) {
+  if (!can(me, 'sales_reports')) {
     return (
       <Page>
         <PageHeader title="Клиенты для KPI" back={true} />
-        <EmptyState title="Нет доступа" text="Списки клиентов ведут руководители." />
+        <EmptyState title="Нет доступа" text="Списки клиентов ведут те, кому включена загрузка отчётов о продажах." />
       </Page>
     );
   }

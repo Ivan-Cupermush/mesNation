@@ -3,8 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, FileCheck, FileSpreadsheet, ListChecks, Trash2, Upload, UserRound, Users, XCircle } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
-import { isManager } from '../auth/roles';
+import { can } from '../auth/roles';
 import { api, upload, UploadCancelled } from '../../lib/http';
+import type { PermissionKey } from '../../lib/types';
 import { formatDate, formatSize, plural } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
@@ -13,18 +14,18 @@ import { Spinner } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
 import { monthKey, monthTitle, money, number, reportPeriod } from './format';
 import { kpiTitle } from './KpiCard';
-import { kpiKeys, useImportHistory, useKpiRefresh, useSalesReports, useSubordinates, useUnmatchedManagers } from './queries';
+import { kpiKeys, useImportHistory, useKpiPeople, useKpiRefresh, useSalesReports, useUnmatchedManagers } from './queries';
 import type { ImportPreview, ImportResult, KpiFilePreview, KpiTarget, MappingField, ReportImportResult, ReportManagerResult } from './types';
 import { TeamPicker } from './TeamPicker';
 import s from './ImportPage.module.css';
 
 type Mode = 'sales' | 'report' | 'plan' | 'kpi';
 
-const MODES: { key: Mode; title: string; text: string; icon: ReactNode; manager?: boolean }[] = [
-  { key: 'report', title: 'Отчёт о продажах', text: 'Ежедневный отчёт из 1С «По менеджерам» — обновит KPI всей команды', icon: <Users size={20} />, manager: true },
-  { key: 'kpi', title: 'Файл KPI сотрудника', text: 'План, бонусы и правила выплат на месяц (или итоги месяца)', icon: <UserRound size={20} />, manager: true },
+const MODES: { key: Mode; title: string; text: string; icon: ReactNode; perm?: PermissionKey }[] = [
+  { key: 'report', title: 'Отчёт о продажах', text: 'Ежедневный отчёт из 1С «По менеджерам» — обновит продажи и цели по отчёту', icon: <Users size={20} />, perm: 'sales_reports' },
+  { key: 'kpi', title: 'Файл KPI сотрудника', text: 'План, факт, бонусы и выплаты — KPI обновляется из этого файла', icon: <UserRound size={20} />, perm: 'kpi_files' },
   { key: 'sales', title: 'Мои продажи', text: 'Строки продаж: товар, количество, сумма, дата, клиент', icon: <FileSpreadsheet size={20} /> },
-  { key: 'plan', title: 'KPI по листам', text: 'Файл, где каждый лист — KPI отдельного сотрудника', icon: <ListChecks size={20} />, manager: true },
+  { key: 'plan', title: 'KPI по листам', text: 'Файл, где каждый лист — KPI отдельного сотрудника', icon: <ListChecks size={20} />, perm: 'kpi_files' },
 ];
 
 const FIELDS: { key: MappingField; label: string; required?: boolean }[] = [
@@ -50,20 +51,22 @@ const cell = (v: unknown) => {
  */
 export default function ImportPage() {
   const me = useMe();
-  const manager = isManager(me);
   const [params, setParams] = useSearchParams();
   const requested = params.get('type') as Mode | null;
-  // Руководителю по умолчанию — ежедневный отчёт о продажах.
-  const mode: Mode = requested && MODES.some((m) => m.key === requested && (!m.manager || manager)) ? requested : manager ? 'report' : 'sales';
+  // Разделы — по включённым функциям (загрузка отчётов, файлов KPI).
+  const modes = MODES.filter((m) => !m.perm || can(me, m.perm));
+  const extra = modes.length > 1;
+  // По умолчанию — ежедневный отчёт о продажах, если он доступен.
+  const mode: Mode = requested && modes.some((m) => m.key === requested) ? requested : modes[0].key;
   const setMode = (m: Mode) => setParams({ type: m }, { replace: true });
 
   return (
     <Page>
       <PageHeader title="Импорт из Excel" subtitle="Загрузка KPI и отчётов продаж" back={true} />
       <PageBody narrow>
-        {manager && (
+        {extra && (
           <div className={s.modes} role="tablist">
-            {MODES.map((m) => (
+            {modes.map((m) => (
               <button key={m.key} type="button" role="tab" aria-selected={mode === m.key} className={[s.mode, mode === m.key && s.modeActive].filter(Boolean).join(' ')} onClick={() => setMode(m.key)}>
                 <span className={s.modeIcon}>{m.icon}</span>
                 <b>{m.title}</b>
@@ -438,8 +441,8 @@ function EmployeeKpiImport() {
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ imported: number; replaced: number; month: string; kpis: KpiTarget[]; person: { id: number; name: string } } | null>(null);
-  // Ссылка «Файл KPI» из карточки сотрудника — имя берём из списка команды.
-  const team = useSubordinates('month', preset > 0).data;
+  // Ссылка «Файл KPI» из карточки сотрудника — имя берём из списка тех, кому можно загрузить.
+  const team = useKpiPeople('kpi_files', preset > 0).data;
 
   const pick = async (f: File) => {
     const r = await run('/api/kpi/import', f, { dryRun: 1 }, 'Не удалось прочитать файл KPI');
@@ -498,7 +501,7 @@ function EmployeeKpiImport() {
                 <tr key={k.id}>
                   <td>
                     {kpiTitle(k)}
-                    <span className={s.sub}>{k.calc.tracked ? 'факт по отчётам о продажах' : k.calc.rule || 'без выплаты'}</span>
+                    <span className={s.sub}>{k.calc.condition || k.calc.rule || 'без выплаты'}</span>
                   </td>
                   <td>{number(k.target_value)}</td>
                   <td>{number(k.current_value)}</td>
@@ -508,7 +511,7 @@ function EmployeeKpiImport() {
             </tbody>
           </table>
         </div>
-        <p className={s.muted}>Сейчас к выплате: {money(total)}. Факт будет обновляться после каждой загрузки отчёта о продажах.</p>
+        <p className={s.muted}>Сейчас к выплате: {money(total)}. KPI обновляется из файла KPI — загружайте новый файл каждый день или неделю.</p>
         <Button variant="soft" onClick={() => navigate(`/stats/employee/${result.person.id}?month=${result.month}`)}>
           Открыть KPI сотрудника
         </Button>
@@ -585,6 +588,7 @@ function EmployeeKpiImport() {
         </div>
         <TeamPicker
           open={picking}
+          permission="kpi_files"
           onClose={() => setPicking(false)}
           onPick={(p) => {
             setPerson(p);
@@ -610,7 +614,8 @@ const FACT_TEXT: Record<string, string> = {
   revenue: 'по отчёту: продажи',
   clients: 'по отчёту: точки',
   items: 'по отчёту: позиции',
-  manual: 'вручную / из файла',
+  products: 'по отчёту: товар',
+  manual: 'из файла KPI',
 };
 
 // ---------- Ежедневный отчёт о продажах ----------
@@ -640,7 +645,7 @@ function ManagerReportImport() {
       setResult((prev) =>
         prev && {
           ...prev,
-          results: prev.results.map((x): ReportManagerResult => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: r.targets > 0, targetsUpdated: r.targets } : x)),
+          results: prev.results.map((x): ReportManagerResult => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: true, targetsUpdated: r.targets } : x)),
         },
       );
       refresh();
@@ -650,7 +655,7 @@ function ManagerReportImport() {
   };
 
   const removeReport = async (id: number, label: string) => {
-    const ok = await confirm({ title: `Удалить отчёт за ${label}?`, text: 'Факт KPI пересчитается без него.', confirmText: 'Удалить', danger: true });
+    const ok = await confirm({ title: `Удалить отчёт за ${label}?`, text: 'Продажи и цели по отчёту пересчитаются без него.', confirmText: 'Удалить', danger: true });
     if (!ok) return;
     try {
       await api.delete(`/api/kpi/reports/${id}`);
@@ -664,6 +669,7 @@ function ManagerReportImport() {
   const picker = (
     <TeamPicker
       open={!!mapping}
+      permission="sales_reports"
       title={mapping ? `Кто в 1С «${mapping}»?` : ''}
       onClose={() => setMapping(null)}
       onPick={(u) => {
@@ -702,7 +708,7 @@ function ManagerReportImport() {
                 <th>Менеджер в 1С</th>
                 <th>Выручка</th>
                 <th>Есть повод</th>
-                <th>KPI</th>
+                <th>Статистика</th>
               </tr>
             </thead>
             <tbody>
@@ -716,7 +722,7 @@ function ManagerReportImport() {
                   <td>{r.ep ? money(r.ep) : '—'}</td>
                   <td className={r.status === 'ok' ? s.good : s.bad}>
                     <div className={s.cellAction}>
-                      {r.status === 'ok' ? (r.updated ? `обновлено показателей: ${r.targetsUpdated}` : 'нет KPI за этот месяц') : r.error}
+                      {r.status === 'ok' ? `продажи обновлены${r.targetsUpdated ? ` · целей по отчёту: ${r.targetsUpdated}` : ''}` : r.error}
                       {(r.status === 'unmatched' || r.status === 'ambiguous') && (
                         <Button size="sm" variant="soft" onClick={() => setMapping(r.manager)}>
                           Выбрать сотрудника

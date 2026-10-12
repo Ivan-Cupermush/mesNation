@@ -11,7 +11,8 @@ export type AuditAction =
   | 'user_deactivated'
   | 'user_created'
   | 'role_assigned'
-  | 'company_renamed';
+  | 'company_renamed'
+  | 'permissions_changed';
 
 /**
  * Журнал событий безопасности. Ошибка записи не должна ломать сам запрос,

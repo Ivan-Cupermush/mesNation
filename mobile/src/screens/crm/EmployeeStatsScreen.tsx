@@ -7,19 +7,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   User, Trophy, CheckCircle2, Clock, AlertCircle,
-  Wallet, TrendingUp, ArrowLeft, Package
+  TrendingUp, ArrowLeft, Package
 } from 'lucide-react-native';
 import { api } from '../../services/api';
 import KpiMonthBlock from '../../components/kpi/KpiMonthBlock';
 import { isKpiTarget } from '../../services/kpi';
 
 import { T, themed } from '../../theme/runtime';
-type Period = 'week' | 'month' | 'quarter';
-const PERIODS: { id: Period; label: string }[] = [
-  { id: 'week', label: 'Неделя' },
-  { id: 'month', label: 'Месяц' },
-  { id: 'quarter', label: 'Квартал' },
-];
 
 const fmt = (v: number | string): string => {
   const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -29,16 +23,19 @@ const fmt = (v: number | string): string => {
 const fmtDate = (d: string | Date): string =>
   new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 
+/**
+ * Статистика сотрудника для руководителя: продажи по отчётам (квадратики) и KPI
+ * за выбранный месяц — месяцы переключаются, цели, задачи и история продаж.
+ */
 export default function EmployeeStatsScreen({ route, navigation }: any) {
   const { userId, userName } = route.params;
-  const [period, setPeriod] = useState<Period>('month');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const stats = await api.getEmployeeStats(userId, period);
+      const stats = await api.getEmployeeStats(userId, 'month');
       setData(stats);
     } catch (e) {
       console.error('Ошибка загрузки:', e);
@@ -46,7 +43,7 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [userId, period]);
+  }, [userId]);
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
@@ -65,7 +62,7 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
     );
   }
 
-  const { user, kpis: allKpis = [], tasks, taskStats, summary, transactions = [] } = data;
+  const { user, kpis: allKpis = [], tasks, taskStats, transactions = [] } = data;
   // Показатели из файла KPI — в блоке KPI за месяц; ниже — цели, назначенные вручную.
   const kpis = allKpis.filter((k: any) => !isKpiTarget(k));
   const fromFile = kpis.length < allKpis.length;
@@ -98,22 +95,13 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
           </View>
         </View>
 
-        {/* Periods */}
-        <View style={styles.periodSwitch}>
-          {PERIODS.map(p => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.periodBtn, period === p.id && styles.periodBtnActive]}
-              onPress={() => setPeriod(p.id)}
-            >
-              <Text style={[styles.periodText, period === p.id && styles.periodTextActive]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <KpiMonthBlock userId={Number(userId)} self={false} navigation={navigation} />
+        {/* Продажи за месяц (квадратики) и KPI; руководитель переключает месяцы */}
+        <KpiMonthBlock
+          userId={Number(userId)}
+          self={false}
+          navigation={navigation}
+          onAssign={() => navigation.navigate('AssignKpi', { userId: Number(userId), userName: user.display_name || user.username })}
+        />
 
         {/* Цели, назначенные вручную */}
         {kpis.length > 0 ? (
@@ -151,28 +139,10 @@ export default function EmployeeStatsScreen({ route, navigation }: any) {
               Нет активных KPI
             </Text>
             <Text style={{ color: T.textMuted, marginTop: 4, fontSize: 12 }}>
-              Импортируйте Excel-файл для этого сотрудника
+              Назначьте цель или загрузите файл KPI
             </Text>
           </View>
         )}
-
-        {/* Fact stats */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: T.successSoft }]}>
-              <Wallet size={22} color={T.accent} strokeWidth={2.2} />
-            </View>
-            <Text style={styles.statValue}>{fmt(summary?.total_amount || 0)}</Text>
-            <Text style={styles.statLabel}>Выручка</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: T.infoSoft }]}>
-              <TrendingUp size={22} color={T.info} strokeWidth={2.2} />
-            </View>
-            <Text style={styles.statValue}>{summary?.total_transactions || 0}</Text>
-            <Text style={styles.statLabel}>Сделки</Text>
-          </View>
-        </View>
 
         {/* Task stats */}
         <View style={styles.card}>
@@ -287,19 +257,6 @@ const styles = themed(() => ({
     fontSize: 14, color: T.textSecondary, marginTop: 2, fontWeight: '500',
   },
 
-  // ===== PERIODS =====
-  periodSwitch: {
-    flexDirection: 'row', backgroundColor: T.card, borderRadius: 18, padding: 4, marginBottom: 20,
-    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
-  },
-  periodBtn: { flex: 1, height: 40, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  periodBtnActive: { backgroundColor: T.accent },
-  periodText: {
-    fontSize: 14, fontWeight: '600', color: T.textSecondary,
-    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
-  },
-  periodTextActive: { color: T.onAccent },
-
   sectionTitle: {
     fontSize: 20, fontWeight: '800', color: T.textPrimary, marginBottom: 12, marginTop: 4,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
@@ -331,22 +288,6 @@ const styles = themed(() => ({
   progressBarBg: { height: 8, backgroundColor: T.inputBg, borderRadius: 4, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: T.accent, borderRadius: 4 },
   progressText: { fontSize: 12, color: T.textSecondary, fontWeight: '600', marginTop: 8, textAlign: 'right' },
-
-  // ===== STATS =====
-  statsGrid: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  statCard: {
-    flex: 1, backgroundColor: T.card, borderRadius: 22, padding: 16, alignItems: 'center',
-    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
-  },
-  statIcon: {
-    width: 46, height: 46, borderRadius: 14,
-    justifyContent: 'center', alignItems: 'center', marginBottom: 10,
-  },
-  statValue: {
-    fontSize: 18, fontWeight: '800', color: T.textPrimary, marginBottom: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
-  },
-  statLabel: { fontSize: 11, color: T.textSecondary, fontWeight: '600' },
 
   // ===== TASK STATS =====
   taskStatsGrid: { flexDirection: 'row', gap: 10 },

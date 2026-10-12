@@ -105,6 +105,30 @@ export function computeFact(rule: FactRule, lines: ReportLine[], lists: ClientLi
       }
       return { value: points.size, details: { clients: points.size, excludedEp } };
     }
+    case 'products': {
+      // Товар или группа по названию; вложенное в уже подходящую группу не считаем второй раз.
+      const cache = new Map<string, boolean>();
+      const hit = (name: string) => {
+        let v = cache.get(name);
+        if (v === undefined) {
+          v = matchesItem(rule.query, name);
+          cache.set(name, v);
+        }
+        return v;
+      };
+      let sum = 0;
+      const clients = new Set<string>();
+      for (const l of lines) {
+        if (l.kind === 'total' || !hit(l.name)) continue;
+        const parents = l.group_path ? l.group_path.split(PATH_SEP) : [];
+        if (parents.some(hit)) continue;
+        if (rule.measure === 'clients') {
+          if (Number(l.quantity) > 0 || Number(l.revenue) > 0) clients.add(norm(l.client_name));
+        } else sum += Number(l[rule.measure === 'revenue' ? 'revenue' : 'quantity']);
+      }
+      const value = rule.measure === 'clients' ? clients.size : Math.round(sum * 100) / 100;
+      return { value, details: { clients: clients.size || undefined } };
+    }
     case 'items': {
       const nameCache = new Map<string, boolean>();
       const items: ItemProgress[] = rule.items.map((item) => {

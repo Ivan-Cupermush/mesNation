@@ -13,7 +13,9 @@ import { PageLoader } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
 import { RolePickerDialog } from '../roles/RoleDialogs';
 import { roleKeys, useRoleTree } from '../roles/queries';
+import { PermissionPicker } from './Permissions';
 import { userKeys } from './queries';
+import type { PermissionKey } from '../../lib/types';
 import s from './CreateUserPage.module.css';
 
 /** Надёжный и удобный для передачи пароль: без похожих символов (l/1, O/0). */
@@ -26,7 +28,8 @@ function generatePassword(length = 12): string {
 
 /**
  * Новый сотрудник — как в приложении: роль в дереве, логин, имя, почта,
- * пароль. После создания — логин и пароль для передачи сотруднику.
+ * пароль и функции (например, оператору — загрузка отчётов). После создания —
+ * логин и пароль для передачи сотруднику.
  */
 export default function CreateUserPage() {
   const me = useMe();
@@ -45,7 +48,10 @@ export default function CreateUserPage() {
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState<{ id: number; username: string; password: string; role: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [permissions, setPermissions] = useState<Partial<Record<PermissionKey, boolean>>>({});
   const node = useMemo(() => nodes?.find((n) => n.id === nodeId) ?? null, [nodes, nodeId]);
+  // По должности функции есть у руководителей — у кого в дереве есть подчинённые роли.
+  const byRole = !!node && !!nodes?.some((n) => n.parent_id === node.id);
 
   if (!me.is_director) {
     return <EmptyState title="Нет доступа" text="Добавлять сотрудников может только директор." action={<Button onClick={() => navigate(-1)}>Назад</Button>} />;
@@ -72,6 +78,7 @@ export default function CreateUserPage() {
         password,
         display_name: name.trim() || username.trim(),
         role_node_id: node!.id,
+        ...(Object.keys(permissions).length ? { permissions } : {}),
       });
       qc.invalidateQueries({ queryKey: userKeys.all });
       qc.invalidateQueries({ queryKey: userKeys.withInactive });
@@ -92,6 +99,7 @@ export default function CreateUserPage() {
     setName('');
     setEmail('');
     setPassword(generatePassword());
+    setPermissions({});
   };
 
   return (
@@ -144,6 +152,7 @@ export default function CreateUserPage() {
               </span>
             }
           />
+          <PermissionPicker byRole={byRole} value={permissions} onChange={setPermissions} />
           <Button type="submit" loading={saving} block>
             Добавить сотрудника
           </Button>

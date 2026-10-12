@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/http';
+import type { PermissionKey } from '../../lib/types';
 import type { ClientLists, EmployeeStats, KpiMonth, Period, ReportClient, ReportGroup, SalesImport, SalesReportInfo, SalesSummary, SalesTransaction, Subordinate } from './types';
 
 export const kpiKeys = {
@@ -15,7 +16,21 @@ export const kpiKeys = {
   clients: (month: string, q: string) => ['kpi', 'report-clients', month, q] as const,
   groups: (month: string) => ['kpi', 'report-groups', month] as const,
   unmatched: ['kpi', 'unmatched'] as const,
+  people: (perm: PermissionKey) => ['kpi', 'people', perm] as const,
 };
+
+export interface KpiPerson {
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role_name: string | null;
+  role_color: string | null;
+}
+
+/** Кому текущий пользователь может применить функцию (загрузить файл KPI, назначить KPI). */
+export const useKpiPeople = (perm: PermissionKey, enabled = true) =>
+  useQuery({ queryKey: kpiKeys.people(perm), queryFn: () => api.get<KpiPerson[]>('/api/kpi/people', { for: perm }), enabled, staleTime: 60_000 });
 
 export const useSalesSummary = (period: Period) =>
   useQuery({ queryKey: kpiKeys.summary(period), queryFn: () => api.get<SalesSummary>('/api/kpi/sales/summary', { period }), placeholderData: (prev) => prev });

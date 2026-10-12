@@ -39,6 +39,7 @@ import { pick } from '@react-native-documents/picker';
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
+import { UserPermissions } from '../components/PermissionToggles';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -389,6 +390,14 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
               </View>
               <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ===== МОИ ФУНКЦИИ (включает руководитель) ===== */}
+        {!!profile?.id && !profile?.is_director && (
+          <View style={styles.card}>
+            <Text style={styles.infoValue}>Мои функции</Text>
+            <UserPermissions userId={Number(profile.id)} editable={false} flat />
           </View>
         )}
 

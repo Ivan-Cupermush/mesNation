@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import pool from '../../db/pool';
-import { getSubtreeNodeIds, getUserNode } from '../access';
+import { inScope, permissionScope, type Permission, type Scope } from '../permissions';
 import { computeFact, type ClientLists, type ItemProgress, type ReportLine } from './facts';
 import type { KpiKind } from './kpiFile';
 import { effectiveRules, maxPayout, payoutFor, ruleMarks, ruleText, rub, type PayoutRule } from './rules';
@@ -10,23 +10,14 @@ type Db = Pick<PoolClient, 'query'>;
 
 // ===================== ПРАВА =====================
 
-export interface KpiScope {
-  all: boolean;
-  ids: Set<number>;
-}
+export type KpiScope = Scope;
+export { inScope };
 
-/** Чьи KPI пользователь может загружать и менять: директор — всех, руководитель — своих подчинённых. */
-export async function kpiScope(userId: number): Promise<KpiScope | null> {
-  const me = await getUserNode(userId);
-  if (me.nodeId == null) return null;
-  if (me.isRoot) return { all: true, ids: new Set() };
-  const nodes = (await getSubtreeNodeIds(me.nodeId)).filter((id) => id !== me.nodeId);
-  if (!nodes.length) return null;
-  const { rows } = await pool.query('SELECT user_id FROM user_role_assignments WHERE role_node_id = ANY($1::int[])', [nodes]);
-  return { all: false, ids: new Set(rows.map((r) => r.user_id as number)) };
-}
-
-export const inScope = (scope: KpiScope, userId: number) => scope.all || scope.ids.has(userId);
+/**
+ * Чьи KPI пользователь может загружать и менять этой функцией: директор — всех,
+ * руководитель — своих подчинённых, сотрудник — если функцию ему включили.
+ */
+export const kpiScope = (userId: number, permission: Permission) => permissionScope(userId, permission);
 
 // ===================== СПИСКИ КЛИЕНТОВ =====================
 
@@ -100,33 +91,37 @@ export async function matchPeople(names: string[], candidates?: Set<number>): Pr
 const MONTH_SQL = `to_char(r.month, 'YYYY-MM-DD')`;
 
 /**
- * Пересчитывает факт KPI сотрудника за месяц по всем отчётам этого месяца.
- * Цели с ручным фактом не трогаются. Если отчёты за месяц удалили — факт
- * возвращается к значению из файла KPI.
+ * Пересчитывает по отчётам о продажах цели сотрудника, заведённые вручную
+ * (KPI из файла не трогаются — их факт приходит из файла KPI): все цели,
+ * период которых задевает месяц; в каждую идут отчёты, пересекающиеся с её
+ * периодом. Если таких отчётов не осталось — факт обнуляется.
  */
 export async function recalcUserMonth(db: Db, userId: number, month: string, lists: ClientLists): Promise<number> {
   const { rows: targets } = await db.query(
-    `SELECT id, product_name, metric_type, kpi_kind, fact_rule, payout_rule, fact_details
+    `SELECT id, product_name, metric_type, kpi_kind, fact_rule, payout_rule, fact_details,
+            to_char(period_start, 'YYYY-MM-DD') AS ps, to_char(period_end, 'YYYY-MM-DD') AS pe
      FROM sales_targets
-     WHERE user_id = $1 AND NOT is_personal_monthly_target AND period_start >= $2::date AND period_start <= $3::date`,
+     WHERE user_id = $1 AND NOT is_personal_monthly_target AND source <> 'kpi_file'
+       AND period_start <= $3::date AND period_end >= $2::date`,
     [userId, month, monthEnd(month)],
   );
   const tracked = targets.map((t) => ({ t, rules: effectiveRules(t) })).filter((x) => x.rules.fact.type !== 'manual');
   if (!tracked.length) return 0;
-  const { rows: lines } = await db.query<ReportLine>(
-    `SELECT l.client_name, l.kind, l.group_path, l.name, l.quantity::float8 AS quantity, l.revenue::float8 AS revenue
+  const from = tracked.reduce((m, x) => (x.t.ps < m ? x.t.ps : m), tracked[0].t.ps);
+  const to = tracked.reduce((m, x) => (x.t.pe > m ? x.t.pe : m), tracked[0].t.pe);
+  const { rows: all } = await db.query<ReportLine & { rs: string; re: string }>(
+    `SELECT l.client_name, l.kind, l.group_path, l.name, l.quantity::float8 AS quantity, l.revenue::float8 AS revenue,
+            to_char(r.period_start, 'YYYY-MM-DD') AS rs, to_char(r.period_end, 'YYYY-MM-DD') AS re
      FROM sales_report_lines l JOIN sales_reports r ON r.id = l.report_id
-     WHERE l.user_id = $1 AND r.month = $2::date`,
-    [userId, month],
+     WHERE l.user_id = $1 AND r.period_start <= $3::date AND r.period_end >= $2::date`,
+    [userId, from, to],
   );
   let updated = 0;
   for (const { t, rules } of tracked) {
+    const lines = all.filter((l) => l.rs <= t.pe && l.re >= t.ps);
     if (!lines.length) {
       if (t.fact_details?.from === 'report') {
-        await db.query(
-          `UPDATE sales_targets SET current_value = COALESCE(file_fact, 0), fact_details = NULL, fact_updated_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [t.id],
-        );
+        await db.query(`UPDATE sales_targets SET current_value = 0, fact_details = NULL, fact_updated_at = NOW(), updated_at = NOW() WHERE id = $1`, [t.id]);
         updated++;
       }
       continue;
@@ -206,22 +201,75 @@ export async function coverageFor(pairs: { userId: number; month: string }[]): P
   return out;
 }
 
+export interface SalesStats {
+  /** Выручка с 1-го числа по последний отчёт. */
+  revenue: number;
+  /** АКБ: клиенты с продажами, без «Есть повод», задвоенные — одна точка. */
+  akb: number;
+  /** Средняя сумма продаж в день: выручка / дней с 1-го числа по последний отчёт. */
+  perDay: number;
+  /** Продано, шт (все товары). */
+  quantity: number;
+  asOf: string;
+  elapsed: number;
+  days: number;
+  reports: number;
+  uploadedAt: string;
+}
+
+/**
+ * Квадратики статистики по отчётам о продажах за месяц: выручка, АКБ, средняя
+ * продажа в день и проданные штуки. Нет отчётов — сотрудника нет в результате.
+ */
+export async function reportStats(userIds: number[], month: string, lists?: ClientLists): Promise<Map<number, SalesStats>> {
+  const out = new Map<number, SalesStats>();
+  const ids = [...new Set(userIds)];
+  if (!ids.length) return out;
+  const [cov, lines, l] = await Promise.all([
+    coverageFor(ids.map((userId) => ({ userId, month }))),
+    pool.query<ReportLine & { user_id: number }>(
+      `SELECT l.user_id, l.client_name, l.kind, l.group_path, l.name, l.quantity::float8 AS quantity, l.revenue::float8 AS revenue
+       FROM sales_report_lines l JOIN sales_reports r ON r.id = l.report_id
+       WHERE l.kind = 'total' AND r.month = $2::date AND l.user_id = ANY($1::int[])`,
+      [ids, month],
+    ),
+    lists ? Promise.resolve(lists) : loadLists(),
+  ]);
+  for (const id of ids) {
+    const c = cov.get(`${id}:${month}`);
+    if (!c) continue;
+    const mine = lines.rows.filter((r) => r.user_id === id);
+    const revenue = mine.reduce((sum, r) => sum + Number(r.revenue), 0);
+    const quantity = mine.reduce((sum, r) => sum + Number(r.quantity), 0);
+    const akb = computeFact({ type: 'clients', groups: [], excludeEp: true, merge: [] }, mine, l)?.value ?? 0;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    out.set(id, { revenue: r2(revenue), akb, perDay: c.elapsed > 0 ? r2(revenue / c.elapsed) : 0, quantity: r2(quantity), ...c });
+  }
+  return out;
+}
+
 export interface TargetCalc {
   kind: KpiKind | null;
-  /** Факт считается по отчётам о продажах. */
+  /** Откуда факт: file — файл KPI, report — отчёты о продажах, manual — вручную. */
+  source: 'file' | 'report' | 'manual';
+  /** Факт считается по отчётам о продажах (и отчёты за период есть). */
   tracked: boolean;
   percent: number;
-  /** Заработано при текущем факте (null — у показателя нет выплаты). */
+  /** Заработано: из файла KPI («к выплате»), иначе по правилу (null — у показателя нет выплаты). */
   now: number | null;
-  /** Прогноз на конец месяца при текущем темпе. */
+  /** Прогноз выплаты (для целей по отчётам); у KPI из файла — как now. */
   forecast: number | null;
   forecastValue: number | null;
+  /** Выполнение к концу месяца при текущем темпе, %. */
   forecastPercent: number | null;
   max: number | null;
   marks: number[];
   rule: string;
+  /** Условие из названия показателя в файле KPI («порог 90%, при выполнении 80–90% кэф 0,5»). */
+  condition: string | null;
   hint: string | null;
   items: ItemProgress[] | null;
+  /** Дата данных: последний отчёт о продажах или загрузка файла KPI. */
   asOf: string | null;
 }
 
@@ -232,6 +280,11 @@ interface TargetRow {
   target_value: unknown;
   current_value: unknown;
   bonus_amount?: unknown;
+  payment_amount?: unknown;
+  target_percent?: unknown;
+  source?: string;
+  description?: string | null;
+  fact_updated_at?: unknown;
   period_start: unknown;
   kpi_kind?: string | null;
   unit?: string | null;
@@ -280,35 +333,92 @@ function hintFor(t: TargetRow, rule: PayoutRule, v: { plan: number; fact: number
   return 'План выполнен';
 }
 
-/** Выплата сейчас, прогноз, пороги и подсказка — у каждой цели. */
+/** «План ОПХ, руб (порог 90%, При выполнении 80-90% кэф 0,5)» → «порог 90%, При выполнении 80-90% кэф 0,5». */
+export function conditionOf(name: string | null): string | null {
+  const parts = [...(name || '').matchAll(/\(([^)]+)\)/g)].map((m) => m[1].trim()).filter(Boolean);
+  return parts.length ? parts.join('; ') : null;
+}
+
+const isoDay = (v: unknown): string | null => {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Выплата, выполнение, прогноз, пороги и подсказка — у каждой цели. */
 export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T & { calc: TargetCalc })[]> {
   const pairs = rows.map((t) => ({ userId: t.user_id, month: monthOfTarget(t.period_start) }));
   const coverage = await coverageFor(pairs);
+  const today = isoDay(new Date())!;
   return rows.map((t, i) => {
     const rules = effectiveRules(t);
-    const cov = coverage.get(`${pairs[i].userId}:${pairs[i].month}`) ?? null;
+    const month = pairs[i].month;
     const plan = num(t.target_value);
     const fact = num(t.current_value);
     const bonus = num(t.bonus_amount);
+    const payable = rules.payout.type !== 'none';
+    const days = daysInMonth(Number(month.slice(0, 4)), Number(month.slice(5, 7)));
+
+    if (t.source === 'kpi_file') {
+      // KPI из файла: факт, процент и «к выплате» — как в файле; темп — по дате загрузки.
+      const items = (t.file_details?.items as ItemProgress[] | undefined) ?? null;
+      const percent = t.target_percent != null ? num(t.target_percent) : plan > 0 ? (fact / plan) * 100 : 0;
+      // Показатель «да/нет» с процентом выполнения: бонус по позициям — пропорционально проценту.
+      const total = items?.length ?? (t.unit === '%' ? plan : 0);
+      const now = t.payment_amount != null ? num(t.payment_amount) : payable ? payoutFor(rules.payout, { plan, fact, bonus, done: fact, total }) : null;
+      const asOf = isoDay(t.fact_updated_at);
+      const elapsed = asOf && asOf.slice(0, 7) === month.slice(0, 7) && month.slice(0, 7) === today.slice(0, 7) ? Number(asOf.slice(8, 10)) : null;
+      // Темп считаем только для сумм продаж: точки и позиции к концу месяца не растут пропорционально дням.
+      const projectable = !items && t.unit !== '%' && t.metric_type === 'amount' && rules.payout.type !== 'fixed' && plan > 0;
+      const forecastValue = projectable && elapsed && elapsed < days ? Math.round(((fact * days) / elapsed) * 100) / 100 : null;
+      const calc: TargetCalc = {
+        kind: (t.kpi_kind as KpiKind | null) ?? null,
+        source: 'file',
+        tracked: false,
+        percent: Math.round(percent * 10) / 10,
+        now,
+        forecast: now,
+        forecastValue,
+        forecastPercent: forecastValue != null ? Math.round((forecastValue / plan) * 1000) / 10 : null,
+        max: payable ? maxPayout(rules.payout, plan, bonus) : null,
+        marks: t.unit === '%' ? [] : ruleMarks(rules.payout, plan),
+        rule: ruleText(rules.payout, bonus, items?.length ?? 0),
+        condition: conditionOf(t.product_name),
+        hint:
+          rules.payout.type === 'fixed'
+            ? null
+            : t.unit === '%'
+              ? t.description
+                ? `Позиции: ${t.description.split('; ').join(', ')}`
+                : null
+              : hintFor(t, rules.payout, { plan, fact }, items, elapsed ? days - elapsed : null),
+        items,
+        asOf,
+      };
+      return { ...t, fact_rule: rules.fact, payout_rule: rules.payout, calc };
+    }
+
+    const cov = coverage.get(`${pairs[i].userId}:${month}`) ?? null;
     const tracked = rules.fact.type !== 'manual' && cov != null;
     const items: ItemProgress[] | null =
       rules.fact.type === 'items'
         ? (t.fact_details?.items as ItemProgress[] | undefined) ??
-          (t.file_details?.items as ItemProgress[] | undefined) ??
           rules.fact.items.map((it) => ({ name: it.name, need: it.need, count: 0, done: false }))
         : null;
     const total = items ? items.length : 0;
-    const payable = rules.payout.type !== 'none';
     const now = payable ? payoutFor(rules.payout, { plan, fact, bonus, done: fact, total }) : null;
     let forecastValue: number | null = null;
     let forecast = now;
-    if (tracked && cov && rules.fact.type === 'revenue' && cov.elapsed > 0 && cov.elapsed < cov.days) {
+    const projectable = rules.fact.type === 'revenue' || (rules.fact.type === 'products' && rules.fact.measure !== 'clients');
+    if (tracked && cov && projectable && cov.elapsed > 0 && cov.elapsed < cov.days) {
       forecastValue = Math.round(((fact * cov.days) / cov.elapsed) * 100) / 100;
       forecast = payable ? payoutFor(rules.payout, { plan, fact: forecastValue, bonus }) : null;
     }
     const daysLeft = tracked && cov ? cov.days - cov.elapsed : null;
     const calc: TargetCalc = {
       kind: (t.kpi_kind as KpiKind | null) ?? null,
+      source: rules.fact.type === 'manual' ? 'manual' : 'report',
       tracked,
       percent: plan > 0 ? Math.round((fact / plan) * 1000) / 10 : 0,
       now,
@@ -318,6 +428,7 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
       max: payable ? maxPayout(rules.payout, plan, bonus) : null,
       marks: ruleMarks(rules.payout, plan),
       rule: ruleText(rules.payout, bonus, total),
+      condition: null,
       hint: rules.payout.type === 'fixed' ? null : hintFor(t, rules.payout, { plan, fact }, items, daysLeft),
       items,
       asOf: tracked && cov ? cov.asOf : null,
@@ -336,13 +447,14 @@ export interface KpiTotals {
   file: number | null;
 }
 
-export function totalsOf(targets: { source?: string; payment_amount?: unknown; payout_rule?: unknown; calc: TargetCalc }[]): KpiTotals {
+export function totalsOf(targets: { source?: string; payment_amount?: unknown; payout_rule?: unknown; kpi_kind?: string | null; calc: TargetCalc }[]): KpiTotals {
   let fixed = 0;
   let now = 0;
   let forecast = 0;
   let max = 0;
   let file: number | null = null;
   for (const t of targets) {
+    if (t.kpi_kind === 'fuel') continue;
     const isFixed = (t.payout_rule as PayoutRule | undefined)?.type === 'fixed';
     if (isFixed) fixed += t.calc.now ?? 0;
     now += t.calc.now ?? 0;

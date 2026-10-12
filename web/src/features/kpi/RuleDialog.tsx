@@ -17,6 +17,7 @@ type FactType = FactRule['type'];
 type PayType = PayoutRule['type'];
 
 const FACT_TYPES: { key: FactType; label: string }[] = [
+  { key: 'products', label: 'Товар' },
   { key: 'revenue', label: 'Продажи' },
   { key: 'clients', label: 'Точки' },
   { key: 'items', label: 'Позиции' },
@@ -33,9 +34,9 @@ const PAY_TYPES: { key: PayType; label: string }[] = [
 const str = (n: number) => String(n).replace('.', ',');
 
 /**
- * Правило показателя: как считать факт по отчётам о продажах и сколько платить.
- * По умолчанию правило берётся из названия показателя в файле KPI; здесь его
- * можно поправить (например, когда заказчик уточнил пороги).
+ * Правило показателя: как считать факт по отчётам о продажах (для целей,
+ * назначенных вручную) и сколько платить. У KPI из файла факт — из файла,
+ * здесь меняется только выплата (например, когда заказчик уточнил пороги).
  */
 export function RuleDialog({ target, month, onClose }: { target: KpiTarget | null; month: string; onClose: () => void }) {
   return (
@@ -57,6 +58,11 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
   const [excludeEp, setExcludeEp] = useState(f.type === 'clients' ? f.excludeEp : true);
   const [merge, setMerge] = useState(f.type === 'clients' ? f.merge.join('\n') : '');
   const [items, setItems] = useState(f.type === 'items' ? f.items.map((i) => ({ name: i.name, need: String(i.need) })) : [{ name: '', need: '1' }]);
+  const fromFile = t.source === 'kpi_file';
+  const [query, setQuery] = useState(f.type === 'products' ? f.query : t.product_name || '');
+  const [productMeasure, setProductMeasure] = useState<'revenue' | 'quantity' | 'clients'>(
+    f.type === 'products' ? f.measure : t.metric_type === 'amount' ? 'revenue' : t.metric_type === 'contracts' ? 'clients' : 'quantity',
+  );
   const [payType, setPayType] = useState<PayType>(p.type);
   const [bonus, setBonus] = useState(str(toNum(t.bonus_amount)));
   const [steps, setSteps] = useState(p.type === 'threshold' ? p.steps.map((x) => ({ from: str(x.from), k: str(x.k) })) : [{ from: '100', k: '1' }]);
@@ -68,14 +74,18 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const byGroups = factType === 'revenue' || factType === 'clients';
-  const reportGroups = useReportGroups(month, byGroups);
+  const reportGroups = useReportGroups(month, byGroups && !fromFile);
   const shown = useMemo(() => (reportGroups.data ?? []).filter((g) => !q.trim() || fuzzyMatch(g.path, q).match).slice(0, 200), [reportGroups.data, q]);
 
   const toggle = (path: string) => setGroups((gs) => (gs.includes(path) ? gs.filter((g) => g !== path) : [...gs, path]));
 
   const build = (): { fact: FactRule; payout: PayoutRule; bonus: number } | string => {
     let fact: FactRule;
-    if (factType === 'revenue') fact = { type: 'revenue', groups, clients, measure };
+    if (fromFile) fact = { type: 'manual' };
+    else if (factType === 'products') {
+      if (!query.trim()) return 'Укажите товар или группу';
+      fact = { type: 'products', query: query.trim().slice(0, 200), measure: productMeasure };
+    } else if (factType === 'revenue') fact = { type: 'revenue', groups, clients, measure };
     else if (factType === 'clients') fact = { type: 'clients', groups, excludeEp, merge: merge.split('\n').map((x) => x.trim()).filter(Boolean) };
     else if (factType === 'items') {
       const list = items.filter((i) => i.name.trim()).map((i) => ({ name: i.name.trim(), need: Math.round(parseNumber(i.need)) }));
@@ -112,7 +122,7 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
     setError('');
     setSaving(true);
     try {
-      await api.patch(`/api/kpi/sales/targets/${t.id}`, { fact_rule: r.fact, payout_rule: r.payout, bonus_amount: r.bonus });
+      await api.patch(`/api/kpi/sales/targets/${t.id}`, { ...(fromFile ? {} : { fact_rule: r.fact }), payout_rule: r.payout, bonus_amount: r.bonus });
       refresh();
       toast.success('Правило сохранено, KPI пересчитан');
       onDone();
@@ -138,8 +148,29 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
 
       <fieldset className={s.ruleSection}>
         <legend>Как считать факт</legend>
-        <Segmented options={FACT_TYPES} value={factType} onChange={setFactType} />
-        {factType === 'revenue' && (
+        {fromFile && <p className={s.muted}>Факт, выполнение и «к выплате» — из файла KPI. Здесь можно поправить только выплату до итогового файла.</p>}
+        {!fromFile && <Segmented options={FACT_TYPES} value={factType} onChange={setFactType} />}
+        {!fromFile && factType === 'products' && (
+          <>
+            <TextField
+              label="Товар или группа из отчёта"
+              hint="Часть названия, например «Балтика Стаут» или «Сидр»; вложенные товары найденной группы не считаются дважды"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              maxLength={200}
+            />
+            <Chips
+              options={[
+                { key: 'revenue', label: 'Сумма, ₽' },
+                { key: 'quantity', label: 'Штуки' },
+                { key: 'clients', label: 'Точки, купившие' },
+              ]}
+              value={productMeasure}
+              onChange={setProductMeasure}
+            />
+          </>
+        )}
+        {!fromFile && factType === 'revenue' && (
           <>
             <Chips
               options={[
@@ -160,7 +191,7 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
             />
           </>
         )}
-        {factType === 'clients' && (
+        {!fromFile && factType === 'clients' && (
           <>
             <label className={s.switchRow}>
               <span>Не считать точки «Есть повод»</span>
@@ -175,7 +206,7 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
             />
           </>
         )}
-        {byGroups && (
+        {!fromFile && byGroups && (
           <div className={s.groups}>
             <span className={s.groupsLabel}>{groups.length ? 'Только эти группы товаров' : 'Все товары (группы не выбраны)'}</span>
             {groups.length > 0 && (
@@ -234,7 +265,7 @@ function RuleForm({ target: t, month, onDone }: { target: KpiTarget; month: stri
             )}
           </div>
         )}
-        {factType === 'items' && (
+        {!fromFile && factType === 'items' && (
           <div className={s.rows}>
             {items.map((it, i) => (
               <div key={i} className={s.ruleRow}>

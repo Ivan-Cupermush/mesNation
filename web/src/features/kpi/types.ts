@@ -57,6 +57,8 @@ export interface Subordinate {
   display_name: string | null;
   role_name: string | null;
   total_amount: Num;
+  /** Продажи за текущий месяц по отчётам (null — отчётов нет). */
+  sales?: SalesStats | null;
   kpis: Pick<SalesTarget, 'id' | 'product_name' | 'metric_type' | 'target_value' | 'current_value' | 'progress_percent' | 'period_start' | 'period_end'>[];
 }
 
@@ -119,7 +121,8 @@ export type FactRule =
   | { type: 'manual' }
   | { type: 'revenue'; groups: string[]; clients: 'all' | 'ep' | 'non_ep'; measure?: 'revenue' | 'quantity' }
   | { type: 'clients'; groups: string[]; excludeEp: boolean; merge: string[] }
-  | { type: 'items'; items: { name: string; need: number }[] };
+  | { type: 'items'; items: { name: string; need: number }[] }
+  | { type: 'products'; query: string; measure: 'revenue' | 'quantity' | 'clients' };
 
 export type PayoutRule =
   | { type: 'none' }
@@ -138,6 +141,8 @@ export interface ItemProgress {
 /** Расчёт выплаты у цели: сейчас, прогноз на конец месяца, пороги, подсказка. */
 export interface TargetCalc {
   kind: KpiKind | null;
+  /** Откуда факт: file — файл KPI, report — отчёты о продажах, manual — вручную. */
+  source?: 'file' | 'report' | 'manual';
   tracked: boolean;
   percent: number;
   now: number | null;
@@ -147,6 +152,8 @@ export interface TargetCalc {
   max: number | null;
   marks: number[];
   rule: string;
+  /** Условие из названия показателя в файле KPI («порог 90%, при выполнении 80–90% кэф 0,5»). */
+  condition?: string | null;
   hint: string | null;
   items: ItemProgress[] | null;
   asOf: string | null;
@@ -171,6 +178,16 @@ export interface KpiCoverage {
   uploadedAt: string;
 }
 
+/** Квадратики статистики по отчётам о продажах за месяц. */
+export interface SalesStats extends KpiCoverage {
+  revenue: number;
+  /** Клиенты с продажами без «Есть повод», задвоенные — одна точка. */
+  akb: number;
+  /** Выручка / дней с 1-го числа по последний отчёт. */
+  perDay: number;
+  quantity: number;
+}
+
 export interface KpiTotals {
   fixed: number;
   now: number;
@@ -187,9 +204,14 @@ export interface KpiMonth {
   coverage: KpiCoverage | null;
   reports: { id: number; file_name: string; period_start: string; period_end: string; created_at: string; uploaded_by_name: string | null }[];
   months: string[];
+  /** Переключать месяцы может руководитель (на странице сотрудника) и директор; сотрудник видит текущий месяц. */
+  canSwitchMonth?: boolean;
+  stats?: SalesStats | null;
   lists: { ep: number; akbMerge: number };
   canEdit: boolean;
   canUpload: boolean;
+  /** Что текущий пользователь может делать: загружать отчёты, файл KPI этому сотруднику, назначать ему KPI. */
+  can?: { reports: boolean; kpiFile: boolean; assign: boolean };
 }
 
 export interface SalesReportInfo {

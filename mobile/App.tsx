@@ -34,6 +34,7 @@ import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
+import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import EmployeeStatsScreen from './src/screens/crm/EmployeeStatsScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
@@ -86,7 +87,7 @@ type NotesStackParamList = {
 
 type KpiStackParamList = {
   KpiHome: undefined;
-  AssignKpi: undefined;
+  AssignKpi: { userId?: number; userName?: string } | undefined;
   AddProductKpi: undefined;
   ImportExcel: undefined;
   RoleTreeEditor: undefined;
@@ -100,7 +101,10 @@ type KpiStackParamList = {
 type KnowledgeStackParamList = { KnowledgeHome: undefined };
 type AuthStackParamList = { Auth: undefined };
 
+type HomeStackParamList = { HomeMain: undefined };
+
 type MainTabsParamList = {
+  HomeTab: undefined;
   SettingsTab: undefined;
   TasksTab: undefined;
   NotesTab: undefined;
@@ -114,6 +118,7 @@ const TasksStack = createNativeStackNavigator<TasksStackParamList>();
 const NotesStack = createNativeStackNavigator<NotesStackParamList>();
 const KpiStack = createNativeStackNavigator<KpiStackParamList>();
 const KnowledgeStack = createNativeStackNavigator<KnowledgeStackParamList>();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const SettingsStack = createNativeStackNavigator<any>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -229,15 +234,25 @@ function KnowledgeStackNavigator() {
   );
 }
 
+// ========== Home Stack (стартовый экран) ==========
+function HomeStackNavigator() {
+  const headerStyle = useHeaderStyle();
+  return (
+    <HomeStack.Navigator screenOptions={headerStyle}>
+      <HomeStack.Screen name="HomeMain" component={HomeScreen} options={{ headerShown: false }} />
+    </HomeStack.Navigator>
+  );
+}
+
 // Корневые экраны вкладок — на них панель вкладок видна.
-const ROOT_SCREENS = new Set(['ChatList', 'TasksHome', 'NotesHome', 'KpiHome', 'KnowledgeHome', 'SettingsHome']);
+const ROOT_SCREENS = new Set(['HomeMain', 'ChatList', 'TasksHome', 'NotesHome', 'KpiHome', 'KnowledgeHome', 'SettingsHome']);
 function isRootScreen(route: any) {
   const name = getFocusedRouteNameFromRoute(route);
   return !name || ROOT_SCREENS.has(name);
 }
 
 // ========== Иконка вкладки ==========
-import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
+import { House, ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
 
 function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   const { colors } = useTheme();
@@ -296,10 +311,19 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         // на Xiaomi) считает сама библиотека по safe-area. Раньше жёсткие
         // height: 64 + paddingBottom: insets.bottom «сплющивали» или
         // поднимали панель на телефонах с режимом edge-to-edge.
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        // У директора 7 вкладок — подписи чуть мельче, чтобы «Статистика» помещалась на узких экранах.
+        tabBarLabelStyle: { fontSize: currentUser?.is_director ? 10 : 11, fontWeight: '600' },
         tabBarHideOnKeyboard: true,
       })}
     >
+      <Tab.Screen
+        name="HomeTab"
+        component={HomeStackNavigator}
+        options={{
+          title: 'Главная',
+          tabBarIcon: ({ focused }) => <TabIcon icon={House} focused={focused} />,
+        }}
+      />
       <Tab.Screen
         name="TasksTab"
         component={TasksStackNavigator}

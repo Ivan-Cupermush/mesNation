@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle2, Clock, FileText, Loader2, RotateCcw, Tag, Trash2, Upload, X } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
-import { isManager } from '../auth/roles';
+import { can } from '../auth/roles';
 import { api, upload } from '../../lib/http';
 import { formatDate, formatSize, plural } from '../../lib/format';
 import { Button, IconButton } from '../../ui/Button';
@@ -30,11 +30,12 @@ type Filter = 'all' | 'completed' | 'progress' | 'failed';
 
 /**
  * Документы базы знаний: из них ассистент берёт ответы. Видят все,
- * загружают и удаляют директор и руководители (как на сервере).
+ * загружают и удаляют директор, руководители и те, кому руководитель
+ * включил эту функцию (как на сервере).
  */
 export default function DocumentsPage() {
   const me = useMe();
-  const admin = isManager(me);
+  const admin = can(me, 'knowledge_manage');
   const qc = useQueryClient();
   const { confirm, toast } = useFeedback();
   const { data, isLoading, error, refetch } = useKbDocuments();

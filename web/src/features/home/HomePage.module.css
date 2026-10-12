@@ -1,0 +1,266 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 8px;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 22px 20px;
+  border-radius: 26px;
+  background: linear-gradient(135deg, var(--c-accent-muted), var(--c-card) 85%);
+  box-shadow: var(--shadow-sm);
+}
+
+.date {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--c-text-secondary);
+}
+
+.hero h1 {
+  font-size: 26px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.phrase {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 720px;
+  font-size: 15.5px;
+  line-height: 1.45;
+  color: var(--c-text-primary);
+}
+
+.phrase svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--c-accent);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.head h2 {
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.earned {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--c-text-secondary);
+  text-align: right;
+}
+
+.note {
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.kpi,
+.task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.kpi + .kpi,
+.task + .task {
+  border-top: 1px solid var(--c-border);
+}
+
+.kpi:hover,
+.task:hover {
+  background: var(--c-input-bg);
+}
+
+.kpiIcon,
+.taskIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.kpiIcon {
+  background: var(--c-warning-soft);
+  color: var(--c-warning);
+}
+
+.kpiBody,
+.taskBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.kpiBody b,
+.taskBody b {
+  font-size: 14.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpiBody small {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--c-text-secondary);
+}
+
+.kpiBody small svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--c-accent);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--c-input-bg);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-warning);
+}
+
+.pct {
+  flex-shrink: 0;
+  min-width: 44px;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.taskBody span {
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.taskBody span[data-late] {
+  color: var(--c-danger);
+  font-weight: 650;
+}
+
+.prio {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--c-danger);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--c-text-secondary);
+}
+
+.empty svg {
+  flex-shrink: 0;
+  color: var(--c-accent);
+}
+
+@media (max-width: 600px) {
+  .head {
+    flex-wrap: wrap;
+  }
+
+  .earned {
+    flex-basis: 100%;
+    margin-top: -6px;
+    text-align: left;
+  }
+
+  .hero {
+    padding: 18px 16px;
+  }
+
+  .hero h1 {
+    font-size: 22px;
+  }
+
+  .phrase {
+    font-size: 14.5px;
+  }
+}

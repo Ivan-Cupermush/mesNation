@@ -103,7 +103,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       break;
     case 'team': {
       params.push(await subordinateUserIds(me));
-      where.push(`NOT ${participant} AND (t.creator_id = ANY($2::int[])
+      // Все задачи подчинённых — и те, где я тоже участник или наблюдатель.
+      where.push(`(t.creator_id = ANY($2::int[])
         OR EXISTS (SELECT 1 FROM task_assignees WHERE task_id = t.id AND user_id = ANY($2::int[])))`);
       break;
     }
@@ -548,7 +549,8 @@ router.get('/:id/history', async (req: AuthRequest, res: Response) => {
   const taskId = paramId(req);
   await assertCanViewTask(taskId, req.userId!);
   const { rows } = await pool.query(
-    `SELECT h.*, u.display_name AS changed_by_name, u.username AS changed_by_username, u.avatar_url
+    `SELECT h.*, CASE WHEN h.changed_by IS NULL THEN 'Автоматически' ELSE u.display_name END AS changed_by_name,
+            u.username AS changed_by_username, u.avatar_url
      FROM task_status_history h LEFT JOIN users u ON u.id = h.changed_by
      WHERE h.task_id = $1 ORDER BY h.created_at ASC, h.id ASC`,
     [taskId],

@@ -14,8 +14,9 @@ import path from 'path';
 import { withTransaction } from '../db/pool';
 import { importSalesReport, saveKpiFile } from '../services/kpi/imports';
 import { parseKpiSheets } from '../services/kpi/kpiFile';
-import { factRuleSchema, payoutRuleSchema } from '../services/kpi/rules';
-import { enrichTargets, kpiScope, loadLists, matchPeople, monthOfTarget, recalcUserMonth } from '../services/kpi/store';
+import { effectiveRules, factRuleSchema, payoutRuleSchema, productRule, type FactRule } from '../services/kpi/rules';
+import { canApply } from '../services/permissions';
+import { enrichTargets, kpiScope, loadLists, matchPeople, monthOfTarget, recalcUserMonth, reportStats } from '../services/kpi/store';
 
 const router = Router();
 
@@ -102,22 +103,51 @@ function num(v: any, fallback?: number): number {
 }
 
 /**
- * Права на цель. Владелец и его руководители могут вести прогресс. Но план,
- * который назначил руководитель (created_by ≠ владелец), сотрудник сам
- * не может ни уменьшить, ни удалить — только тот, кто назначил, или
- * вышестоящий.
+ * Права на цель. KPI ставит руководитель (своим подчинённым), директор или тот,
+ * кому включили «Назначение KPI вручную»; KPI из файла меняет и тот, кто
+ * загружает файлы KPI. Сотрудник сам себе KPI не ставит: в своих целях он
+ * только отмечает выполнение (если факт ведётся вручную) и может удалить
+ * цель, которую когда-то завёл себе сам.
  */
 async function targetAccess(userId: number, targetId: number) {
-  const r = await pool.query('SELECT user_id, created_by FROM sales_targets WHERE id = $1', [targetId]);
+  const r = await pool.query('SELECT user_id, created_by, source, product_name, metric_type, kpi_kind, fact_rule FROM sales_targets WHERE id = $1', [targetId]);
   if (!r.rows.length) return null;
-  const { user_id: ownerId, created_by: createdBy } = r.rows[0];
+  const t = r.rows[0];
+  const ownerId: number = t.user_id;
   const isOwner = ownerId === userId;
-  const isManager = !isOwner && (await isManagerOf(userId, ownerId));
-  const assignedByOther = createdBy != null && createdBy !== ownerId;
+  const fromFile = t.source === 'kpi_file';
+  const assign = await canApply(userId, ownerId, 'kpi_assign');
+  const files = fromFile && (await canApply(userId, ownerId, 'kpi_files'));
+  const manage = assign || files;
+  const ownLegacy = isOwner && !fromFile && (t.created_by == null || t.created_by === ownerId);
+  const manualFact = !fromFile && effectiveRules(t).fact.type === 'manual';
   return {
-    canView: isOwner || isManager,
-    canEditPlan: isManager || createdBy === userId || (isOwner && !assignedByOther),
+    canView: isOwner || manage || (await isManagerOf(userId, ownerId)),
+    canEditPlan: manage,
+    canEditProgress: manage || (isOwner && manualFact),
+    canDelete: manage || ownLegacy,
   };
+}
+
+/**
+ * Как считать факт новой цели: fact_rule из запроса, from_report — «по отчёту
+ * о продажах» (продажи товара или группы с таким названием), иначе вручную.
+ */
+function factRuleFromBody(body: any, productName: string, metricType: string): { rule: FactRule | null } | { error: string } {
+  if (body.fact_rule != null) {
+    const r = factRuleSchema.safeParse(body.fact_rule);
+    return r.success ? { rule: r.data.type === 'manual' ? null : r.data } : { error: 'Некорректное правило расчёта' };
+  }
+  const v = body.from_report;
+  const fromReport = v === true || v === 'true' || v === 1 || v === '1';
+  return { rule: fromReport ? productRule(productName, metricType) : null };
+}
+
+/** Новая цель с правилом по отчёту — сразу посчитать факт по уже загруженным отчётам. */
+async function withReportFact(row: any) {
+  if (!row.fact_rule) return row;
+  await withTransaction(async (db) => recalcUserMonth(db, row.user_id, monthOfTarget(row.period_start), await loadLists(db)));
+  return (await pool.query('SELECT * FROM sales_targets WHERE id = $1', [row.id])).rows[0];
 }
 
 // ===================== ЦЕЛИ ПРОДАЖ =====================
@@ -223,10 +253,14 @@ router.get('/targets/subordinates', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/kpi/sales/targets — создать СЕБЕ товарный KPI (любой юзер)
+// POST /api/kpi/sales/targets — создать себе KPI. Сотрудник сам себе KPI не
+// ставит (это делает руководитель — POST /targets/assign); себе может только директор.
 router.post('/targets', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
+    if (!(await canApply(userId, userId, 'kpi_assign'))) {
+      return res.status(403).json({ error: 'KPI ставит руководитель — свой KPI сотрудник не создаёт' });
+    }
     const {
       product_name,
       metric_type = 'quantity',
@@ -253,26 +287,30 @@ router.post('/targets', async (req: Request, res: Response) => {
     }
     const span = targetPeriod({ period_start, period_end });
     if ('error' in span) return res.status(400).json({ error: span.error });
+    const name = String(product_name).trim().slice(0, 255);
+    const fact = factRuleFromBody(req.body, name, metric_type);
+    if ('error' in fact) return res.status(400).json({ error: fact.error });
     
     const result = await pool.query(
       `INSERT INTO sales_targets 
          (user_id, product_name, metric_type, target_value, current_value, 
-          period_start, period_end, description, is_personal_monthly_target)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+          period_start, period_end, description, is_personal_monthly_target, created_by, fact_rule)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $1, $9)
        RETURNING *`,
       [
         userId, 
-        String(product_name).trim().slice(0, 255), 
+        name, 
         metric_type, 
         target,
         current,
         span.start,
         span.end,
-        description
+        description,
+        fact.rule ? JSON.stringify(fact.rule) : null,
       ]
     );
     
-    res.status(201).json(result.rows[0]);
+    res.status(201).json((await enrichTargets([await withReportFact(result.rows[0])]))[0]);
   } catch (error) {
     logger.error({ err: error }, 'KPI: Ошибка создания цели');
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -297,7 +335,7 @@ router.post(
       if (!user_id) {
         return res.status(400).json({ error: 'Не указан пользователь' });
       }
-      if (!(await isManagerOf(managerId, Number(user_id)))) {
+      if (!(await canApply(managerId, Number(user_id), 'kpi_assign'))) {
         return res.status(403).json({ error: 'Назначать план можно только своим подчинённым' });
       }
       
@@ -368,8 +406,11 @@ router.patch('/targets/:id', async (req: Request, res: Response) => {
     if (!access.canView) {
       return res.status(403).json({ error: 'Нет доступа' });
     }
-    if ((target_value !== undefined || factRule || payoutRule || bonus !== undefined) && !access.canEditPlan) {
-      return res.status(403).json({ error: 'План назначил руководитель — изменить его может только он' });
+    if ((target_value !== undefined || factRule || payoutRule || bonus !== undefined || description !== undefined) && !access.canEditPlan) {
+      return res.status(403).json({ error: 'KPI ставит руководитель — изменить план может только он' });
+    }
+    if (current_value !== undefined && !access.canEditProgress) {
+      return res.status(403).json({ error: 'Выполнение этого показателя считается по отчётам или файлу KPI' });
     }
     if (current_value !== undefined && !(num(current_value) >= 0)) {
       return res.status(400).json({ error: 'Текущее значение должно быть числом не меньше 0' });
@@ -451,8 +492,8 @@ router.delete('/targets/:id', async (req: Request, res: Response) => {
     if (!access.canView) {
       return res.status(403).json({ error: 'Нет доступа' });
     }
-    if (!access.canEditPlan) {
-      return res.status(403).json({ error: 'План назначил руководитель — удалить его может только он' });
+    if (!access.canDelete) {
+      return res.status(403).json({ error: 'KPI назначил руководитель — удалить его может только он' });
     }
     
     const result = await pool.query(
@@ -556,11 +597,12 @@ router.post('/transactions', async (req: Request, res: Response) => {
       
       if (target_id) {
         const targetCheck = await client.query(
-          'SELECT metric_type FROM sales_targets WHERE id = $1',
+          'SELECT source, product_name, metric_type, kpi_kind, fact_rule FROM sales_targets WHERE id = $1',
           [target_id]
         );
-        
-        if (targetCheck.rows.length > 0) {
+        const t = targetCheck.rows[0];
+        // Факт KPI из файла и целей «по отчёту о продажах» продажей вручную не меняется.
+        if (t && t.source !== 'kpi_file' && effectiveRules(t).fact.type === 'manual') {
           const increment = targetCheck.rows[0].metric_type === 'amount' ? sum : qty;
           await client.query(
             `UPDATE sales_targets 
@@ -848,6 +890,7 @@ router.get('/summary', async (req: Request, res: Response) => {
          AND period_start <= CURRENT_DATE 
          AND period_end >= CURRENT_DATE
          AND is_personal_monthly_target = FALSE
+         AND kpi_kind IS DISTINCT FROM 'fuel'
        ORDER BY created_at DESC`,
       [userId]
     );
@@ -960,13 +1003,15 @@ router.get('/subordinates', async (req: Request, res: Response) => {
        LEFT JOIN sales_targets st ON st.user_id = u.id 
          AND st.period_start <= CURRENT_DATE 
          AND st.period_end >= CURRENT_DATE
+         AND st.kpi_kind IS DISTINCT FROM 'fuel'
        WHERE u.is_active AND u.id IN (SELECT user_id FROM user_role_assignments WHERE role_node_id = ANY($1))
        GROUP BY u.id, u.username, u.display_name
        ORDER BY u.display_name`,
       [subordinateRoleIds]
     );
-    
-    res.json(result.rows);
+    // Продажи за текущий месяц по отчётам (выручка, АКБ) — у каждого сотрудника.
+    const sales = await reportStats(result.rows.map((r: any) => r.user_id), currentMonth());
+    res.json(result.rows.map((r: any) => ({ ...r, sales: sales.get(r.user_id) ?? null })));
   } catch (error) {
     logger.error({ err: error }, 'KPI: Ошибка получения подчинённых');
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -1007,32 +1052,36 @@ router.post('/targets/assign', async (req: Request, res: Response) => {
     const span = targetPeriod({ period_start, period_end });
     if ('error' in span) return res.status(400).json({ error: span.error });
 
-    // Проверить что user_id — подчинённый менеджера
-    const isManager = await isManagerOf(managerId, Number(user_id));
-    if (!isManager) {
-      return res.status(403).json({ error: 'Вы не являетесь руководителем этого пользователя' });
+    // KPI вручную ставит руководитель своим подчинённым, директор — всем,
+    // или тот, кому включили «Назначение KPI вручную».
+    if (!(await canApply(managerId, Number(user_id), 'kpi_assign'))) {
+      return res.status(403).json({ error: Number(user_id) === managerId ? 'Свой KPI ставит руководитель' : 'Назначать KPI можно только своим подчинённым' });
     }
+    const name = String(product_name).trim().slice(0, 255);
+    const fact = factRuleFromBody(req.body, name, metric_type);
+    if ('error' in fact) return res.status(400).json({ error: fact.error });
     
     const result = await pool.query(
       `INSERT INTO sales_targets 
          (user_id, product_name, metric_type, target_value, current_value, 
-          period_start, period_end, description, is_personal_monthly_target, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9)
+          period_start, period_end, description, is_personal_monthly_target, created_by, fact_rule)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10)
        RETURNING *`,
       [
         user_id,
-        String(product_name).trim().slice(0, 255),
+        name,
         metric_type,
         num(target_value),
         num(current_value, 0),
         span.start,
         span.end,
         description,
-        managerId
+        managerId,
+        fact.rule ? JSON.stringify(fact.rule) : null,
       ]
     );
     
-    res.status(201).json(result.rows[0]);
+    res.status(201).json((await enrichTargets([await withReportFact(result.rows[0])]))[0]);
   } catch (error) {
     logger.error({ err: error }, 'KPI: Ошибка назначения KPI');
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -1073,8 +1122,8 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: AuthRequest, 
   const file = req.file;
   if (!file) throw badRequest('Нет файла');
   try {
-    const scope = await kpiScope(req.userId!);
-    if (!scope) throw forbidden('Загружать KPI можно только своим подчинённым');
+    const scope = await kpiScope(req.userId!, 'kpi_files');
+    if (!scope) throw forbidden('Загрузка файлов KPI вам не включена');
     const sheets = parseKpiSheets(await fs.promises.readFile(file.path));
     if (!sheets.length) throw badRequest('В файле не найдено ни одного листа с показателями KPI');
     const results: any[] = [];
@@ -1084,6 +1133,10 @@ router.post('/import-kpi-plan', upload.single('file'), async (req: AuthRequest, 
       if (!mine?.userId) {
         const anyone = scope.all ? null : (await matchPeople([employee])).values().next().value;
         results.push({ employee, sheet: sheet.sheet, error: anyone?.userId ? 'нет прав: не ваш подчинённый' : 'сотрудник не найден однозначно' });
+        continue;
+      }
+      if (!(await canApply(req.userId!, mine.userId, 'kpi_files'))) {
+        results.push({ employee, sheet: sheet.sheet, error: 'свой KPI загружает руководитель' });
         continue;
       }
       const month = sheet.month ?? currentMonth();
@@ -1107,7 +1160,9 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
   const userId = Number(req.params.userId);
   if (!Number.isInteger(userId) || userId <= 0) throw badRequest('Некорректный ID сотрудника');
   const me = req.userId!;
-  if (me !== userId && !(await isSubordinate(me, userId))) throw forbidden('Статистика доступна только по своим подчинённым');
+  if (me !== userId && !(await isSubordinate(me, userId)) && !(await canApply(me, userId, 'kpi_assign')) && !(await canApply(me, userId, 'kpi_files'))) {
+    throw forbidden('Статистика доступна только по своим подчинённым');
+  }
   const since = periodSince(req.query.period);
 
   const [userResult, kpisResult, tasksResult, taskStatsResult, summaryResult, txResult] = await Promise.all([
@@ -1120,6 +1175,7 @@ router.get('/employee/:userId/stats', async (req: AuthRequest, res: Response) =>
     pool.query(
       `SELECT st.*, ROUND((st.current_value / NULLIF(st.target_value, 0) * 100)::numeric, 1) AS progress_percent
        FROM sales_targets st WHERE st.user_id = $1 AND st.period_start <= CURRENT_DATE AND st.period_end >= CURRENT_DATE
+         AND st.kpi_kind IS DISTINCT FROM 'fuel'
        ORDER BY st.created_at DESC`,
       [userId],
     ),

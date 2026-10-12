@@ -2,10 +2,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView } from 'react-native';
+  Alert, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
-import { api } from '../../services/api';
+import { api, PermissionKey } from '../../services/api';
 import TreeGraphView from '../../components/TreeGraphView';
+import { PermissionPicker } from '../../components/PermissionToggles';
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
@@ -20,7 +21,10 @@ export default function CreateUserRoleScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
+  const [permissions, setPermissions] = useState<Partial<Record<PermissionKey, boolean>>>({});
   const [saving, setSaving] = useState(false);
+  // По должности функции есть у руководителей — у кого в дереве есть подчинённые роли.
+  const byRole = !!selectedNode && nodes.some((n) => n.parent_id === selectedNode.id);
 
   const loadTree = async () => {
     try {
@@ -41,6 +45,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
     setEmail('');
     setDisplayName('');
     setPassword('');
+    setPermissions({});
     setShowForm(true);
   };
 
@@ -57,6 +62,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
         password,
         display_name: displayName.trim() || username.trim(),
         role_node_id: selectedNode.id,
+        ...(Object.keys(permissions).length ? { permissions } : {}),
       });
       Alert.alert('Сотрудник добавлен', `«${username}» — роль «${selectedNode.name}»`);
       setShowForm(false);
@@ -112,6 +118,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
               Новый пользователь
             </Text>
@@ -162,6 +169,10 @@ export default function CreateUserRoleScreen({ navigation }: any) {
               placeholderTextColor={colors.textMuted}
               secureTextEntry
             />
+
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Функции</Text>
+            <PermissionPicker byRole={byRole} value={permissions} onChange={setPermissions} />
+            </ScrollView>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -215,6 +226,7 @@ const styles = themed(() => ({
     justifyContent: 'flex-end',
   },
   modalContent: {
+    maxHeight: '92%',
     padding: 24,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

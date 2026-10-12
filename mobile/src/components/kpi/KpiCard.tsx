@@ -27,8 +27,9 @@ const toneSoft = (t: Tone) => (t === 'accent' ? T.successSoft : t === 'violet' ?
 const pct = (p: number) => `${Math.round(p)}%`;
 
 /**
- * Показатель KPI (вариант 2, как на сайте): факт и план, полоса с порогами
- * и прогнозом, «заработано сейчас», прогноз на конец месяца, подсказка и правило.
+ * Показатель KPI (как на сайте): факт и план, полоса с порогами, «заработано
+ * сейчас», подсказка и правило. У KPI из файла всё — по файлу (и прогноз
+ * выполнения в процентах), у целей по отчёту — ещё прогноз выплаты.
  */
 export default function KpiCard({ target: t, monthEnd, onMenu }: { target: KpiTarget; monthEnd: string | null; onMenu?: () => void }) {
   const kind = KIND[t.kpi_kind ?? 'other'] ?? KIND.other;
@@ -38,10 +39,14 @@ export default function KpiCard({ target: t, monthEnd, onMenu }: { target: KpiTa
   const width = Math.max(0, Math.min(100, c.percent));
   const projected = c.forecastPercent != null && c.forecastPercent > c.percent ? Math.min(100, c.forecastPercent) : 0;
   const reached = (c.now ?? 0) > 0;
-  const source = c.tracked ? 'по отчётам' : t.source === 'kpi_file' ? 'по файлу KPI' : 'вручную';
-  const subtitle = [kind.label || (t.metric_type === 'amount' ? 'сумма, ₽' : 'количество'), source].filter(Boolean).join(' · ');
-  const filePay = t.source === 'kpi_file' && t.payment_amount != null ? Number(t.payment_amount) : null;
-  const showForecast = c.forecast != null && c.forecastValue != null && monthEnd;
+  const fromFile = t.source === 'kpi_file';
+  const percentOnly = t.unit === '%';
+  const source = fromFile ? `по файлу KPI${c.asOf ? ` от ${dayMonth(c.asOf)}` : ''}` : c.tracked ? 'по отчёту о продажах' : 'вручную';
+  const subtitle = [percentOnly ? 'выполнение, %' : kind.label || (t.metric_type === 'amount' ? 'сумма, ₽' : 'количество'), source].filter(Boolean).join(' · ');
+  const filePay = fromFile && t.payment_amount != null ? Number(t.payment_amount) : null;
+  // Прогноз выплаты — у целей по отчёту; у KPI из файла — только прогноз выполнения в процентах.
+  const showForecast = !fromFile && c.forecast != null && c.forecastValue != null && monthEnd;
+  const fileForecast = fromFile && c.forecastPercent != null && monthEnd ? c.forecastPercent : null;
 
   return (
     <View style={styles.card}>
@@ -78,9 +83,18 @@ export default function KpiCard({ target: t, monthEnd, onMenu }: { target: KpiTa
         ))}
       </View>
 
-      <Text style={styles.value}>
-        <Text style={styles.valueStrong}>{kpiValue(t, t.current_value)}</Text> из {kpiValue(t, t.target_value)}
-      </Text>
+      {percentOnly ? (
+        <Text style={styles.value}>
+          Выполнено <Text style={styles.valueStrong}>{pct(c.percent)}</Text>
+        </Text>
+      ) : (
+        <Text style={styles.value}>
+          <Text style={styles.valueStrong}>{kpiValue(t, t.current_value)}</Text> из {kpiValue(t, t.target_value)}
+        </Text>
+      )}
+      {fileForecast != null && (
+        <Text style={styles.forecast}>При текущем темпе к {dayMonth(monthEnd!)} — ≈{pct(fileForecast)}</Text>
+      )}
 
       {c.items && (
         <View style={{ gap: 7 }}>
@@ -121,6 +135,7 @@ export default function KpiCard({ target: t, monthEnd, onMenu }: { target: KpiTa
           <Text style={styles.hintText}>{c.hint}</Text>
         </View>
       ) : null}
+      {c.condition ? <Text style={styles.rule}>Условие: {c.condition}</Text> : null}
       {(c.rule || filePay != null) ? (
         <Text style={styles.rule}>
           {c.rule ? `Правило: ${c.rule}` : ''}
@@ -134,6 +149,7 @@ export default function KpiCard({ target: t, monthEnd, onMenu }: { target: KpiTa
 const font = Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium';
 
 const styles = themed(() => ({
+  forecast: { fontSize: 12.5, fontWeight: '700', color: T.accent, textAlign: 'right', marginTop: -4 },
   card: {
     backgroundColor: T.card, borderRadius: 22, padding: 18, marginBottom: 12, gap: 12,
     shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,

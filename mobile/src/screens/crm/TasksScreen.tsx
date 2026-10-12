@@ -148,7 +148,8 @@ export default function TasksScreen({ navigation }: any) {
         list = list.filter((t) => t.is_assignee && t.status_new !== 'archived');
         break;
       case 'watching':
-        list = list.filter((t) => t.is_watcher && !t.is_creator && t.status_new !== 'archived');
+        // Все задачи, где я наблюдатель, — и те, что я создал (создатель по умолчанию наблюдатель).
+        list = list.filter((t) => t.is_watcher && t.status_new !== 'archived');
         break;
       case 'review':
         // Ждут моей проверки: я наблюдатель или создатель, задача сдана.

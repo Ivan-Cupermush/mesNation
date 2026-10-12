@@ -6,23 +6,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  Trophy, Medal, Users, Wallet, TrendingUp, CreditCard,
+  Trophy, Medal, Users,
   CheckCircle2, Clock, AlertCircle, Plus, Search, ShoppingCart, UserRound,
   Target, FileSpreadsheet, UserCheck, Upload, Sparkles
 } from 'lucide-react-native';
 import ActionSheet, { SheetAction } from '../../components/chat/ActionSheet';
-import { api, SalesSummary } from '../../services/api';
+import { api, can, SalesSummary } from '../../services/api';
 import { AreaChart, ChartPoint } from '../../components/statistics/AreaChart';
 import KpiMonthBlock from '../../components/kpi/KpiMonthBlock';
 import { isKpiTarget } from '../../services/kpi';
 
 import { T, themed } from '../../theme/runtime';
-type Period = 'week' | 'month' | 'quarter';
-const PERIODS: { id: Period; label: string }[] = [
-  { id: 'week', label: 'Неделя' },
-  { id: 'month', label: 'Месяц' },
-  { id: 'quarter', label: 'Квартал' },
-];
+// Статистика — за текущий месяц: квадратики и KPI из отчётов и файла KPI, продажи вручную — тоже за месяц.
+const period = 'month';
 
 const fmt = (v: number | string): string => {
   const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -43,8 +39,13 @@ const FadeIn: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <Animated.View style={{ opacity: o }}>{children}</Animated.View>;
 };
 
+/**
+ * «Статистика»: наверху продажи за текущий месяц по отчёту о продажах (выручка,
+ * АКБ, средняя продажа в день, штуки), ниже — KPI из файла KPI и цели от
+ * руководителя, задачи, история продаж и команда. Сотрудник видит текущий
+ * месяц, по месяцам переключается руководитель (у сотрудника) и директор.
+ */
 export default function KpiScreen({ navigation }: any) {
-  const [period, setPeriod] = useState<Period>('month');
   const [summary, setSummary] = useState<SalesSummary | null>(null);
   const [subordinates, setSubordinates] = useState<any[]>([]);
   const [myKpi, setMyKpi] = useState<any>(null);
@@ -76,26 +77,17 @@ export default function KpiScreen({ navigation }: any) {
     } finally {
       setRefreshing(false);
     }
-  }, [period]);
+  }, []);
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
-  const fact = summary?.fact;
-  // Показатели из файла KPI — в блоке KPI за месяц; здесь — цели, заведённые вручную.
+  // Показатели из файла KPI и цели по отчёту — в блоке KPI; здесь — цели, которые ведутся вручную.
   const targets = (summary?.targets || []).filter((t: any) => !isKpiTarget(t));
-  const avgCheck = fact && Number(fact.total_transactions) > 0
-    ? Number(fact.total_amount) / Number(fact.total_transactions) : 0;
 
   const chartData: ChartPoint[] = (summary?.topProducts || []).slice(0, 5).map((p: any) => ({
     label: (p.product_name || '').length > 9 ? String(p.product_name).slice(0, 9) + '…' : p.product_name,
     value: Number(p.total_amount) || 0,
   }));
-
-  const kpis = fact ? [
-    { label: 'Выручка', value: fmt(fact.total_amount), icon: Wallet, color: T.accent, bg: T.successSoft },
-    { label: 'Сделки', value: String(fact.total_transactions), icon: TrendingUp, color: T.info, bg: T.infoSoft },
-    { label: 'Ср. чек', value: avgCheck ? fmt(avgCheck) : '—', icon: CreditCard, color: T.warning, bg: T.warningSoft },
-  ] : [];
 
   const taskStats = useMemo(() => {
     if (!tasks) return null;
@@ -110,24 +102,32 @@ export default function KpiScreen({ navigation }: any) {
     return { done, inWork, overdue };
   }, [tasks]);
 
-  const isManager = subordinates.length > 0 || !!currentUser?.has_subordinates || !!currentUser?.is_director;
-  // Меню «+»: своя цель, план подчинённому, загрузка отчёта и файла KPI (руководителю), импорт продаж.
+  // Меню «+» — по включённым функциям. Сотрудник сам себе KPI не ставит: «Свой KPI» — только директору.
   const addActions: SheetAction[] = [
-    { key: 'own', label: 'Добавить свой KPI', icon: <Target size={20} color={T.accent} />, onPress: () => navigation.navigate('AddProductKpi') },
-    ...(isManager
-      ? [
-          { key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') },
-          { key: 'report', label: 'Загрузить отчёт о продажах', icon: <Upload size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'report' }) },
-          { key: 'kpi', label: 'Загрузить файл KPI', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'kpi' }) },
-          { key: 'ep', label: 'Клиенты «Есть повод»', icon: <Sparkles size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiClients') },
-        ]
+    ...(currentUser?.is_director
+      ? [{ key: 'own', label: 'Добавить свой KPI', icon: <Target size={20} color={T.accent} />, onPress: () => navigation.navigate('AddProductKpi') }]
       : []),
-    { key: 'import', label: 'Импорт из Excel', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('ImportExcel') },
+    ...(can(currentUser, 'kpi_assign')
+      ? [{ key: 'assign', label: 'Назначить KPI сотруднику', icon: <UserCheck size={20} color={T.accent} />, onPress: () => navigation.navigate('AssignKpi') }]
+      : []),
+    ...(can(currentUser, 'sales_reports')
+      ? [{ key: 'report', label: 'Загрузить отчёт о продажах', icon: <Upload size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'report' }) }]
+      : []),
+    ...(can(currentUser, 'kpi_files')
+      ? [{ key: 'kpi', label: 'Загрузить файл KPI', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiImport', { mode: 'kpi' }) }]
+      : []),
+    ...(can(currentUser, 'sales_reports')
+      ? [{ key: 'ep', label: 'Клиенты «Есть повод»', icon: <Sparkles size={20} color={T.accent} />, onPress: () => navigation.navigate('KpiClients') }]
+      : []),
+    { key: 'import', label: 'Импорт продаж из Excel', icon: <FileSpreadsheet size={20} color={T.accent} />, onPress: () => navigation.navigate('ImportExcel') },
   ];
+  // Выручка команды — по отчётам о продажах за месяц (пока отчётов нет — по продажам, записанным вручную).
+  const fromReports = subordinates.some((x: any) => x.sales);
+  const revenueOf = (x: any) => (fromReports ? Number(x.sales?.revenue ?? 0) : Number(x.total_amount || 0));
 
-  const filteredSubs = subordinates.filter((s: any) =>
-    (s.display_name || s.username || '').toLowerCase().includes(searchQuery.toLowerCase().trim())
-  );
+  const filteredSubs = subordinates
+    .filter((s: any) => (s.display_name || s.username || '').toLowerCase().includes(searchQuery.toLowerCase().trim()))
+    .sort((a: any, b: any) => revenueOf(b) - revenueOf(a));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -154,21 +154,8 @@ export default function KpiScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Period Selector */}
-        <View style={styles.periodSwitch}>
-          {PERIODS.map(p => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.periodBtn, period === p.id && styles.periodBtnActive]}
-              onPress={() => setPeriod(p.id)}
-            >
-              <Text style={[styles.periodText, period === p.id && styles.periodTextActive]}>{p.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* KPI за месяц: выплата сейчас и прогноз по отчётам о продажах */}
-        {currentUser?.id ? <KpiMonthBlock userId={Number(currentUser.id)} self navigation={navigation} /> : null}
+        {/* Продажи за месяц (квадратики из отчёта) и KPI */}
+        {currentUser?.id ? <KpiMonthBlock userId={Number(currentUser.id)} self me={currentUser} navigation={navigation} /> : null}
 
         {/* Personal monthly plan */}
         {myKpi && (
@@ -218,31 +205,11 @@ export default function KpiScreen({ navigation }: any) {
           </FadeIn>
         )}
 
-        {/* Fact stats */}
-        {kpis.length > 0 && (
-          <FadeIn>
-            <View style={styles.statsGrid}>
-              {kpis.map((k: any, idx: number) => {
-                const Icon = k.icon;
-                return (
-                  <View key={idx} style={styles.statCard}>
-                    <View style={[styles.statIcon, { backgroundColor: k.bg }]}>
-                      <Icon size={22} color={k.color} strokeWidth={2.2} />
-                    </View>
-                    <Text style={styles.statValue}>{k.value}</Text>
-                    <Text style={styles.statLabel}>{k.label}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </FadeIn>
-        )}
-
         {/* Chart */}
         {chartData.length > 0 && (
           <FadeIn>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Топ товаров</Text>
+              <Text style={styles.cardTitle}>Топ товаров за месяц</Text>
               <AreaChart data={chartData} />
             </View>
           </FadeIn>
@@ -335,9 +302,12 @@ export default function KpiScreen({ navigation }: any) {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.subName}>{sub.display_name || sub.username}</Text>
-                    <Text style={styles.subRole}>{sub.role_name || 'Сотрудник'}</Text>
+                    <Text style={styles.subRole}>
+                      {sub.role_name || 'Сотрудник'}
+                      {sub.sales ? ` · АКБ ${sub.sales.akb}` : ''}
+                    </Text>
                   </View>
-                  <Text style={styles.subKpi}>{fmt(sub.total_amount || 0)}</Text>
+                  <Text style={styles.subKpi}>{fmt(revenueOf(sub))}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -399,19 +369,6 @@ const styles = themed(() => ({
     elevation: 2,
   },
 
-  // ===== PERIOD SWITCH =====
-  periodSwitch: {
-    flexDirection: 'row', backgroundColor: T.card, borderRadius: 18, padding: 4, marginBottom: 20,
-    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
-  },
-  periodBtn: { flex: 1, height: 40, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  periodBtnActive: { backgroundColor: T.accent },
-  periodText: {
-    fontSize: 14, fontWeight: '600', color: T.textSecondary,
-    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
-  },
-  periodTextActive: { color: T.onAccent },
-
   sectionTitle: {
     fontSize: 20, fontWeight: '800', color: T.textPrimary, marginBottom: 12, marginTop: 4,
     fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
@@ -436,19 +393,6 @@ const styles = themed(() => ({
   progressBarBg: { height: 8, backgroundColor: T.inputBg, borderRadius: 4, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: T.accent, borderRadius: 4 },
   progressText: { fontSize: 12, color: T.textSecondary, fontWeight: '600', marginTop: 8, textAlign: 'right' },
-
-  // ===== STATS GRID =====
-  statsGrid: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  statCard: {
-    flex: 1, backgroundColor: T.card, borderRadius: 22, padding: 16, alignItems: 'center',
-    shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4,
-  },
-  statIcon: { width: 46, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  statValue: {
-    fontSize: 18, fontWeight: '800', color: T.textPrimary, marginBottom: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Montserrat' : 'sans-serif-medium',
-  },
-  statLabel: { fontSize: 11, color: T.textSecondary, fontWeight: '600' },
 
   // ===== TASKS =====
   tasksRow: { flexDirection: 'row', marginTop: 14, gap: 10 },

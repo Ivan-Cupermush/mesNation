@@ -2,10 +2,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, ActivityIndicator, StatusBar,
+  ScrollView, Alert, ActivityIndicator, StatusBar, Switch,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api, MetricType } from '../../services/api';
+import { kpiApi } from '../../services/kpi';
 
 import { themed } from '../../theme/runtime';
 const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
@@ -14,11 +15,18 @@ const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
   { id: 'contracts', label: 'Контракты', unit: 'контр.' },
 ];
 
-export default function AssignKpiScreen({ navigation }: any) {
+/**
+ * Назначить KPI сотруднику: руководитель — своей команде, директор и тот, кому
+ * включено «Назначение KPI вручную», — по своей функции. По умолчанию факт
+ * считается по отчёту о продажах (продажи товара или группы с этим названием).
+ */
+export default function AssignKpiScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const preset = route?.params?.userId ? { user_id: Number(route.params.userId), display_name: route.params.userName || 'Сотрудник' } : null;
   const [subordinates, setSubordinates] = useState<any[]>([]);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<any>(preset);
+  const [fromReport, setFromReport] = useState(true);
   const [productName, setProductName] = useState('');
   const [metricType, setMetricType] = useState<MetricType>('quantity');
   const [targetValue, setTargetValue] = useState('');
@@ -33,10 +41,10 @@ export default function AssignKpiScreen({ navigation }: any) {
   const loadSubordinates = async () => {
     setLoading(true);
     try {
-      const data = await api.getSubordinates();
-      setSubordinates(data);
+      // Кому можно назначить KPI (руководителю — своя команда).
+      setSubordinates(await kpiApi.people('kpi_assign'));
     } catch {
-      Alert.alert('Ошибка', 'Не удалось загрузить список подчинённых');
+      Alert.alert('Ошибка', 'Не удалось загрузить список сотрудников');
     } finally {
       setLoading(false);
     }
@@ -65,6 +73,7 @@ export default function AssignKpiScreen({ navigation }: any) {
         metric_type: metricType,
         target_value: target,
         description: description.trim() || undefined,
+        from_report: fromReport,
       });
       Alert.alert('KPI назначен', selectedUser.display_name || selectedUser.username || '');
       navigation.goBack();
@@ -98,10 +107,14 @@ export default function AssignKpiScreen({ navigation }: any) {
         
         {/* Выбор сотрудника */}
         <Text style={[styles.label, { color: colors.textSecondary }]}>Сотрудник</Text>
-        {loading ? (
+        {preset ? (
+          <View style={[styles.userCard, { backgroundColor: colors.accentMuted, borderColor: colors.accent }]}>
+            <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>{preset.display_name}</Text>
+          </View>
+        ) : loading ? (
           <ActivityIndicator color={colors.accent} style={{ marginVertical: 20 }} />
         ) : subordinates.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textMuted }]}>Нет подчинённых</Text>
+          <Text style={[styles.empty, { color: colors.textMuted }]}>Нет сотрудников, которым вы можете назначить KPI</Text>
         ) : (
           <View style={styles.userList}>
             {subordinates.map(user => {
@@ -120,7 +133,7 @@ export default function AssignKpiScreen({ navigation }: any) {
                 >
                   <Text style={[styles.userName, { color: colors.textPrimary }]} numberOfLines={1}>{user.display_name || user.username}</Text>
                   <Text style={[styles.userKpis, { color: colors.textSecondary }]}>
-                    {user.kpis?.length || 0} активных KPI
+                    {user.role_name || 'Сотрудник'}
                   </Text>
                 </TouchableOpacity>
               );
@@ -165,6 +178,25 @@ export default function AssignKpiScreen({ navigation }: any) {
               </TouchableOpacity>
             );
           })}
+        </View>
+
+        {/* Как считать факт */}
+        <View style={[styles.switchRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.userName, { color: colors.textPrimary }]}>Считать по отчёту о продажах</Text>
+            <Text style={[styles.userKpis, { color: colors.textSecondary }]}>
+              {fromReport
+                ? `Факт — ${metricType === 'amount' ? 'сумма продаж' : metricType === 'contracts' ? 'точки, купившие' : 'проданные штуки'} товара или группы «${productName.trim() || '…'}» из отчёта 1С`
+                : 'Выполнение отмечают вручную'}
+            </Text>
+          </View>
+          <Switch
+            value={fromReport}
+            onValueChange={setFromReport}
+            trackColor={{ false: colors.border, true: colors.accent }}
+            thumbColor="#FFFFFF"
+            accessibilityLabel="Считать по отчёту о продажах"
+          />
         </View>
 
         {/* Целевое значение */}
@@ -256,4 +288,5 @@ const styles = themed(() => ({
   },
   userName: { fontSize: 15, fontWeight: '600', marginBottom: 2 },
   userKpis: { fontSize: 12 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, borderWidth: 1, marginTop: 16 },
 }));

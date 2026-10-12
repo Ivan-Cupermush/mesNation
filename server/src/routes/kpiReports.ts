@@ -8,10 +8,11 @@ import { AuthRequest } from '../middleware/auth';
 import { badRequest, forbidden, notFound } from '../lib/errors';
 import { fixOriginalName } from '../lib/uploads';
 import { paramId } from '../lib/validate';
-import { isSubordinate } from '../services/access';
+import { getUserNode, isSubordinate } from '../services/access';
+import { canApply, PERMISSION_KEYS, type Permission } from '../services/permissions';
 import { PATH_SEP } from '../services/kpi/facts';
 import { deleteSalesReport } from '../services/kpi/imports';
-import { coverageFor, enrichTargets, inScope, kpiScope, recalcMany, recentPairs, totalsOf, type KpiScope } from '../services/kpi/store';
+import { enrichTargets, inScope, kpiScope, recalcMany, recentPairs, reportStats, totalsOf, type KpiScope } from '../services/kpi/store';
 import { cellText, matchesClient, monthEnd, norm } from '../services/kpi/text';
 
 /**
@@ -46,10 +47,14 @@ const monthFrom = (v: unknown) => {
   return m ? `${m}-01` : currentMonth();
 };
 
-async function requireScope(userId: number): Promise<KpiScope> {
-  const scope = await kpiScope(userId);
-  if (!scope) throw forbidden('Доступно руководителям и директору');
-  return scope;
+/** На кого действует хотя бы одна из функций (объединение); нет ни одной — 403. */
+async function requireScope(userId: number, ...permissions: Permission[]): Promise<KpiScope> {
+  const scopes = (await Promise.all((permissions.length ? permissions : (['sales_reports'] as Permission[])).map((p) => kpiScope(userId, p)))).filter(
+    (x): x is KpiScope => x != null,
+  );
+  if (!scopes.length) throw forbidden('Функция вам не включена — её включает руководитель');
+  if (scopes.some((x) => x.all)) return scopes.find((x) => x.all)!;
+  return { all: false, ids: new Set(scopes.flatMap((x) => [...x.ids])) };
 }
 
 /** Условие на строки отчётов, видимые руководителю ($N — массив id подчинённых). */
@@ -60,23 +65,34 @@ const scopeIds = (scope: KpiScope) => [...scope.ids];
 
 /**
  * GET /api/kpi/month?user=&month=YYYY-MM — KPI сотрудника за месяц: цели с
- * выплатой «сейчас» и прогнозом, итоги, до какого числа есть отчёты.
+ * выплатой «сейчас» и прогнозом, итоги, до какого числа есть отчёты, квадратики
+ * продаж по отчётам. Сотрудник видит свой KPI только за текущий месяц, по месяцам
+ * переключаются руководитель и директор (на странице сотрудника).
  */
 router.get('/month', async (req: AuthRequest, res: Response) => {
   const me = req.userId!;
   const userId = req.query.user ? Number(req.query.user) : me;
   if (!Number.isInteger(userId) || userId <= 0) throw badRequest('Некорректный сотрудник');
-  const canEdit = userId !== me && (await isSubordinate(me, userId));
-  if (userId !== me && !canEdit) throw forbidden('KPI доступны только по своим подчинённым');
-  const month = monthFrom(req.query.month);
+  const self = userId === me;
+  const [assign, kpiFiles, reportsScope, managerOf, meNode] = await Promise.all([
+    canApply(me, userId, 'kpi_assign'),
+    canApply(me, userId, 'kpi_files'),
+    kpiScope(me, 'sales_reports'),
+    self ? Promise.resolve(false) : isSubordinate(me, userId),
+    getUserNode(me),
+  ]);
+  if (!self && !managerOf && !assign && !kpiFiles) throw forbidden('KPI доступны только по своим подчинённым');
+  const canSwitchMonth = !self || meNode.isRoot;
+  const month = canSwitchMonth ? monthFrom(req.query.month) : currentMonth();
   const end = monthEnd(month);
 
-  const [user, targets, reports, months, lists, scope] = await Promise.all([
+  const [user, targets, reports, months, lists] = await Promise.all([
     pool.query('SELECT id, COALESCE(display_name, username) AS name FROM users WHERE id = $1', [userId]),
     pool.query(
       `SELECT *, ROUND((current_value / NULLIF(target_value, 0) * 100)::numeric, 1) AS progress_percent
        FROM sales_targets
        WHERE user_id = $1 AND NOT is_personal_monthly_target AND period_start >= $2::date AND period_start <= $3::date
+         AND kpi_kind IS DISTINCT FROM 'fuel'
        ORDER BY (source = 'kpi_file') DESC, sort_order, created_at`,
       [userId, month, end],
     ),
@@ -88,34 +104,59 @@ router.get('/month', async (req: AuthRequest, res: Response) => {
        ORDER BY r.period_start`,
       [userId, month],
     ),
-    pool.query(
-      `SELECT m FROM (
-         SELECT DISTINCT to_char(date_trunc('month', period_start), 'YYYY-MM') AS m FROM sales_targets
-         WHERE user_id = $1 AND NOT is_personal_monthly_target
-         UNION
-         SELECT DISTINCT to_char(r.month, 'YYYY-MM') FROM sales_reports r JOIN sales_report_lines l ON l.report_id = r.id WHERE l.user_id = $1
-       ) x ORDER BY m DESC LIMIT 24`,
-      [userId],
-    ),
+    canSwitchMonth
+      ? pool.query(
+          `SELECT m FROM (
+             SELECT DISTINCT to_char(date_trunc('month', period_start), 'YYYY-MM') AS m FROM sales_targets
+             WHERE user_id = $1 AND NOT is_personal_monthly_target
+             UNION
+             SELECT DISTINCT to_char(r.month, 'YYYY-MM') FROM sales_reports r JOIN sales_report_lines l ON l.report_id = r.id WHERE l.user_id = $1
+           ) x ORDER BY m DESC LIMIT 24`,
+          [userId],
+        )
+      : Promise.resolve({ rows: [] as { m: string }[] }),
     pool.query(`SELECT kind, COUNT(*)::int AS n FROM kpi_client_lists GROUP BY kind`),
-    kpiScope(me),
   ]);
   if (!user.rows.length) throw notFound('Сотрудник не найден');
   const enriched = await enrichTargets(targets.rows);
-  const coverage = (await coverageFor([{ userId, month }])).get(`${userId}:${month}`) ?? null;
+  const stats = (await reportStats([userId], month)).get(userId) ?? null;
   const count = (kind: string) => lists.rows.find((r) => r.kind === kind)?.n ?? 0;
   res.json({
     month: month.slice(0, 7),
     user: user.rows[0],
     targets: enriched,
     totals: totalsOf(enriched),
-    coverage,
+    coverage: stats ? { asOf: stats.asOf, elapsed: stats.elapsed, days: stats.days, reports: stats.reports, uploadedAt: stats.uploadedAt } : null,
+    stats,
     reports: reports.rows,
     months: months.rows.map((r) => r.m),
+    canSwitchMonth,
     lists: { ep: count('ep'), akbMerge: count('akb_merge') },
-    canEdit,
-    canUpload: !!scope,
+    // Менять цели и правила этого сотрудника.
+    canEdit: assign || kpiFiles,
+    can: { reports: !!reportsScope, kpiFile: kpiFiles, assign },
+    // Для старых версий приложения.
+    canUpload: !!reportsScope || kpiFiles,
   });
+});
+
+/**
+ * GET /api/kpi/people?for=kpi_files|kpi_assign|sales_reports — сотрудники, которым
+ * пользователь может применить функцию (загрузить файл KPI, назначить KPI):
+ * руководителю — его команда, директору и тем, кому функцию включил директор, — все.
+ */
+router.get('/people', async (req: AuthRequest, res: Response) => {
+  const me = req.userId!;
+  const perm = z.enum(PERMISSION_KEYS as [Permission, ...Permission[]]).parse(req.query.for ?? 'kpi_assign');
+  const scope = await kpiScope(me, perm);
+  if (!scope) return res.json([]);
+  const isRoot = (await getUserNode(me)).isRoot;
+  const { rows } = await pool.query(
+    `SELECT u.id AS user_id, u.username, u.display_name, u.avatar_url, rt.name AS role_name, rt.color AS role_color
+     FROM users u LEFT JOIN user_role_assignments ura ON ura.user_id = u.id LEFT JOIN role_tree rt ON rt.id = ura.role_node_id
+     WHERE u.is_active ORDER BY COALESCE(u.display_name, u.username)`,
+  );
+  res.json(rows.filter((r) => (r.user_id === me ? isRoot : inScope(scope, r.user_id))));
 });
 
 // ===================== ИСТОРИЯ ОТЧЁТОВ =====================
@@ -327,7 +368,7 @@ router.delete('/client-lists/:id', async (req: AuthRequest, res: Response) => {
  * с пометкой «ЕстьПовод».
  */
 router.get('/report-clients', async (req: AuthRequest, res: Response) => {
-  const scope = await requireScope(req.userId!);
+  const scope = await requireScope(req.userId!, 'sales_reports', 'kpi_assign', 'kpi_files');
   const month = monthFrom(req.query.month);
   const q = String(req.query.q ?? '').trim();
   const { rows } = await pool.query(
@@ -352,7 +393,7 @@ router.get('/report-clients', async (req: AuthRequest, res: Response) => {
 
 /** GET /api/kpi/report-groups?month= — группы товаров из отчётов (для выбора, что считать в показателе). */
 router.get('/report-groups', async (req: AuthRequest, res: Response) => {
-  const scope = await requireScope(req.userId!);
+  const scope = await requireScope(req.userId!, 'sales_reports', 'kpi_assign', 'kpi_files');
   const month = monthFrom(req.query.month);
   const { rows } = await pool.query(
     `SELECT l.group_path, l.name, MIN(l.depth)::int AS depth, SUM(l.revenue)::float8 AS revenue

@@ -11,7 +11,8 @@ export type FactRule =
   | { type: 'manual' }
   | { type: 'revenue'; groups: string[]; clients: 'all' | 'ep' | 'non_ep'; measure?: 'revenue' | 'quantity' }
   | { type: 'clients'; groups: string[]; excludeEp: boolean; merge: string[] }
-  | { type: 'items'; items: { name: string; need: number }[] };
+  | { type: 'items'; items: { name: string; need: number }[] }
+  | { type: 'products'; query: string; measure: 'revenue' | 'quantity' | 'clients' };
 
 export type PayoutRule =
   | { type: 'none' }
@@ -30,6 +31,8 @@ export interface ItemProgress {
 /** Выплата у цели: сейчас, прогноз на конец месяца, пороги, подсказка (считает сервер). */
 export interface TargetCalc {
   kind: KpiKind | null;
+  /** Откуда факт: file — файл KPI, report — отчёты о продажах, manual — вручную. */
+  source?: 'file' | 'report' | 'manual';
   tracked: boolean;
   percent: number;
   now: number | null;
@@ -39,9 +42,26 @@ export interface TargetCalc {
   max: number | null;
   marks: number[];
   rule: string;
+  /** Условие из названия показателя в файле KPI («порог 90%, при выполнении 80–90% кэф 0,5»). */
+  condition?: string | null;
   hint: string | null;
   items: ItemProgress[] | null;
   asOf: string | null;
+}
+
+/** Квадратики статистики по отчётам о продажах за месяц. */
+export interface SalesStats {
+  revenue: number;
+  /** Клиенты с продажами без «Есть повод», задвоенные — одна точка. */
+  akb: number;
+  /** Выручка / дней с 1-го числа по последний отчёт. */
+  perDay: number;
+  quantity: number;
+  asOf: string;
+  elapsed: number;
+  days: number;
+  reports: number;
+  uploadedAt: string;
 }
 
 type Num = number | string;
@@ -75,9 +95,45 @@ export interface KpiMonth {
   coverage: { asOf: string; elapsed: number; days: number; reports: number; uploadedAt: string } | null;
   reports: { id: number; file_name: string; period_start: string; period_end: string; created_at: string; uploaded_by_name: string | null }[];
   months: string[];
+  /** Переключать месяцы может руководитель (у сотрудника) и директор; сотрудник видит текущий месяц. */
+  canSwitchMonth?: boolean;
+  stats?: SalesStats | null;
   lists: { ep: number; akbMerge: number };
   canEdit: boolean;
   canUpload: boolean;
+  /** Что текущий пользователь может: загружать отчёты, файл KPI этому сотруднику, назначать ему KPI. */
+  can?: { reports: boolean; kpiFile: boolean; assign: boolean };
+}
+
+/** Сотрудник, которому можно применить функцию (GET /api/kpi/people). */
+export interface KpiPerson {
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role_name: string | null;
+  role_color: string | null;
+}
+
+/** Стартовая страница (GET /api/home). */
+export interface HomeTask {
+  id: number;
+  title: string;
+  status: string;
+  importance: string;
+  deadline: string | null;
+  is_overdue: boolean | null;
+  due_today: boolean;
+}
+
+export interface HomeData {
+  greeting: string;
+  name: string;
+  phrase: { id: number; text: string };
+  month: string;
+  stats: SalesStats | null;
+  kpi: { count: number; totals: KpiMonth['totals'] | null; focus: KpiTarget[] };
+  tasks: HomeTask[];
 }
 
 export interface ReportManagerResult {
@@ -189,13 +245,21 @@ export const kpiApi = {
   reportClients: (month: string, q: string) => request<ReportClient[]>('/api/kpi/report-clients', { query: { month, q } }),
   reportGroups: (month: string) => request<ReportGroup[]>('/api/kpi/report-groups', { query: { month } }),
 
-  saveRules: (targetId: number, data: { fact_rule: FactRule; payout_rule: PayoutRule; bonus_amount: number }) =>
+  saveRules: (targetId: number, data: { fact_rule?: FactRule; payout_rule: PayoutRule; bonus_amount: number }) =>
     request<KpiTarget>(`/api/kpi/sales/targets/${targetId}`, { method: 'PATCH', body: data }),
+
+  /** Кому можно загрузить файл KPI, назначить KPI или сопоставить менеджера из 1С. */
+  people: (perm: 'kpi_files' | 'kpi_assign' | 'sales_reports') => request<KpiPerson[]>('/api/kpi/people', { query: { for: perm } }),
+  home: (prev?: number) => request<HomeData>('/api/home', { query: { tz_offset: new Date().getTimezoneOffset(), prev } }),
 };
 
 /** Показатель из файла KPI или с правилом выплаты — показывается в блоке KPI, а не в «Моих целях». */
 export const isKpiTarget = (t: { source?: string; calc?: TargetCalc; payout_rule?: PayoutRule }) =>
-  t.source === 'kpi_file' || !!t.calc?.tracked || (!!t.payout_rule && t.payout_rule.type !== 'none');
+  t.source === 'kpi_file' || !!t.calc?.tracked || t.calc?.source === 'report' || (!!t.payout_rule && t.payout_rule.type !== 'none');
+
+/** Цель ведётся вручную (не по отчёту и не из файла KPI) — в неё можно записать продажу. */
+export const isManualTarget = (t: { source?: string; calc?: TargetCalc }) =>
+  t.source !== 'kpi_file' && !t.calc?.tracked && (t.calc?.source ?? 'manual') === 'manual';
 
 // ---------- Форматирование ----------
 

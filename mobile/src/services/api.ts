@@ -161,6 +161,30 @@ export interface CurrentUser {
   is_director: boolean;
   has_subordinates: boolean;
   company_name: string | null;
+  /** Функции, которые включил или отключил руководитель (загрузка отчётов, файлов KPI…). */
+  permissions?: Partial<Record<PermissionKey, boolean>>;
+}
+
+export type PermissionKey = 'sales_reports' | 'kpi_files' | 'kpi_assign' | 'knowledge_manage';
+
+/** Включена ли функция (сервер без поля permissions — по должности, как раньше). */
+export const can = (u: Pick<CurrentUser, 'is_director' | 'has_subordinates' | 'permissions'> | null | undefined, key: PermissionKey) =>
+  !!u && (u.is_director || (u.permissions?.[key] ?? u.has_subordinates));
+
+/** Функция сотрудника на экране настройки (GET /api/users/:id/permissions). */
+export interface PermissionItem {
+  key: PermissionKey;
+  label: string;
+  hint: string;
+  /** Есть ли по должности. */
+  default: boolean;
+  /** Явно включено (true), отключено (false) или по должности (null). */
+  override: boolean | null;
+  enabled: boolean;
+  /** Директору функции не меняются. */
+  locked: boolean;
+  /** Текущий пользователь может включить эту функцию (она есть у него самого). */
+  grantable: boolean;
 }
 
 export interface Employee {
@@ -440,6 +464,9 @@ export const api = {
     httpRequest<Employee[]>('/api/users', { query: { include_inactive: includeInactive || undefined } }),
 
   getUser: (id: number) => httpRequest<CurrentUser & { can_manage: boolean }>(`/api/users/${id}`),
+  getUserPermissions: (id: number) => httpRequest<{ items: PermissionItem[]; can_edit: boolean }>(`/api/users/${id}/permissions`),
+  setUserPermissions: (id: number, permissions: Partial<Record<PermissionKey, boolean | null>>) =>
+    httpRequest<{ items: PermissionItem[]; can_edit: boolean }>(`/api/users/${id}/permissions`, { method: 'PUT', body: { permissions } }),
 
   /** Кому можно ставить задачи: себе, вниз по дереву и коллегам своего уровня. */
   getAssignableUsers: () => httpRequest<UserInSubtree[]>('/api/users/assignable'),
@@ -604,6 +631,8 @@ export const api = {
     password: string;
     display_name?: string;
     role_node_id: number;
+    /** Функции сверх должности или отключённые. */
+    permissions?: Partial<Record<PermissionKey, boolean>>;
   }) =>
     request<any>('/api/role-tree/users', {
       method: 'POST',
@@ -808,6 +837,8 @@ export const api = {
     period_start?: string;
     period_end?: string;
     description?: string;
+    /** Факт — по отчёту о продажах (продажи товара или группы с этим названием). */
+    from_report?: boolean;
   }) =>
     request<SalesTarget>('/api/kpi/sales/targets/assign', {
       method: 'POST',

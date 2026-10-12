@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, StatusBar, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -14,21 +14,22 @@ import {
   SalesReportInfo, shiftMonth,
 } from '../../services/kpi';
 import { UploadFile } from '../../services/http';
-import { api } from '../../services/api';
+import { api, can, CurrentUser, PermissionKey } from '../../services/api';
 
 type Mode = 'report' | 'kpi' | 'sheets';
 
-const MODES: { key: Mode; title: string; text: string; icon: any }[] = [
-  { key: 'report', title: 'Отчёт о продажах', text: 'Ежедневный отчёт из 1С — обновит KPI команды', icon: Users },
-  { key: 'kpi', title: 'Файл KPI', text: 'План, бонусы и правила на месяц', icon: UserRound },
-  { key: 'sheets', title: 'KPI по листам', text: 'Каждый лист — сотрудник', icon: ListChecks },
+const MODES: { key: Mode; title: string; text: string; icon: any; perm: PermissionKey }[] = [
+  { key: 'report', title: 'Отчёт о продажах', text: 'Ежедневный отчёт из 1С — обновит продажи и цели по отчёту', icon: Users, perm: 'sales_reports' },
+  { key: 'kpi', title: 'Файл KPI', text: 'План, факт, бонусы и выплаты — KPI обновляется из файла', icon: UserRound, perm: 'kpi_files' },
+  { key: 'sheets', title: 'KPI по листам', text: 'Каждый лист — сотрудник', icon: ListChecks, perm: 'kpi_files' },
 ];
 
 const FACT_TEXT: Record<string, string> = {
   revenue: 'по отчёту: продажи',
   clients: 'по отчёту: точки',
   items: 'по отчёту: позиции',
-  manual: 'вручную / из файла',
+  products: 'по отчёту: товар',
+  manual: 'из файла KPI',
 };
 
 async function pickSheet(): Promise<UploadFile | null> {
@@ -45,12 +46,21 @@ async function pickSheet(): Promise<UploadFile | null> {
 }
 
 /**
- * Загрузка KPI для руководителя — как на сайте: ежедневный отчёт о продажах
- * (с сопоставлением менеджеров и историей), файл KPI сотрудника с предпросмотром
- * и KPI по листам.
+ * Загрузка KPI — как на сайте: ежедневный отчёт о продажах (с сопоставлением
+ * менеджеров и историей), файл KPI сотрудника с предпросмотром и KPI по листам.
+ * Разделы — по включённым функциям (загрузка отчётов, файлов KPI).
  */
 export default function KpiImportScreen({ navigation, route }: any) {
   const [mode, setMode] = useState<Mode>(route.params?.mode ?? 'report');
+  const [me, setMe] = useState<CurrentUser | null>(null);
+  useEffect(() => {
+    api.getCurrentUser().then(setMe).catch(() => undefined);
+  }, []);
+  const modes = useMemo(() => (me ? MODES.filter((m) => can(me, m.perm)) : MODES), [me]);
+  // Раздел, который недоступен, — на первый доступный.
+  useEffect(() => {
+    if (me && modes.length && !modes.some((m) => m.key === mode)) setMode(modes[0].key);
+  }, [me, modes, mode]);
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle={T.statusBar} backgroundColor="transparent" translucent />
@@ -63,7 +73,7 @@ export default function KpiImportScreen({ navigation, route }: any) {
       </View>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 4 }}>
-          {MODES.map((m) => {
+          {modes.map((m) => {
             const Icon = m.icon;
             const on = mode === m.key;
             return (
@@ -78,9 +88,14 @@ export default function KpiImportScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => navigation.navigate('ImportExcel')} style={{ marginVertical: 10 }}>
           <Text style={styles.link}>Импорт своих продаж (товар, сумма, дата) →</Text>
         </TouchableOpacity>
-        {mode === 'report' && <ReportImport navigation={navigation} />}
-        {mode === 'kpi' && <KpiFileImport navigation={navigation} presetUser={route.params?.userId} />}
-        {mode === 'sheets' && <SheetsImport />}
+        {me && modes.length === 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardText}>Загрузка отчётов и файлов KPI вам не включена — её включает руководитель.</Text>
+          </View>
+        )}
+        {modes.some((m) => m.key === mode) && mode === 'report' && <ReportImport navigation={navigation} />}
+        {modes.some((m) => m.key === mode) && mode === 'kpi' && <KpiFileImport navigation={navigation} presetUser={route.params?.userId} />}
+        {modes.some((m) => m.key === mode) && mode === 'sheets' && <SheetsImport />}
         <View style={{ height: 60 }} />
       </ScrollView>
     </SafeAreaView>
@@ -149,7 +164,7 @@ function ReportImport({ navigation }: { navigation: any }) {
       Alert.alert('Готово', `«${name}» — это ${user.name}. Пересчитано показателей: ${r.targets}`);
       setResult((prev) => prev && {
         ...prev,
-        results: prev.results.map((x) => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: r.targets > 0, targetsUpdated: r.targets } : x)),
+        results: prev.results.map((x) => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: true, targetsUpdated: r.targets } : x)),
       });
       loadLists();
     } catch (e) {
@@ -159,7 +174,7 @@ function ReportImport({ navigation }: { navigation: any }) {
 
   const remove = (r: SalesReportInfo) => {
     const label = reportPeriod(r.period_start, r.period_end);
-    Alert.alert(`Удалить отчёт за ${label}?`, 'Факт KPI пересчитается без него.', [
+    Alert.alert(`Удалить отчёт за ${label}?`, 'Продажи и цели по отчёту пересчитаются без него.', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить', style: 'destructive', onPress: async () => {
@@ -172,6 +187,7 @@ function ReportImport({ navigation }: { navigation: any }) {
   const picker = (
     <TeamPickerModal
       visible={!!mapping}
+      permission="sales_reports"
       title={mapping ? `Кто в 1С «${mapping}»?` : ''}
       onClose={() => setMapping(null)}
       onPick={(u) => { const n = mapping!; setMapping(null); assign(n, u); }}
@@ -201,7 +217,7 @@ function ReportImport({ navigation }: { navigation: any }) {
                   {money(r.total)}{r.ep ? ` · ЕП ${money(r.ep)}` : ''}{r.user ? ` · ${r.user}` : ''}
                 </Text>
                 <Text style={[styles.rowSub, { color: r.status === 'ok' ? T.accent : T.danger, fontWeight: '600' }]}>
-                  {r.status === 'ok' ? (r.updated ? `обновлено показателей: ${r.targetsUpdated}` : 'нет KPI за этот месяц') : r.error}
+                  {r.status === 'ok' ? `продажи обновлены${r.targetsUpdated ? ` · целей по отчёту: ${r.targetsUpdated}` : ''}` : r.error}
                 </Text>
               </View>
               {(r.status === 'unmatched' || r.status === 'ambiguous') && (
@@ -296,8 +312,8 @@ function KpiFileImport({ navigation, presetUser }: { navigation: any; presetUser
       setPreview(p);
       setMonth(p.month);
       if (presetUser) {
-        const team = await api.getSubordinates('month').catch(() => []);
-        const found = (team as any[]).find((t) => Number(t.user_id) === presetUser);
+        const team = await kpiApi.people('kpi_files').catch(() => []);
+        const found = team.find((t) => Number(t.user_id) === presetUser);
         setPerson({ id: presetUser, name: found ? found.display_name || found.username : 'Сотрудник' });
       } else setPerson(p.suggestedUser);
     } catch (e) {
@@ -325,7 +341,7 @@ function KpiFileImport({ navigation, presetUser }: { navigation: any; presetUser
       <View style={styles.card}>
         <View style={[styles.pickIcon, { backgroundColor: T.successSoft }]}><CheckCircle2 size={36} color={T.accent} /></View>
         <Text style={styles.cardTitle}>KPI на {monthTitle(done.month)} загружен</Text>
-        <Text style={styles.cardText}>{done.person.name}: показателей {done.imported}. Факт будет обновляться по отчётам о продажах.</Text>
+        <Text style={styles.cardText}>{done.person.name}: показателей {done.imported}. KPI обновляется из файла KPI — загружайте новый файл каждый день или неделю.</Text>
         <TouchableOpacity style={styles.primary} onPress={() => navigation.navigate('EmployeeStats', { userId: done.person.id, userName: done.person.name })}>
           <Text style={styles.primaryText}>Открыть KPI сотрудника</Text>
         </TouchableOpacity>
@@ -387,7 +403,7 @@ function KpiFileImport({ navigation, presetUser }: { navigation: any; presetUser
       <TouchableOpacity style={[styles.secondary, { marginTop: 10 }]} onPress={() => { setPreview(null); setFile(null); }}>
         <Text style={styles.secondaryText}>Другой файл</Text>
       </TouchableOpacity>
-      <TeamPickerModal visible={picking} onClose={() => setPicking(false)} onPick={(u) => { setPerson(u); setPicking(false); }} />
+      <TeamPickerModal visible={picking} permission="kpi_files" onClose={() => setPicking(false)} onPick={(u) => { setPerson(u); setPicking(false); }} />
     </>
   );
 }

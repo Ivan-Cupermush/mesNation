@@ -3,22 +3,32 @@ import { View, Text, TouchableOpacity, Modal, Pressable, TextInput, ScrollView, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Search } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
-import { api } from '../../services/api';
+import { kpiApi } from '../../services/kpi';
 
-/** Выбор сотрудника из своей команды (поддерево ролей руководителя). */
+/**
+ * Выбор сотрудника, которому можно применить функцию (загрузить файл KPI,
+ * назначить KPI, сопоставить менеджера из 1С): руководителю — его команда,
+ * директору и тем, кому функцию включил директор, — все.
+ */
 export default function TeamPickerModal({
-  visible, title = 'Сотрудник', onClose, onPick,
-}: { visible: boolean; title?: string; onClose: () => void; onPick: (u: { id: number; name: string }) => void }) {
+  visible, title = 'Сотрудник', permission = 'kpi_assign', onClose, onPick,
+}: {
+  visible: boolean;
+  title?: string;
+  permission?: 'kpi_files' | 'kpi_assign' | 'sales_reports';
+  onClose: () => void;
+  onPick: (u: { id: number; name: string }) => void;
+}) {
   const insets = useSafeAreaInsets();
   const [team, setTeam] = useState<{ id: number; name: string; role: string }[] | null>(null);
   const [q, setQ] = useState('');
 
   useEffect(() => {
     if (!visible || team) return;
-    api.getSubordinates('month')
-      .then((rows) => setTeam(rows.map((r: any) => ({ id: Number(r.user_id), name: r.display_name || r.username, role: r.role_name || 'Сотрудник' }))))
+    kpiApi.people(permission)
+      .then((rows) => setTeam(rows.map((r) => ({ id: Number(r.user_id), name: r.display_name || r.username, role: r.role_name || 'Сотрудник' }))))
       .catch(() => setTeam([]));
-  }, [visible, team]);
+  }, [visible, team, permission]);
 
   const shown = (team ?? []).filter((u) => u.name.toLowerCase().includes(q.trim().toLowerCase()));
 
@@ -36,7 +46,7 @@ export default function TeamPickerModal({
           <ActivityIndicator color={T.accent} style={{ marginVertical: 24 }} />
         ) : (
           <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
-            {shown.length === 0 && <Text style={styles.empty}>{team.length ? 'Никого не нашли' : 'В вашей команде нет сотрудников'}</Text>}
+            {shown.length === 0 && <Text style={styles.empty}>{team.length ? 'Никого не нашли' : 'Нет сотрудников, которым вы можете это сделать'}</Text>}
             {shown.map((u) => (
               <TouchableOpacity key={u.id} style={styles.row} onPress={() => onPick({ id: u.id, name: u.name })}>
                 <View style={styles.avatar}><Text style={styles.avatarText}>{u.name.charAt(0)}</Text></View>

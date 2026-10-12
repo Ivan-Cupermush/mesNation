@@ -11,6 +11,7 @@ type FactType = FactRule['type'];
 type PayType = PayoutRule['type'];
 
 const FACT_TYPES: { key: FactType; label: string }[] = [
+  { key: 'products', label: 'Товар' },
   { key: 'revenue', label: 'Продажи' },
   { key: 'clients', label: 'Точки' },
   { key: 'items', label: 'Позиции' },
@@ -39,7 +40,8 @@ function Segments<K extends string>({ options, value, onChange }: { options: { k
 
 /**
  * Правило показателя (как на сайте): как считать факт по отчётам о продажах
- * и сколько платить. После сохранения KPI пересчитывается.
+ * (для целей, назначенных вручную) и сколько платить. У KPI из файла факт —
+ * из файла, здесь меняется только выплата.
  */
 export default function KpiRuleScreen({ navigation, route }: any) {
   const t: KpiTarget = route.params.target;
@@ -53,6 +55,11 @@ export default function KpiRuleScreen({ navigation, route }: any) {
   const [excludeEp, setExcludeEp] = useState(f.type === 'clients' ? f.excludeEp : true);
   const [merge, setMerge] = useState(f.type === 'clients' ? f.merge.join('\n') : '');
   const [items, setItems] = useState(f.type === 'items' ? f.items.map((i) => ({ name: i.name, need: String(i.need) })) : [{ name: '', need: '1' }]);
+  const fromFile = t.source === 'kpi_file';
+  const [query, setQuery] = useState(f.type === 'products' ? f.query : t.product_name || '');
+  const [productMeasure, setProductMeasure] = useState<'revenue' | 'quantity' | 'clients'>(
+    f.type === 'products' ? f.measure : t.metric_type === 'amount' ? 'revenue' : t.metric_type === 'contracts' ? 'clients' : 'quantity',
+  );
   const [payType, setPayType] = useState<PayType>(p.type);
   const [bonus, setBonus] = useState(str(Number(t.bonus_amount) || 0));
   const [steps, setSteps] = useState(p.type === 'threshold' ? p.steps.map((x) => ({ from: str(x.from), k: str(x.k) })) : [{ from: '100', k: '1' }]);
@@ -63,7 +70,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
   const [q, setQ] = useState('');
   const [reportGroups, setReportGroups] = useState<ReportGroup[] | null>(null);
   const [saving, setSaving] = useState(false);
-  const byGroups = factType === 'revenue' || factType === 'clients';
+  const byGroups = !fromFile && (factType === 'revenue' || factType === 'clients');
 
   useEffect(() => {
     if (byGroups && !reportGroups) kpiApi.reportGroups(month).then(setReportGroups).catch(() => setReportGroups([]));
@@ -78,7 +85,11 @@ export default function KpiRuleScreen({ navigation, route }: any) {
 
   const build = (): { fact: FactRule; payout: PayoutRule; bonus: number } | string => {
     let fact: FactRule;
-    if (factType === 'revenue') fact = { type: 'revenue', groups, clients, measure };
+    if (fromFile) fact = { type: 'manual' };
+    else if (factType === 'products') {
+      if (!query.trim()) return 'Укажите товар или группу';
+      fact = { type: 'products', query: query.trim().slice(0, 200), measure: productMeasure };
+    } else if (factType === 'revenue') fact = { type: 'revenue', groups, clients, measure };
     else if (factType === 'clients') fact = { type: 'clients', groups, excludeEp, merge: merge.split('\n').map((x) => x.trim()).filter(Boolean) };
     else if (factType === 'items') {
       const list = items.filter((i) => i.name.trim()).map((i) => ({ name: i.name.trim(), need: Math.round(parseNumber(i.need)) }));
@@ -111,7 +122,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
     }
     setSaving(true);
     try {
-      await kpiApi.saveRules(t.id, { fact_rule: r.fact, payout_rule: r.payout, bonus_amount: r.bonus });
+      await kpiApi.saveRules(t.id, { ...(fromFile ? {} : { fact_rule: r.fact }), payout_rule: r.payout, bonus_amount: r.bonus });
       navigation.goBack();
     } catch (e) {
       Alert.alert('Ошибка', errorText(e, 'Не удалось сохранить правило'));
@@ -137,8 +148,23 @@ export default function KpiRuleScreen({ navigation, route }: any) {
         <Text style={styles.muted}>{t.product_name}</Text>
 
         <Text style={styles.legend}>КАК СЧИТАТЬ ФАКТ</Text>
-        <Segments options={FACT_TYPES} value={factType} onChange={setFactType} />
-        {factType === 'revenue' && (
+        {fromFile ? (
+          <Text style={styles.muted}>Факт, выполнение и «к выплате» — из файла KPI. Здесь можно поправить только выплату до итогового файла.</Text>
+        ) : (
+          <Segments options={FACT_TYPES} value={factType} onChange={setFactType} />
+        )}
+        {!fromFile && factType === 'products' && (
+          <>
+            <Text style={styles.label}>Товар или группа из отчёта (часть названия)</Text>
+            <TextInput style={styles.input} value={query} onChangeText={setQuery} placeholder="Например: Балтика Стаут" placeholderTextColor={T.textMuted} maxLength={200} />
+            <Segments
+              options={[{ key: 'revenue', label: 'Сумма, ₽' }, { key: 'quantity', label: 'Штуки' }, { key: 'clients', label: 'Точки' }]}
+              value={productMeasure}
+              onChange={setProductMeasure}
+            />
+          </>
+        )}
+        {!fromFile && factType === 'revenue' && (
           <>
             <Segments
               options={[{ key: 'all', label: 'Все клиенты' }, { key: 'non_ep', label: 'Без ЕП' }, { key: 'ep', label: 'Только ЕП' }]}
@@ -148,7 +174,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
             <Segments options={[{ key: 'revenue', label: 'Выручка, ₽' }, { key: 'quantity', label: 'Количество, шт' }]} value={measure} onChange={setMeasure} />
           </>
         )}
-        {factType === 'clients' && (
+        {!fromFile && factType === 'clients' && (
           <>
             <View style={styles.switchRow}>
               <Text style={styles.switchText}>Не считать точки «Есть повод»</Text>
@@ -195,7 +221,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
             )}
           </View>
         )}
-        {factType === 'items' && (
+        {!fromFile && factType === 'items' && (
           <View style={{ gap: 8 }}>
             {items.map((it, i) => (
               <View key={i} style={styles.inline}>

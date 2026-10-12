@@ -5,7 +5,10 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import KpiCard from '../src/components/kpi/KpiCard';
-import { isKpiTarget, KpiTarget, kpiTitle, money, reportPeriod, shiftMonth } from '../src/services/kpi';
+import SalesTiles, { statsCaption } from '../src/components/kpi/SalesTiles';
+import { PermissionPicker } from '../src/components/PermissionToggles';
+import { can } from '../src/services/api';
+import { isKpiTarget, isManualTarget, KpiTarget, kpiTitle, money, reportPeriod, SalesStats, shiftMonth } from '../src/services/kpi';
 
 const target: KpiTarget = {
   id: 1,
@@ -39,16 +42,74 @@ function textOf(node: any): string {
   return textOf(node.children);
 }
 
-test('карточка KPI: факт, прогноз, пороги и подсказка', async () => {
+const render = async (el: React.ReactElement) => {
   let tree: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(() => {
-    tree = ReactTestRenderer.create(<KpiCard target={target} monthEnd="2026-05-31" onMenu={() => {}} />);
+    tree = ReactTestRenderer.create(el);
   });
-  const text = textOf(tree!.toJSON());
+  return textOf(tree!.toJSON());
+};
+
+test('цель по отчёту о продажах: факт, прогноз выплаты, пороги и подсказка', async () => {
+  const report: KpiTarget = { ...target, source: 'manual', calc: { ...target.calc, source: 'report' } };
+  const text = await render(<KpiCard target={report} monthEnd="2026-05-31" onMenu={() => {}} />);
   expect(text).toContain('План Балтика');
+  expect(text).toContain('по отчёту о продажах');
   expect(text).toContain('Прогноз на 31 мая');
   expect(text).toContain('80%');
   expect(text).toContain('До 80% — ещё 208 100 ₽');
+});
+
+test('KPI из файла: всё по файлу, условие из названия, прогноз только в процентах', async () => {
+  const file: KpiTarget = {
+    ...target,
+    payment_amount: '6000',
+    calc: { ...target.calc, source: 'file', tracked: false, now: 6000, forecast: 6000, asOf: '2026-05-12', condition: 'порог 90%, При выполнении 80-90% кэф 0,5' },
+  };
+  const text = await render(<KpiCard target={file} monthEnd="2026-05-31" />);
+  expect(text).toContain('по файлу KPI от 12 мая');
+  expect(text).toContain('Условие: порог 90%, При выполнении 80-90% кэф 0,5');
+  expect(text).toContain('При текущем темпе к 31 мая — ≈112%');
+  expect(text).not.toContain('Прогноз на 31 мая');
+});
+
+test('позиции без галочек: выполнение в процентах из файла', async () => {
+  const pct: KpiTarget = {
+    ...target,
+    kpi_kind: 'distra',
+    metric_type: 'quantity',
+    unit: '%',
+    target_value: 100,
+    current_value: 80,
+    calc: { ...target.calc, source: 'file', percent: 80, marks: [], items: null, forecastPercent: null, hint: 'Позиции: Охота, Бочкарев' },
+  };
+  const text = await render(<KpiCard target={pct} monthEnd={null} />);
+  expect(text).toContain('Выполнено 80%');
+  expect(text).toContain('Позиции: Охота, Бочкарев');
+});
+
+test('квадратики продаж из отчёта', async () => {
+  const stats: SalesStats = { revenue: 93600, akb: 4, perDay: 8509, quantity: 108, asOf: '2026-10-11', elapsed: 11, days: 31, reports: 1, uploadedAt: '' };
+  const text = await render(<SalesTiles stats={stats} />);
+  expect(text).toContain('Выручка');
+  expect(text).toContain('АКБ, точек');
+  expect(text).toContain('В среднем за день');
+  expect(text).toContain('Продано, шт');
+  expect(text).toContain(money(8509));
+  expect(statsCaption(stats, '2026-10')).toContain('на 11 октября · 11 из 31 дн.');
+  expect(statsCaption(null, '2026-10')).toContain('за октябрь пока нет');
+  expect(await render(<SalesTiles stats={null} />)).toContain('—');
+});
+
+test('функции сотрудника: по должности и вручную', async () => {
+  expect(can({ is_director: false, has_subordinates: false, permissions: { sales_reports: true } }, 'sales_reports')).toBe(true);
+  expect(can({ is_director: false, has_subordinates: true, permissions: { kpi_files: false } }, 'kpi_files')).toBe(false);
+  expect(can({ is_director: false, has_subordinates: true }, 'kpi_assign')).toBe(true);
+  expect(can({ is_director: true, has_subordinates: false, permissions: { kpi_assign: false } }, 'kpi_assign')).toBe(true);
+  expect(can(null, 'kpi_assign')).toBe(false);
+  const text = await render(<PermissionPicker byRole={false} value={{ sales_reports: true }} onChange={() => {}} />);
+  expect(text).toContain('Загрузка отчётов о продажах');
+  expect(text).toContain('включено вручную');
 });
 
 test('позиции дистрибуции', async () => {
@@ -76,4 +137,9 @@ test('форматирование и отбор показателей', () => 
   expect(money(1234.6)).toBe('1 235 ₽'.replace('1 235', new Intl.NumberFormat('ru-RU').format(1235)));
   expect(isKpiTarget(target)).toBe(true);
   expect(isKpiTarget({ source: 'manual', payout_rule: { type: 'none' } })).toBe(false);
+  expect(isKpiTarget({ source: 'manual', payout_rule: { type: 'none' }, calc: { ...target.calc, tracked: false, source: 'report' } })).toBe(true);
+  // Продажу вручную пишем только в цели, которые ведутся вручную.
+  expect(isManualTarget({ source: 'manual', calc: { ...target.calc, tracked: false, source: 'manual' } })).toBe(true);
+  expect(isManualTarget({ source: 'manual', calc: { ...target.calc, tracked: false, source: 'report' } })).toBe(false);
+  expect(isManualTarget(target)).toBe(false);
 });

@@ -20,9 +20,11 @@ import {
   AtSign,
   Mail,
   ChevronRight,
-  KeyRound
+  KeyRound,
+  SlidersHorizontal
 } from 'lucide-react-native';
 import { api, CurrentUser } from '../services/api';
+import { UserPermissions } from '../components/PermissionToggles';
 import { publicFileUrl, request } from '../services/http';
 
 import { T, themed } from '../theme/runtime';
@@ -307,6 +309,19 @@ export default function UserProfileScreen({ navigation }: any) {
                   {user.is_active ? 'Деактивировать сотрудника' : 'Активировать сотрудника'}
                 </Text>
               </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ===== ФУНКЦИИ (руководитель включает и отключает) ===== */}
+          {user?.can_manage && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardIconWrap}>
+                  <SlidersHorizontal size={18} color={T.accent} strokeWidth={2} />
+                </View>
+                <Text style={styles.cardTitle}>Функции</Text>
+              </View>
+              <UserPermissions userId={userId} editable flat />
             </View>
           )}
 

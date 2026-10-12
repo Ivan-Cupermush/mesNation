@@ -258,6 +258,22 @@ describe('чаты', () => {
     expect(list.find((x) => x.id === r.body.id).name).toBe('MGR1');
   });
 
+  it('фото группы: снимок больше 10 МБ принимается, нечитаемый файл — понятная ошибка', async () => {
+    const sharp = (await import('sharp')).default;
+    // Шум почти не сжимается: JPEG такого размера — как снимок с камеры телефона.
+    const big = await sharp({ create: { width: 3600, height: 3600, channels: 3, noise: { type: 'gaussian', mean: 128, sigma: 70 } } })
+      .jpeg({ quality: 100 })
+      .toBuffer();
+    expect(big.length).toBeGreaterThan(10 * 1024 * 1024);
+    const ok = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', big, 'IMG_0001.jpg');
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.avatar_url).toMatch(/^\/uploads\/avatars\/.+\.jpg$/);
+
+    const broken = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', Buffer.from('not an image at all'), 'IMG_0002.heic');
+    expect(broken.status).toBe(400);
+    expect(broken.body.error).toMatch(/JPG или PNG/);
+  });
+
   it('ранее отсутствовавшие эндпоинты работают', async () => {
     expect((await as(c.mgr1).get(`/api/chats/${groupId}`)).status).toBe(200);
     expect((await as(c.mgr1).get(`/api/chats/${groupId}/members`)).body).toHaveLength(2);

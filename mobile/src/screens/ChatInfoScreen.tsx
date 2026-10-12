@@ -179,7 +179,8 @@ export default function ChatInfoScreen({ navigation }: any) {
   };
 
   const changeAvatar = async () => {
-    const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.9 });
+    // Уменьшаем снимок на телефоне: HEIC и фото на десятки мегапикселей уходят обычным JPEG.
+    const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8, maxWidth: 1280, maxHeight: 1280 });
     const a = res.assets?.[0];
     if (!a?.uri) return;
     setUploadingAvatar(true);

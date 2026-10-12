@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import sharp from 'sharp';
+import { saveAvatar } from '../services/media';
 import path from 'path';
 import { z } from 'zod';
 import pool, { withTransaction } from '../db/pool';
@@ -249,7 +249,8 @@ router.post('/change-password', authenticate, validate(changePasswordSchema), as
   res.json({ success: true, token: await issueUserToken(req.userId!) });
 });
 
-const avatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 10, imagesOnly: true, prefix: 'u_' });
+// Снимок с телефона в полном разрешении бывает больше 10 МБ — сервер всё равно ужмёт его до 512 px.
+const avatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 30, imagesOnly: true, prefix: 'u_' });
 
 router.post('/avatar', authenticate, avatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
   const file = req.file;
@@ -258,10 +259,10 @@ router.post('/avatar', authenticate, avatarUpload.single('avatar'), async (req: 
   const outName = path.basename(file.filename, path.extname(file.filename)) + '.jpg';
   const outPath = path.join(UPLOAD_DIRS.avatars, outName);
   try {
-    await sharp(file.path).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(outPath);
-  } catch {
+    await saveAvatar(file.path, outPath);
+  } catch (e) {
     removeFile(file.path);
-    throw badRequest('Не удалось обработать изображение');
+    throw e;
   }
   if (outPath !== file.path) removeFile(file.path);
   const url = `/uploads/avatars/${outName}`;

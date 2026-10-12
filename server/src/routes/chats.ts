@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import path from 'path';
-import sharp from 'sharp';
+import { saveAvatar } from '../services/media';
 import { z } from 'zod';
 import pool, { withTransaction } from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
@@ -491,7 +491,8 @@ router.get('/:id/messages', async (req: AuthRequest, res: Response) => {
 
 // ---------- Аватар группы ----------
 
-const chatAvatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 10, imagesOnly: true, prefix: 'chat_' });
+// Снимок с телефона в полном разрешении бывает больше 10 МБ — сервер ужмёт его до 512 px.
+const chatAvatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 30, imagesOnly: true, prefix: 'chat_' });
 
 router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
   const file = req.file;
@@ -501,7 +502,7 @@ router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRe
     const rights = await assertChatPermission(chatId, req.userId!, 'change_info', 'Нет прав на изменение группы');
     if (rights.type !== 'group') throw badRequest('Аватар можно задать только группе');
     const outName = path.basename(file.filename, path.extname(file.filename)) + '.jpg';
-    await sharp(file.path).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(path.join(UPLOAD_DIRS.avatars, outName));
+    await saveAvatar(file.path, path.join(UPLOAD_DIRS.avatars, outName));
     removeFile(file.path);
     const url = `/uploads/avatars/${outName}`;
     const prev = await pool.query('SELECT avatar_url FROM chats WHERE id = $1', [chatId]);

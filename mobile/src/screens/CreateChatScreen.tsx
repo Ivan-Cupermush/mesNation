@@ -101,7 +101,8 @@ export default function CreateChatScreen({ navigation, route }: any) {
   const toggle = (id: number) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const pickPhoto = async () => {
-    const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.9 });
+    // Уменьшаем снимок на телефоне: HEIC и фото на десятки мегапикселей уходят обычным JPEG.
+    const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8, maxWidth: 1280, maxHeight: 1280 });
     const a = res.assets?.[0];
     if (a?.uri) setPhoto({ uri: a.uri, type: a.type, fileName: a.fileName });
   };
@@ -119,7 +120,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
       });
       if (photo) {
         await upload(`/api/chats/${chat.id}/avatar`, 'avatar', { uri: photo.uri, name: photo.fileName || 'avatar.jpg', type: photo.type || 'image/jpeg' }).catch(
-          () => Alert.alert('Фото не загружено', 'Группа создана, фото можно поставить в её настройках.'),
+          (e: any) => Alert.alert('Фото не загружено', `${e?.message || 'Нет связи с сервером'}. Группа создана — фото можно поставить в её настройках.`),
         );
       }
       navigation.replace(withTopics ? 'TopicList' : 'Chat', { chatId: String(chat.id), chatName: chat.name });

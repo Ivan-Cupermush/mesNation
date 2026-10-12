@@ -35,7 +35,8 @@ import {
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
 import { getToken, SERVER_URL } from '../utils';
-import { pick } from '@react-native-documents/picker';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { upload } from '../services/http';
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
@@ -121,32 +122,17 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   };
 
   const handleChangeAvatar = async () => {
+    // Из галереи, уменьшенным на телефоне: HEIC и фото на десятки мегапикселей уходят обычным JPEG.
+    const picked = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, quality: 0.8, maxWidth: 1280, maxHeight: 1280 });
+    const a = picked.assets?.[0];
+    if (!a?.uri) return;
+    setUploading(true);
     try {
-      const [res] = await pick({ allowMultiSelection: false });
-      if (!res) return;
-      setUploading(true);
-      const token = await getToken();
-      const formData = new FormData();
-      formData.append('avatar', {
-        uri: res.uri,
-        type: res.type || 'image/jpeg',
-        name: res.name || 'avatar.jpg',
-      } as any);
-      const uploadRes = await fetch(`${SERVER_URL}/api/auth/avatar`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (uploadRes.ok) {
-        Alert.alert('Готово', 'Аватар обновлён');
-        loadProfile();
-      } else {
-        Alert.alert('Ошибка', 'Не удалось загрузить аватар');
-      }
+      await upload('/api/auth/avatar', 'avatar', { uri: a.uri, name: a.fileName || 'avatar.jpg', type: a.type || 'image/jpeg' });
+      Alert.alert('Готово', 'Аватар обновлён');
+      loadProfile();
     } catch (e: any) {
-      if (e?.code !== 'DOCUMENT_PICKER_CANCELED') {
-        Alert.alert('Ошибка', 'Не удалось выбрать файл');
-      }
+      Alert.alert('Не удалось загрузить аватар', e?.message || 'Нет связи с сервером');
     } finally {
       setUploading(false);
     }

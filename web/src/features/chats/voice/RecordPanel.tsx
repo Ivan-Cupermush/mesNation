@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronUp, Lock, Square, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronUp, Lock, Square, Trash2, Zap, ZapOff } from 'lucide-react';
 import { formatDuration } from '../../../lib/format';
 import type { RecorderApi } from './useRecorder';
 import { VIDEO_NOTE_MAX_S } from './useRecorder';
@@ -139,9 +139,49 @@ function PreviewPlayer({ url, duration, waveform }: { url: string; duration: num
   );
 }
 
-/** Кружок с камерой поверх чата и кольцо — минута записи. */
+type TrackCaps = MediaTrackCapabilities & { zoom?: { min: number; max: number; step?: number }; torch?: boolean };
+const fmtZoom = (z: number) => `${z < 10 ? z.toFixed(1).replace('.0', '') : Math.round(z)}×`;
+
+/**
+ * Кружок с камерой поверх чата и кольцо — минута записи.
+ * Вспышка: фонарик, если камера его умеет, иначе — яркий белый экран
+ * вокруг кружка (подсвечивает лицо, как в Telegram). Зум — колесом мыши
+ * над кружком или кнопкой «1× / 2×», если камера поддерживает зум.
+ */
 export function VideoNoteOverlay({ rec }: { rec: RecorderApi }) {
   const video = useRef<HTMLVideoElement>(null);
+  const track = rec.stream?.getVideoTracks()[0] ?? null;
+  const caps = useMemo<TrackCaps | null>(() => {
+    try {
+      return (track?.getCapabilities?.() as TrackCaps) ?? null;
+    } catch {
+      return null;
+    }
+  }, [track]);
+  const zoomCap = caps?.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : null;
+  const [zoom, setZoom] = useState<number>(1);
+  const [flash, setFlash] = useState(false);
+  const torch = !!caps?.torch;
+
+  useEffect(() => {
+    if (!track || !zoomCap) return;
+    const cur = (track.getSettings() as MediaTrackSettings & { zoom?: number }).zoom;
+    setZoom(cur ?? zoomCap.min);
+  }, [track, zoomCap]);
+
+  const applyZoom = (z: number) => {
+    if (!track || !zoomCap) return;
+    const next = Math.round(Math.min(zoomCap.max, Math.max(zoomCap.min, z)) * 10) / 10;
+    setZoom(next);
+    track.applyConstraints({ advanced: [{ zoom: next } as MediaTrackConstraintSet] }).catch(() => undefined);
+  };
+
+  const toggleFlash = () => {
+    const on = !flash;
+    setFlash(on);
+    if (torch && track) track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] }).catch(() => undefined);
+  };
+  const screenFlash = flash && !torch;
   const D = Math.min(320, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.62));
   const R = D / 2 + 7;
   const circ = 2 * Math.PI * R;
@@ -155,9 +195,13 @@ export function VideoNoteOverlay({ rec }: { rec: RecorderApi }) {
   }, [rec.stream]);
 
   return createPortal(
-    <div className={s.overlay}>
+    <div className={[s.overlay, screenFlash && s.overlayFlash].filter(Boolean).join(' ')}>
       <div className={s.cam} style={{ width: D + 20, height: D + 20 }}>
-        <div className={s.camCircle} style={{ width: D, height: D }}>
+        <div
+          className={[s.camCircle, rec.locked && zoomCap && s.camCircleLive].filter(Boolean).join(' ')}
+          style={{ width: D, height: D }}
+          onWheel={zoomCap && rec.locked ? (e) => applyZoom(zoom + (e.deltaY < 0 ? 0.2 : -0.2)) : undefined}
+        >
           <video ref={video} muted playsInline className={s.camVideo} />
           {!rec.stream && <span className={s.camWait}>Камера включается…</span>}
         </div>
@@ -177,6 +221,24 @@ export function VideoNoteOverlay({ rec }: { rec: RecorderApi }) {
           />
         </svg>
       </div>
+      {rec.locked && (
+        <div className={s.camControls}>
+          <button type="button" className={[s.camBtn, flash && s.camBtnOn].filter(Boolean).join(' ')} onClick={toggleFlash} aria-label={flash ? 'Выключить вспышку' : 'Включить вспышку'} title="Вспышка">
+            {flash ? <Zap size={20} fill="#FFD43B" /> : <ZapOff size={20} />}
+          </button>
+          {zoomCap && (
+            <button
+              type="button"
+              className={s.zoomPill}
+              onClick={() => applyZoom(zoom >= Math.min(2, zoomCap.max) - 0.05 ? zoomCap.min : Math.min(2, zoomCap.max))}
+              aria-label={`Зум ${fmtZoom(zoom)}`}
+              title="Зум (или колесо мыши над кружком)"
+            >
+              {fmtZoom(zoom)}
+            </button>
+          )}
+        </div>
+      )}
     </div>,
     document.body,
   );

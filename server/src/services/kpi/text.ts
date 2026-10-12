@@ -39,6 +39,13 @@ export const isoDate = (y: number, m: number, d: number) =>
 /** Последний день месяца (m — 1..12). */
 export const daysInMonth = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
+/** Рабочие дни месяца с 1-го по toDay включительно: понедельник–суббота (воскресенье — выходной). */
+export function workDays(y: number, m: number, toDay = daysInMonth(y, m)): number {
+  let n = 0;
+  for (let d = 1; d <= toDay; d++) if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() !== 0) n++;
+  return n;
+}
+
 /** Первое число месяца даты YYYY-MM-DD. */
 export const monthOf = (iso: string) => `${iso.slice(0, 7)}-01`;
 

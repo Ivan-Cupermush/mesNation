@@ -7,7 +7,8 @@ import { dayMonth, money, monthName, numberText, SalesStats } from '../../servic
 /** Подпись под квадратиками: по какое число учтены продажи. */
 export function statsCaption(stats: SalesStats | null | undefined, month: string): string {
   if (!stats) return `Отчётов о продажах за ${monthName(month)} пока нет — квадратики заполнятся после загрузки отчёта.`;
-  return `По отчёту о продажах на ${dayMonth(stats.asOf)} · ${stats.elapsed} из ${stats.days} дн. · АКБ без «Есть повод»`;
+  const work = stats.workElapsed != null ? `рабочих дней: ${stats.workElapsed} из ${stats.workDays}` : `${stats.elapsed} из ${stats.days} дн.`;
+  return `По отчёту о продажах на ${dayMonth(stats.asOf)} · ${work} (вс — выходной) · АКБ без «Есть повод»`;
 }
 
 /** Четыре квадратика продаж по отчётам о продажах: выручка, АКБ, средняя продажа в день, проданные штуки. */
@@ -15,7 +16,7 @@ export default function SalesTiles({ stats }: { stats: SalesStats | null | undef
   const tiles = [
     { key: 'sum', label: 'Выручка', value: stats ? money(stats.revenue) : '—', Icon: Wallet, color: T.accent, bg: T.successSoft },
     { key: 'akb', label: 'АКБ, точек', value: stats ? numberText(stats.akb) : '—', Icon: Store, color: T.info, bg: T.infoSoft },
-    { key: 'day', label: 'В среднем за день', value: stats ? money(stats.perDay) : '—', Icon: CalendarDays, color: T.warning, bg: T.warningSoft },
+    { key: 'day', label: 'В среднем за рабочий день', value: stats ? money(stats.perDay) : '—', Icon: CalendarDays, color: T.warning, bg: T.warningSoft },
     { key: 'qty', label: 'Продано, шт', value: stats ? numberText(stats.quantity) : '—', Icon: Package, color: T.violet, bg: T.violetSoft },
   ];
   return (
@@ -28,7 +29,7 @@ export default function SalesTiles({ stats }: { stats: SalesStats | null | undef
           <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
             {value}
           </Text>
-          <Text style={styles.label} numberOfLines={1}>
+          <Text style={styles.label} numberOfLines={2}>
             {label}
           </Text>
         </View>

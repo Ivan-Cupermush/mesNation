@@ -6,7 +6,7 @@ import { parseSalesReport } from '../src/services/kpi/salesReport';
 import { kindOf, parseItem, parseKpiFile } from '../src/services/kpi/kpiFile';
 import { computeFact, PATH_SEP, type ReportLine } from '../src/services/kpi/facts';
 import { defaultRules, guessFactRule, payoutFor, ruleText } from '../src/services/kpi/rules';
-import { datesIn, matchesItem, personScore, personWords } from '../src/services/kpi/text';
+import { datesIn, matchesItem, personScore, personWords, workDays } from '../src/services/kpi/text';
 import { Actor, client, resetDatabase, seedCompany } from './helpers';
 import { kpiFile, mayClients, salesReport } from './kpiFixtures';
 
@@ -60,6 +60,14 @@ describe('KPI: отчёт о продажах из 1С', () => {
     expect(() => parseSalesReport(salesReport('май', mayClients()))).toThrow(/не найден период/);
     expect(() => parseSalesReport(salesReport('25.05.2026 - 05.06.2026', mayClients()))).toThrow(/несколько месяцев/);
     expect(() => parseSalesReport(Buffer.from('просто текст'))).toThrow();
+  });
+
+  it('рабочие дни: понедельник–суббота, воскресенье — выходной', () => {
+    expect(workDays(2026, 5)).toBe(26);
+    expect(workDays(2026, 5, 15)).toBe(13);
+    expect(workDays(2026, 2)).toBe(24);
+    // 1 марта 2026 — воскресенье.
+    expect(workDays(2026, 3, 1)).toBe(0);
   });
 
   it('даты периода в разных записях', () => {
@@ -324,7 +332,8 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
 
     const m = await month(c.sales, c.mgr1.id);
     // Квадратики: выручка, АКБ, средняя продажа в день, штуки.
-    expect(m.stats).toMatchObject({ revenue: 72000, akb: 6, perDay: 4800, quantity: 108, asOf: '2026-05-15', elapsed: 15, days: 31, reports: 1 });
+    // Среднее — по рабочим дням (пн–сб): с 1 по 15 мая 2026 — 13 дней (3 и 10 мая — воскресенья).
+    expect(m.stats).toMatchObject({ revenue: 72000, akb: 6, perDay: 5538.46, quantity: 108, asOf: '2026-05-15', elapsed: 15, days: 31, workElapsed: 13, workDays: 26, reports: 1 });
     expect(m.coverage).toMatchObject({ asOf: '2026-05-15', elapsed: 15, days: 31, reports: 1 });
     // KPI из файла отчёт не трогает.
     expect(Number(m.by.no_ep.current_value)).toBe(150000);
@@ -368,7 +377,7 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     expect(next.status, JSON.stringify(next.body)).toBe(200);
     expect(next.body.replaced).toBe(1);
     const m = await month(c.sales, c.mgr1.id);
-    expect(m.stats).toMatchObject({ revenue: 79200, perDay: 4950, asOf: '2026-05-16', reports: 1 });
+    expect(m.stats).toMatchObject({ revenue: 79200, perDay: 5657.14, asOf: '2026-05-16', workElapsed: 14, reports: 1 });
     expect(m.coverage).toMatchObject({ asOf: '2026-05-16', reports: 1 });
 
     const day = await upload(c.sales, '/api/kpi/sales/import-report', salesReport('10.05.2026 - 10.05.2026', mayClients()), 'день.xlsx');
@@ -386,7 +395,7 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
       expect(r.body.replaced).toBe(0);
     }
     const m = await month(c.sales, c.mgr1.id, '2026-06');
-    expect(m.stats).toMatchObject({ revenue: 72000, perDay: 36000, quantity: 216, elapsed: 2, reports: 2 });
+    expect(m.stats).toMatchObject({ revenue: 72000, perDay: 36000, quantity: 216, elapsed: 2, workElapsed: 2, reports: 2 });
     expect(m.coverage).toMatchObject({ asOf: '2026-06-02', elapsed: 2, reports: 2 });
     // В файле на начало месяца итогов нет — факта KPI тоже нет.
     expect(m.totals.file).toBeNull();

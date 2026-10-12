@@ -63,7 +63,7 @@ export function SalesTiles({ stats }: { stats: SalesStats | null | undefined }) 
   const tiles = [
     { key: 'sum', label: 'Выручка', value: stats ? money(stats.revenue) : '—', icon: <Wallet size={20} />, tone: 'accent' },
     { key: 'akb', label: 'АКБ, точек', value: stats ? number(stats.akb) : '—', icon: <Store size={20} />, tone: 'info' },
-    { key: 'day', label: 'В среднем за день', value: stats ? money(stats.perDay) : '—', icon: <CalendarDays size={20} />, tone: 'warning' },
+    { key: 'day', label: 'В среднем за рабочий день', value: stats ? money(stats.perDay) : '—', icon: <CalendarDays size={20} />, tone: 'warning' },
     { key: 'qty', label: 'Продано, шт', value: stats ? number(stats.quantity) : '—', icon: <Package size={20} />, tone: 'violet' },
   ];
   return (
@@ -86,7 +86,8 @@ export function SalesTiles({ stats }: { stats: SalesStats | null | undefined }) 
 /** Подпись под квадратиками: по какое число учтены продажи. */
 export function statsCaption(stats: SalesStats | null | undefined, month: string): string {
   if (!stats) return `Отчётов о продажах за ${monthName(month).toLowerCase()} пока нет — квадратики заполнятся после загрузки отчёта.`;
-  return `По отчёту о продажах на ${dayMonth(stats.asOf)} · ${stats.elapsed} из ${stats.days} дн. · АКБ без «Есть повод»`;
+  const work = stats.workElapsed != null ? `рабочих дней: ${stats.workElapsed} из ${stats.workDays}` : `${stats.elapsed} из ${stats.days} дн.`;
+  return `По отчёту о продажах на ${dayMonth(stats.asOf)} · ${work} (вс — выходной) · АКБ без «Есть повод»`;
 }
 
 /** Продажи за месяц (квадратики) — наверху экрана статистики; руководителю — переключение месяцев. */

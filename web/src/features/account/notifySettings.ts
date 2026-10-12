@@ -5,12 +5,14 @@ import { storage } from '../../lib/storage';
 export interface NotifySettings {
   messages: boolean;
   tasks: boolean;
+  /** Запросы текущей версии заметок и ответы на них. */
+  notes: boolean;
   /** Показывать текст сообщения (иначе — «Новое сообщение»). */
   preview: boolean;
 }
 
 const KEY = 'offix.notify';
-const DEFAULTS: NotifySettings = { messages: true, tasks: true, preview: true };
+const DEFAULTS: NotifySettings = { messages: true, tasks: true, notes: true, preview: true };
 const listeners = new Set<() => void>();
 
 let cache: NotifySettings = { ...DEFAULTS, ...(storage.getJSON<Partial<NotifySettings>>(KEY) || {}) };

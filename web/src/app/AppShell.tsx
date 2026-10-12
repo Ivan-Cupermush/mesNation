@@ -5,6 +5,8 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { useUnreadChatsCount } from '../features/chats/queries';
 import { useChatNotifications } from '../features/chats/notifications';
 import { useTaskNotifications } from '../features/tasks/notifications';
+import Bell from '../features/inbox/Bell';
+import { useInboxRealtime } from '../features/inbox/api';
 import { getSocket, onConnectionChange, isConnected } from '../lib/socket';
 import { Avatar } from '../ui/Avatar';
 import { BrandMark } from '../ui/BrandMark';
@@ -41,6 +43,8 @@ export default function AppShell() {
   useChatNotifications(user?.id ?? 0);
   // Задачи обновляются в реальном времени на всех экранах (и для уведомлений).
   useTaskNotifications();
+  // Колокольчик: новые задачи и запросы заметок в реальном времени.
+  useInboxRealtime();
   const offline = useOfflineBanner();
   const items = NAV.filter((n) => !('directorOnly' in n) || !!user?.is_director);
   const isRoot = ROOT_PATHS.has(location.pathname.replace(/\/$/, ''));
@@ -75,13 +79,16 @@ export default function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <button type="button" className={s.me} onClick={() => navigate('/profile')} title="Профиль">
-          <Avatar name={displayName(user)} src={user?.avatar_url} size={38} />
-          <span className={s.meText}>
-            <span className={s.meName}>{displayName(user)}</span>
-            <span className={s.meRole}>{user?.role_name || 'Сотрудник'}</span>
-          </span>
-        </button>
+        <div className={s.meRow}>
+          <button type="button" className={s.me} onClick={() => navigate('/profile')} title="Профиль">
+            <Avatar name={displayName(user)} src={user?.avatar_url} size={38} />
+            <span className={s.meText}>
+              <span className={s.meName}>{displayName(user)}</span>
+              <span className={s.meRole}>{user?.role_name || 'Сотрудник'}</span>
+            </span>
+          </button>
+          <Bell />
+        </div>
       </aside>
 
       <div className={s.main}>

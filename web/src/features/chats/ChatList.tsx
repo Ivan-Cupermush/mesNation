@@ -22,6 +22,7 @@ import { dismissNotificationsOffer, requestNotifications, shouldOfferNotificatio
 import type { Chat } from './types';
 import type { Employee } from '../../lib/types';
 import s from './ChatList.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 type Filter = 'all' | 'private' | 'groups' | 'unread';
 
@@ -166,6 +167,7 @@ export default function ChatList() {
         <IconButton label="Новый чат" tone="soft" size={42} onClick={() => navigate('/chats/new')}>
           <Plus size={22} />
         </IconButton>
+        <ShellActions />
       </div>
       <div className={s.search}>
         <SearchField value={query} onChange={setQuery} placeholder="Поиск чатов и сотрудников" />

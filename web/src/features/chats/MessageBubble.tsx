@@ -34,6 +34,7 @@ interface Props {
   onCancel: (msg: Message) => void;
   onSenderClick: (userId: number) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
+  onOpenNote?: (noteId: number) => void;
   onReact: (msg: Message, emoji: string) => void;
   onPlayVoice: (msg: Message) => void;
   onSeekVoice: (msg: Message, ratio: number) => void;
@@ -69,7 +70,7 @@ function MessageBubble(props: Props) {
   const selecting = !!props.selecting;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
-  const caption = main.text && !isNote && !isPoll ? main.text : '';
+  const caption = main.text && !isPoll ? main.text : '';
   const showSideAvatar = isGroup && !mine;
   const showName = firstInSeries && isGroup && !mine;
   const mediaOnly = isVisual && !caption && !main.reply_to_message_id && !main.forwarded_from_user_id && !showName;
@@ -240,7 +241,7 @@ function MessageBubble(props: Props) {
         {pollMediaFile && <FileRow msg={main} onOpen={props.onOpenFile} />}
         {isPoll && main.poll && <PollBubble poll={main.poll} myVotes={main.my_votes || []} mine={mine} />}
         {isNote && main.note_share && (
-          <NoteShareBubble share={main.note_share} meId={meId} mine={mine} onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)} />
+          <NoteShareBubble share={main.note_share} meId={meId} mine={mine} onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)} onOpenNote={props.onOpenNote} />
         )}
 
         {caption && (

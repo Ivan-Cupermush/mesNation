@@ -113,6 +113,12 @@ export default function NotePickerModal({
 function SendSheet({ note, onCancel, onSend }: { note: any; onCancel: () => void; onSend: (caption: string) => void }) {
   const insets = useSafeAreaInsets();
   const [caption, setCaption] = useState('');
+  const [me, setMe] = useState<{ name: string; avatar: string | null } | null>(null);
+  useEffect(() => {
+    request<any>('/api/auth/me')
+      .then((u) => setMe({ name: u?.display_name || u?.username || '', avatar: u?.avatar_url || null }))
+      .catch(() => undefined);
+  }, []);
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(slide, { toValue: 1, useNativeDriver: true, friction: 9, tension: 80 }).start();
@@ -144,6 +150,8 @@ function SendSheet({ note, onCancel, onSend }: { note: any; onCancel: () => void
                 title={note.title}
                 preview={String(note.content || '').slice(0, 400)}
                 filesCount={note.files_count || 0}
+                ownerName={me?.name}
+                ownerAvatar={me?.avatar}
                 ownerLine="Копия на момент отправки"
                 mine
                 width={248}

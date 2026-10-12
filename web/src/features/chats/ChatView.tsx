@@ -27,6 +27,7 @@ import {
   Undo2,
   Upload,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError, downloadFile, openFile } from '../../lib/http';
@@ -51,6 +52,7 @@ import { Composer, type ComposerHandle } from './Composer';
 import AttachDialog, { type PickedItem, type SendOptions } from './AttachDialog';
 import PollComposer from './PollComposer';
 import NotePicker from './NotePicker';
+import { requestNoteVersion } from './NoteShareBubble';
 import ChatPicker from './ChatPicker';
 import MediaViewer, { type ViewerItem } from './MediaViewer';
 import { DeleteDialog, ScheduledList } from './ChatDialogs';
@@ -455,11 +457,24 @@ export default function ChatView() {
     }
   };
 
-  const shareNote = async (noteId: number) => {
+  /** Заметка уходит как файл: снимок + подпись в том же сообщении. */
+  const shareNote = async (noteId: number, caption: string) => {
+    const reply = replyTo?.id ?? null;
+    setReplyTo(null);
     try {
-      await api.post(`/api/notes/${noteId}/share`, { chat_id: Number(chatId), topic_id: topicId });
+      await api.post(`/api/notes/${noteId}/share`, { chat_id: Number(chatId), topic_id: topicId, comment: caption || undefined, reply_to_message_id: reply });
     } catch (e) {
       toast.error(e, 'Не удалось отправить заметку');
+    }
+  };
+
+  /** «Запросить текущую версию» у автора пересланной заметки. */
+  const askNoteVersion = async (m: Message) => {
+    if (!m.note_share) return;
+    try {
+      toast.success(await requestNoteVersion(m.note_share.id, m.note_share.sender_name));
+    } catch (e) {
+      toast.error(e, 'Не удалось отправить запрос');
     }
   };
 
@@ -723,7 +738,12 @@ export default function ChatView() {
     const main = rowMain(row);
     const all = rowMessages(row).filter((m) => m.id > 0);
     const mine = main.sender_id === me.id;
-    const list: MenuItem[] = [{ key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={19} />, onSelect: () => startReply(main) }];
+    const list: MenuItem[] = [];
+    // Чужая заметка — первым пунктом «Запросить текущую версию».
+    if (main.note_share && main.note_share.sender_id !== me.id) {
+      list.push({ key: 'noteVersion', label: 'Запросить текущую версию', icon: <RefreshCw size={19} />, onSelect: () => askNoteVersion(main) });
+    }
+    list.push({ key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={19} />, onSelect: () => startReply(main) });
     if (main.text && main.content_type !== 'note') list.push({ key: 'copy', label: 'Копировать текст', icon: <Copy size={19} />, onSelect: () => copyText(main.text!) });
     if (isVisualMedia(main)) list.push({ key: 'open', label: 'Открыть', icon: <ImageIcon size={19} />, onSelect: () => openMedia(main) });
     if (main.file_url && !main.poll_id && (isVoiceLike(main) || isVisualMedia(main))) {
@@ -741,8 +761,8 @@ export default function ChatView() {
         onSelect: () => togglePin(main),
       });
     }
-    if (mine && !main.poll_id && !main.note_share_id && main.content_type !== 'service') {
-      list.push({ key: 'edit', label: main.file_url ? 'Изменить подпись' : 'Изменить', icon: <Pencil size={19} />, onSelect: () => startEdit(main) });
+    if (mine && !main.poll_id && main.content_type !== 'service') {
+      list.push({ key: 'edit', label: main.file_url || main.note_share_id ? 'Изменить подпись' : 'Изменить', icon: <Pencil size={19} />, onSelect: () => startEdit(main) });
     }
     if (main.poll && !main.poll.is_closed && !main.poll.is_quiz && (main.my_votes || []).length) {
       list.push({ key: 'retract', label: 'Отменить голос', icon: <Undo2 size={19} />, onSelect: () => pollAction(`/api/polls/${main.poll_id}/vote`, 'DELETE') });
@@ -799,6 +819,8 @@ export default function ChatView() {
     },
     [confirm, feed, toast],
   );
+
+  const openOwnNote = useCallback((noteId: number) => navigate(`/notes/${noteId}`), [navigate]);
 
   const onNoteAccepted = useCallback(
     async (messageId: number, noteId: number) => {
@@ -922,7 +944,7 @@ export default function ChatView() {
           </span>
           {(() => {
             const one = selectedMsgs.length === 1 ? selectedMsgs[0] : null;
-            const canEdit = !!one && one.sender_id === me.id && !one.poll_id && !one.note_share_id && !isVoiceLike(one) && one.content_type !== 'service';
+            const canEdit = !!one && one.sender_id === me.id && !one.poll_id && !isVoiceLike(one) && one.content_type !== 'service';
             const hasText = selectedMsgs.some((m) => m.text && m.content_type !== 'service');
             const canForward = selectedMsgs.length > 0 && selectedMsgs.every((m) => !m.poll_id);
             return (
@@ -1154,6 +1176,7 @@ export default function ChatView() {
                     onCancel={feed.discard}
                     onSenderClick={onSenderClick}
                     onNoteAccepted={onNoteAccepted}
+                    onOpenNote={openOwnNote}
                     onReact={react}
                     onPlayVoice={onPlayVoice}
                     onSeekVoice={onSeekVoice}

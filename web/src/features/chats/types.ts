@@ -25,6 +25,8 @@ export interface LastMessage {
   file_url: string | null;
   poll_id: number | null;
   note_share_id?: number | null;
+  /** Название пересланной заметки (подпись — в text). */
+  note_title?: string | null;
   poll_question: string | null;
   sender_name: string | null;
 }
@@ -78,6 +80,9 @@ export interface NoteShareInfo {
   preview: string;
   files_count: number;
   sender_id: number;
+  sender_name?: string | null;
+  sender_avatar_url?: string | null;
+  created_at?: string;
   accepted_user_ids: number[];
 }
 

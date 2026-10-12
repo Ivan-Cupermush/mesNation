@@ -406,10 +406,11 @@ function Editor({ initial, initialDate, session }: { initial: Note | null; initi
       <ChatPicker
         open={sharing}
         title="Отправить заметку в чат"
+        commentPlaceholder="Подпись к заметке (необязательно)"
         onClose={() => setSharing(false)}
         onSend={async (chatId, topicId, comment) => {
           await api.post(`/api/notes/${note!.id}/share`, { chat_id: chatId, topic_id: topicId, comment: comment || undefined });
-          toast.success('Отправлено — получатель сможет принять заметку к себе');
+          toast.success('Отправлена копия на этот момент — получатель добавит её к себе или запросит текущую версию');
         }}
       />
     </div>

@@ -18,6 +18,7 @@ import { useFeedback } from '../../ui/feedback';
 import { noteKeys, noteText, useAllNotes, useFavoriteNotes, useNoteDays, useNotesByDate, type Note } from './queries';
 import { NotesContext, useNotesContext, type NotesState } from './context';
 import s from './NotesRoutes.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 const NoteEditor = lazy(() => import('./NoteEditor'));
 
@@ -166,6 +167,7 @@ function NotesList() {
         <IconButton label="Новая заметка" tone="soft" size={42} onClick={() => navigate(`/notes/new?date=${state.date}`)}>
           <Plus size={22} />
         </IconButton>
+        <ShellActions />
       </header>
 
       <div className={s.scroll}>

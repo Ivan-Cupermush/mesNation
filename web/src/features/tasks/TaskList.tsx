@@ -10,6 +10,7 @@ import { Spinner } from '../../ui/Spinner';
 import TaskCard from './TaskCard';
 import { ROLE_FILTERS, STATUS_FILTERS, useFilteredTasks, type TaskFilterState } from './filters';
 import s from './TaskList.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 export interface ListState extends TaskFilterState {
   view: 'list' | 'calendar';
@@ -63,6 +64,7 @@ export default function TaskList({ state, onChange, children }: Props) {
             <CalendarRange size={18} />
           </button>
         </div>
+        <ShellActions />
         <IconButton label="Новая задача" tone="soft" size={42} onClick={() => navigate('/tasks/new')}>
           <Plus size={22} />
         </IconButton>

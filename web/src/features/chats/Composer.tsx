@@ -273,7 +273,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(prop
     const t = text.trim();
     if (editing) {
       // У фото и файлов подпись можно убрать, у текста — нет.
-      if (!t && !editing.file_url) return;
+      if (!t && !editing.file_url && !editing.note_share_id) return;
       if (await props.onSaveEdit(t)) setText(savedDraft.current ?? '');
       return;
     }
@@ -322,7 +322,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(prop
     if (files.length) props.onFiles(files, kind);
   };
 
-  const canSend = !!text.trim() || (!!editing && !!editing.file_url);
+  const canSend = !!text.trim() || (!!editing && (!!editing.file_url || !!editing.note_share_id));
   /** Пустое поле — микрофон или камера вместо отправки. */
   const showMic = !canSend && !editing;
 
@@ -368,7 +368,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(prop
               value={text}
               rows={1}
               maxLength={MAX_TEXT}
-              placeholder={editing?.file_url ? 'Подпись' : 'Сообщение'}
+              placeholder={editing?.file_url || editing?.note_share_id ? 'Подпись' : 'Сообщение'}
               enterKeyHint={sendByEnter && !touch ? 'send' : 'enter'}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={onKeyDown}

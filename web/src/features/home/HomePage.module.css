@@ -15,6 +15,13 @@
   box-shadow: var(--shadow-sm);
 }
 
+.heroTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .date {
   font-size: 13px;
   font-weight: 650;

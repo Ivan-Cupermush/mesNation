@@ -20,10 +20,12 @@ interface Props {
   onClose: () => void;
   /** topicId: тема супергруппы (null — «Общий»). */
   onSend: (chatId: number, topicId: number | null, comment: string) => Promise<void>;
+  /** Подсказка в поле комментария (для заметки — «Подпись»). */
+  commentPlaceholder?: string;
 }
 
 /** Выбор чата (и темы супергруппы) с необязательным комментарием — пересылка, отправка заметки. */
-export default function ChatPicker({ open, title, action = 'Отправить', onClose, onSend }: Props) {
+export default function ChatPicker({ open, title, action = 'Отправить', onClose, onSend, commentPlaceholder }: Props) {
   const { toast } = useFeedback();
   const { data: chats, isLoading } = useChats();
   const [query, setQuery] = useState('');
@@ -132,7 +134,7 @@ export default function ChatPicker({ open, title, action = 'Отправить',
         </div>
       )}
       <div className={s.comment}>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий (необязательно)" rows={2} maxLength={MAX_TEXT} />
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder={commentPlaceholder || 'Комментарий (необязательно)'} rows={2} maxLength={MAX_TEXT} />
       </div>
     </Modal>
   );

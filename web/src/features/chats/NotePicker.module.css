@@ -78,3 +78,102 @@
   font-size: 12px;
   color: var(--c-text-muted);
 }
+
+/* Шаг «подпись и отправка» */
+.backTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.back {
+  display: inline-flex;
+  margin-left: -6px;
+  padding: 2px;
+  border-radius: 8px;
+  color: var(--c-text-secondary);
+}
+
+.back:hover {
+  background: var(--c-input-bg);
+}
+
+.sendStep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 18px 18px;
+}
+
+.previewChat {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 12px;
+  border-radius: 18px;
+  background: var(--c-chat-bg);
+}
+
+.previewBubble {
+  max-width: 300px;
+  padding: 5px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--c-my-message-bubble);
+}
+
+.previewCaption {
+  padding: 2px 6px 4px;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--c-my-message-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--c-text-muted);
+}
+
+.hint svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 26px;
+  background: var(--c-input-bg);
+}
+
+.captionInput {
+  flex: 1;
+  min-height: 42px;
+  max-height: 120px;
+  padding: 10px 14px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--c-text-primary);
+  font: inherit;
+  font-size: 15px;
+  field-sizing: content;
+}
+
+.sendBtn {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}

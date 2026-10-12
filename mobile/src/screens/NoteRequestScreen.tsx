@@ -237,7 +237,7 @@ export default function NoteRequestScreen({ navigation, route }: any) {
             <Fact
               icon={<CopyPlus size={18} color={NOTE_COLOR} />}
               title="Придёт отдельной копией"
-              text="У коллеги появится новая заметка с номером в названии, как в Проводнике. Прошлая копия не изменится."
+              text="У коллеги появится новая заметка. Если такое название у него уже есть — добавится номер, как в Проводнике: «… (2)». Прошлая копия не изменится."
             />
             <Fact
               icon={<EyeOff size={18} color={NOTE_COLOR} />}

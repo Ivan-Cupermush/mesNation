@@ -880,8 +880,11 @@ describe('стартовая страница', () => {
       assignee_ids: [c.mgr2.id],
       executor_deadline: new Date(Date.now() + 7 * 86400_000).toISOString(),
     });
-    // Местное время: полдень по UTC+7 (tz_offset = -420).
-    const r = await as(c.mgr2).get('/api/home?tz_offset=-420&prev=3');
+    // Часовой пояс, в котором сейчас около полудня: задача «через час» — сегодня
+    // в любое время запуска теста (с фиксированным UTC+7 тест падал вечером по UTC).
+    const now = new Date();
+    const tzOffset = (now.getUTCHours() - 12) * 60 + now.getUTCMinutes();
+    const r = await as(c.mgr2).get(`/api/home?tz_offset=${tzOffset}&prev=3`);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body.greeting).toMatch(/^(Доброе утро|Добрый день|Добрый вечер|Доброй ночи)$/);
     expect(r.body.name).toBe('MGR2');

@@ -45,6 +45,7 @@ interface Props {
   onRetry: (msg: any) => void;
   onCancelUpload?: (msg: any) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
+  onOpenNote?: (noteId: number) => void;
   onPressSender?: (userId: number) => void;
   /** Режим выделения (как в Telegram): нажатие отмечает сообщение. */
   selecting?: boolean;
@@ -136,7 +137,7 @@ function MessageRow(props: Props) {
   const isFile = !isPoll && !isVisual && !isVoice && !isVideoNote && !!main.file_url;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
-  const caption = main.text && !isNote ? main.text : '';
+  const caption = main.text || '';
   const mediaOnly = isVisual && !caption && !main.reply_to_message_id && !main.forwarded_from_user_id && !(showName && isGroup && !mine);
 
   const meta = (onMedia = false) => (
@@ -319,6 +320,7 @@ function MessageRow(props: Props) {
               mine={mine}
               currentUserId={currentUserId}
               onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)}
+              onOpenNote={props.onOpenNote}
             />
           )}
 

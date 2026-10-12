@@ -25,6 +25,7 @@ import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import { C, hashColor, initials, messagePreview } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
+import HeaderBell from '../components/HeaderBell';
 /**
  * Список чатов как в Telegram: закреплённые сверху, счётчики непрочитанных,
  * галочки прочтения своего последнего сообщения, «в сети» у собеседников,
@@ -339,6 +340,7 @@ export default function ChatListScreen({ navigation }: any) {
             </Text>
           ) : null}
         </View>
+        <HeaderBell style={[styles.profileBtn, { marginRight: 10 }]} color={C.accent} />
         <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7} accessibilityLabel="Профиль">
           <UserRound size={20} color={C.accent} strokeWidth={2} />
         </TouchableOpacity>

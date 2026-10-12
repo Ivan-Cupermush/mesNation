@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CalendarClock, ClipboardCheck, MessageCircle } from 'lucide-react-native';
+import { CalendarClock, ClipboardCheck, MessageCircle, RefreshCw, Check, X } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request } from '../services/http';
-import { openChat, openTask } from '../navigation/ref';
+import { openChat, openNote, openNoteRequest, openTask } from '../navigation/ref';
 import { Banner, onBanner } from '../notifications/state';
-import { IMPORTANCE, TASK_KIND_TITLE, shortDeadline, taskActorLine } from '../notifications/model';
+import { IMPORTANCE, NOTE_COLOR, TASK_KIND_TITLE, noteRequestText, shortDeadline, taskActorLine } from '../notifications/model';
 import { hashColor, initials } from './chat/chatUtils';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
@@ -36,8 +36,8 @@ export default function NotificationBanner() {
         y.setValue(-220);
         Animated.spring(y, { toValue: 0, useNativeDriver: true, friction: 9, tension: 70 }).start();
         if (timer.current) clearTimeout(timer.current);
-        // Задача важнее — висит дольше.
-        timer.current = setTimeout(hide, b.kind === 'task' ? 8000 : 4500);
+        // Задача и запрос заметки важнее — висят дольше.
+        timer.current = setTimeout(hide, b.kind === 'message' ? 4500 : 8000);
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -57,6 +57,9 @@ export default function NotificationBanner() {
     hide();
     if (banner.kind === 'message') {
       openChat({ chatId: banner.data.chatId, chatName: banner.data.chatName, topicId: banner.data.topicId });
+    } else if (banner.kind === 'note') {
+      if (banner.data.kind === 'approved' && banner.data.noteId) openNote(banner.data.noteId);
+      else openNoteRequest(banner.data.requestId);
     } else {
       openTask(banner.data.taskId);
     }
@@ -95,6 +98,8 @@ export default function NotificationBanner() {
             </Text>
           </View>
         </TouchableOpacity>
+      ) : banner.kind === 'note' ? (
+        <NoteRequestCard banner={banner} onOpen={open} onLater={hide} />
       ) : (
         <TaskCard banner={banner} onOpen={open} onTake={takeTask} busy={busy} />
       )}
@@ -108,6 +113,46 @@ function Avatar({ name, path }: { name: string; path?: string }) {
     <View style={[styles.avatar, { backgroundColor: hashColor(name) }]}>
       <Text style={styles.avatarText}>{initials(name)}</Text>
     </View>
+  );
+}
+
+/** Запрос заметки: аватар с фиолетовым значком, кто и что просит, «Посмотреть». */
+function NoteRequestCard({ banner, onOpen, onLater }: { banner: Extract<Banner, { kind: 'note' }>; onOpen: () => void; onLater: () => void }) {
+  const p = banner.data;
+  const { title, body } = noteRequestText(p);
+  const Badge = p.kind === 'request' ? RefreshCw : p.kind === 'approved' ? Check : X;
+  return (
+    <TouchableOpacity activeOpacity={0.92} onPress={onOpen} style={[styles.card, styles.noteCard]} accessibilityRole="button">
+      <View style={styles.noteTop}>
+        <View>
+          <Avatar name={p.actorName || 'Коллега'} path={p.actorAvatar} />
+          <View style={[styles.noteBadge, { backgroundColor: p.kind === 'declined' ? T.textMuted : NOTE_COLOR }]}>
+            <Badge size={11} color="#FFFFFF" strokeWidth={3} />
+          </View>
+        </View>
+        <View style={styles.body}>
+          <Text style={[styles.noteKicker, { color: NOTE_COLOR }]}>ЗАМЕТКИ</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.text} numberOfLines={2}>
+            {body}
+          </Text>
+        </View>
+      </View>
+      {p.kind !== 'declined' && (
+        <View style={styles.taskActions}>
+          <TouchableOpacity style={[styles.taskBtn, { backgroundColor: NOTE_COLOR }]} onPress={onOpen} activeOpacity={0.85}>
+            <Text style={styles.taskBtnText}>{p.kind === 'request' ? 'Посмотреть' : 'Открыть заметку'}</Text>
+          </TouchableOpacity>
+          {p.kind === 'request' && (
+            <TouchableOpacity style={[styles.taskBtn, styles.taskBtnGhost]} onPress={onLater} activeOpacity={0.85}>
+              <Text style={[styles.taskBtnText, { color: T.textPrimary }]}>Позже</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -195,6 +240,22 @@ const styles = themed(() => ({
   title: { flex: 1, fontSize: 15, fontWeight: '700', color: T.textPrimary },
   text: { fontSize: 14, color: T.textSecondary, marginTop: 2, lineHeight: 19 },
   sender: { color: T.accent, fontWeight: '600' },
+  // Запрос заметки
+  noteCard: { flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: 14 },
+  noteTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  noteBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: T.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteKicker: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.7, marginBottom: 1 },
   // Задача
   taskCard: { padding: 0, overflow: 'hidden', alignItems: 'stretch', gap: 0 },
   stripe: { width: 5 },

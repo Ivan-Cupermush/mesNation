@@ -20,6 +20,7 @@ import NotesCalendar, { CAL_COLLAPSE, CAL_FULL_H } from '../../components/NotesC
 import { api, Note, DayWithNotes } from '../../services/api';
 
 import { T, themed } from '../../theme/runtime';
+import HeaderBell from '../../components/HeaderBell';
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -260,6 +261,7 @@ export default function NotesScreen({ navigation }: any) {
             {formatDate(selectedDate)}
           </Text>
         </View>
+        <HeaderBell style={[styles.profileBtn, { marginRight: 10 }]} />
         <TouchableOpacity
           style={styles.profileBtn}
           onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}

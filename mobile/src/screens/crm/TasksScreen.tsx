@@ -15,6 +15,7 @@ import { StatusPill, StatusSegments } from '../../components/tasks/taskStatus';
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
+import HeaderBell from '../../components/HeaderBell';
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 
 const hashColor = (s: string) => {
@@ -290,6 +291,7 @@ export default function TasksScreen({ navigation }: any) {
               <CalendarRange size={18} color={viewMode === 'calendar' ? T.onAccent : T.textSecondary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
+          <HeaderBell style={[styles.profileBtn]} />
           <TouchableOpacity
             style={styles.profileBtn}
             onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}

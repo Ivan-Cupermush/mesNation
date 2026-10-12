@@ -45,6 +45,7 @@ import {
   Download,
   Search,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -56,6 +57,7 @@ import ShareToChatModal from '../components/ShareToChatModal';
 import AttachSheet, { MediaSendOptions, PickedFile, PickedMedia } from '../components/chat/AttachSheet';
 import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/PollComposer';
 import NotePickerModal from '../components/chat/NotePickerModal';
+import { requestNoteVersion } from '../components/NoteShareBubble';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
@@ -662,7 +664,7 @@ export default function ChatScreen({ navigation }: any) {
   const handleSend = async () => {
     const t = text.trim();
     // У фото можно убрать подпись, у текстового сообщения текст обязателен.
-    if (!t && !(editingMessage && editingMessage.file_url)) return;
+    if (!t && !(editingMessage && (editingMessage.file_url || editingMessage.note_share_id))) return;
     emitEvent('stop_typing', { chatId: Number(chatId) });
     lastTypingSent.current = 0;
 
@@ -769,14 +771,30 @@ export default function ChatScreen({ navigation }: any) {
     // Сам опрос придёт всем участникам по сокету.
   };
 
-  const shareNote = async (noteId: number) => {
+  /** Заметка уходит как файл: снимок + подпись в том же сообщении. */
+  const shareNote = async (noteId: number, caption: string) => {
     setShowNotes(false);
+    const reply = replyTo?.id ?? null;
+    setReplyTo(null);
     try {
-      await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId });
+      await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId, comment: caption || undefined, reply_to_message_id: reply });
     } catch (e: any) {
       Alert.alert('Не удалось отправить заметку', e?.message || '');
     }
   };
+
+  /** «Запросить текущую версию» у автора пересланной заметки. */
+  const askNoteVersion = async (m: any) => {
+    const share = m?.note_share;
+    if (!share) return;
+    try {
+      showToast(await requestNoteVersion(share.id, share.sender_name));
+    } catch (e: any) {
+      Alert.alert('Не удалось отправить запрос', e?.message || '');
+    }
+  };
+
+  const openOwnNote = (noteId: number) => navigation.navigate('NotesTab', { screen: 'NoteEditor', initial: false, params: { noteId } });
 
   const retryOrDiscard = (m: ChatMessage) => {
     Alert.alert('Сообщение не отправлено', 'Нет связи с сервером или чат недоступен.', [
@@ -882,9 +900,17 @@ export default function ChatScreen({ navigation }: any) {
     const main = rowMain(row);
     if (main.local) return [];
     const mine = main.sender_id === currentUserId;
-    const list: SheetAction[] = [
-      { key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={20} color={C.text} />, onPress: () => setReplyTo(main) },
-    ];
+    const list: SheetAction[] = [];
+    // Чужая заметка — первым пунктом «Запросить текущую версию».
+    if (main.note_share && main.note_share.sender_id !== currentUserId) {
+      list.push({
+        key: 'noteVersion',
+        label: 'Запросить текущую версию',
+        icon: <RefreshCw size={20} color={C.text} />,
+        onPress: () => askNoteVersion(main),
+      });
+    }
+    list.push({ key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={20} color={C.text} />, onPress: () => setReplyTo(main) });
     if (main.text && main.content_type !== 'note') {
       list.push({
         key: 'copy',
@@ -912,10 +938,10 @@ export default function ChatScreen({ navigation }: any) {
         onPress: () => togglePin(main),
       });
     }
-    if (mine && !main.poll_id && !main.note_share_id) {
+    if (mine && !main.poll_id) {
       list.push({
         key: 'edit',
-        label: main.file_url ? 'Изменить подпись' : 'Изменить',
+        label: main.file_url || main.note_share_id ? 'Изменить подпись' : 'Изменить',
         icon: <Pencil size={20} color={C.text} />,
         onPress: () => {
           setEditingMessage(main);
@@ -1216,11 +1242,12 @@ export default function ChatScreen({ navigation }: any) {
     [selRows],
   );
   const selSingle = selRows.length === 1 ? rowMain(selRows[0]) : null;
-  const selCanEdit = !!selSingle && selSingle.sender_id === currentUserId && !selSingle.poll_id && !selSingle.note_share_id && selSingle.media_kind !== 'video_note';
+  const selCanEdit = !!selSingle && selSingle.sender_id === currentUserId && !selSingle.poll_id && selSingle.media_kind !== 'video_note';
   const selCanCopy = selMsgs.some((m) => m.text && m.content_type !== 'note');
   const selCanForward = selMsgs.length > 0 && selMsgs.every((m) => !m.poll_id);
   const selCanSave = selMsgs.some((m) => m.file_url || m.text);
-  const selMore = selRows.length === 1 ? actionsFor(selRows[0]).filter((a) => ['pin', 'open', 'retract', 'stop'].includes(a.key)) : [];
+  const selMore = selRows.length === 1 ? actionsFor(selRows[0]).filter((a) => ['noteVersion', 'pin', 'open', 'retract', 'stop'].includes(a.key)) : [];
+  const selNoteForeign = !!selSingle?.note_share && selSingle.note_share.sender_id !== currentUserId;
 
   const selReply = () => {
     if (!selSingle) return;
@@ -1379,6 +1406,7 @@ export default function ChatScreen({ navigation }: any) {
         onRetry={retryOrDiscard}
         onCancelUpload={cancelUpload}
         onNoteAccepted={onNoteAccepted}
+        onOpenNote={openOwnNote}
         onPressSender={(userId) => navigation.navigate('UserProfile', { userId })}
       />
     );
@@ -1557,7 +1585,7 @@ export default function ChatScreen({ navigation }: any) {
                     style={styles.input}
                     value={text}
                     onChangeText={onChangeText}
-                    placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
+                    placeholder={editingMessage?.file_url || editingMessage?.note_share_id ? 'Подпись' : 'Сообщение'}
                     placeholderTextColor={T.textMuted}
                     multiline
                     maxLength={4000}
@@ -1694,6 +1722,21 @@ export default function ChatScreen({ navigation }: any) {
               );
             })}
           </ScrollView>
+        )}
+        {selecting && selSingle && selNoteForeign && (
+          <TouchableOpacity
+            style={styles.notePill}
+            activeOpacity={0.8}
+            onPress={() => {
+              const m = selSingle;
+              clearSelection();
+              askNoteVersion(m);
+            }}
+            accessibilityLabel="Запросить текущую версию заметки"
+          >
+            <RefreshCw size={17} color={C.accent} strokeWidth={2.3} />
+            <Text style={styles.notePillText}>Запросить текущую версию</Text>
+          </TouchableOpacity>
         )}
 
         {pinnedMessages.length > 0 && !searching && (
@@ -1853,6 +1896,17 @@ const styles = themed(() => ({
   reactBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   reactBtnOn: { backgroundColor: withAlpha(T.accent, 0.18) },
   reactEmoji: { fontSize: 24 },
+  notePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    ...glass(0.95),
+  },
+  notePillText: { fontSize: 14.5, fontWeight: '700', color: C.accent },
 
   pinnedBar: {
     flexDirection: 'row',

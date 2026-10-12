@@ -19,6 +19,7 @@ import {
 } from 'lucide-react-native';
 
 import { T, themed } from '../../theme/runtime';
+import HeaderBell from '../../components/HeaderBell';
 export default function KnowledgeScreen({ navigation }: any) {
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -243,6 +244,7 @@ export default function KnowledgeScreen({ navigation }: any) {
               <Text style={styles.bigSubtitle}>AI-ассистент компании</Text>
             </View>
           </View>
+          <HeaderBell style={[styles.profileBtn, { marginRight: 10 }]} />
           <TouchableOpacity
             style={styles.profileBtn}
             onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}

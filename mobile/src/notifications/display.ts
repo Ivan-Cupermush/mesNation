@@ -7,7 +7,18 @@ import notifee, {
   AndroidGroupAlertBehavior,
 } from '@notifee/react-native';
 import { SERVER_URL } from '../config';
-import { IMPORTANCE, MessagePush, TASK_KIND_TITLE, TaskPush, getNotifySettings, shortDeadline, taskActorLine } from './model';
+import {
+  IMPORTANCE,
+  MessagePush,
+  NOTE_COLOR,
+  NoteRequestPush,
+  TASK_KIND_TITLE,
+  TaskPush,
+  getNotifySettings,
+  noteRequestText,
+  shortDeadline,
+  taskActorLine,
+} from './model';
 
 /**
  * Системные уведомления (шторка).
@@ -24,13 +35,16 @@ import { IMPORTANCE, MessagePush, TASK_KIND_TITLE, TaskPush, getNotifySettings, 
 
 export const CHANNEL_MESSAGES = 'messages';
 export const CHANNEL_TASKS = 'tasks';
+export const CHANNEL_NOTES = 'notes';
 const GROUP_MESSAGES = 'offix.messages';
 const GROUP_TASKS = 'offix.tasks';
+const GROUP_NOTES = 'offix.notes';
 const ACCENT = '#1F7A52';
 
 const avatarUrl = (path?: string | null) => (path ? (path.startsWith('http') ? path : `${SERVER_URL}${path}`) : undefined);
 export const chatNotificationId = (chatId: string | number) => `chat-${chatId}`;
 export const taskNotificationId = (taskId: number) => `task-${taskId}`;
+export const noteRequestNotificationId = (requestId: number) => `note-request-${requestId}`;
 
 let channelsReady: Promise<void> | null = null;
 
@@ -63,6 +77,20 @@ export function ensureChannels(): Promise<void> {
         vibrationPattern: [100, 450, 200, 450],
         lights: true,
         lightColor: '#F59E0B',
+        badge: true,
+      });
+      await notifee.createChannel({
+        id: CHANNEL_NOTES,
+        name: 'Заметки',
+        description: 'Запросы текущей версии заметок и ответы на них',
+        importance: AndroidImportance.HIGH,
+        visibility: AndroidVisibility.PRIVATE,
+        sound: 'default',
+        vibration: true,
+        // Короткая тройная — «постучались».
+        vibrationPattern: [60, 90, 60, 90, 60, 90],
+        lights: true,
+        lightColor: NOTE_COLOR,
         badge: true,
       });
     })().catch((e) => {
@@ -214,6 +242,66 @@ export async function showTaskNotification(t: TaskPush): Promise<void> {
 export async function clearTaskNotification(taskId: number): Promise<void> {
   await notifee.cancelNotification(taskNotificationId(taskId)).catch(() => undefined);
   await cleanupSummary(GROUP_TASKS);
+}
+
+// ---------- Заметки ----------
+
+/**
+ * Запрос заметки в шторке: аватар коллеги, его имя крупно, под ним —
+ * «Просит текущую версию заметки «…»», в развёрнутом виде — начало текста
+ * и пояснение, что уйдёт отдельная копия. Кнопки: «Посмотреть и поделиться»
+ * (открывает экран подтверждения) и «Отклонить» (прямо из шторки).
+ */
+export async function showNoteRequestNotification(p: NoteRequestPush): Promise<void> {
+  const settings = await getNotifySettings();
+  if (!settings.notes) return;
+  await ensureChannels();
+  const { title, body } = noteRequestText(p);
+  const big =
+    p.kind === 'request'
+      ? [
+          `Просит текущую версию заметки <b>«${escapeHtml(p.noteTitle)}»</b>`,
+          p.preview && settings.preview ? `<i>${escapeHtml(p.preview.slice(0, 160))}</i>` : '',
+          'Получит отдельную копию — ваша заметка останется у вас.',
+        ]
+      : [escapeHtml(body)];
+
+  await notifee.displayNotification({
+    id: noteRequestNotificationId(p.requestId),
+    title,
+    subtitle: 'Заметки',
+    body,
+    data: { type: 'note_request', kind: p.kind, request_id: String(p.requestId), note_id: p.noteId ? String(p.noteId) : '' },
+    android: {
+      channelId: CHANNEL_NOTES,
+      smallIcon: 'ic_stat_offix',
+      color: NOTE_COLOR,
+      category: AndroidCategory.SOCIAL,
+      groupId: GROUP_NOTES,
+      timestamp: Date.now(),
+      showTimestamp: true,
+      autoCancel: true,
+      largeIcon: avatarUrl(p.actorAvatar),
+      circularLargeIcon: true,
+      style: { type: AndroidStyle.BIGTEXT, text: big.filter(Boolean).join('<br>') },
+      pressAction: { id: 'default', launchActivity: 'default' },
+      actions:
+        p.kind === 'request'
+          ? [
+              { title: 'Посмотреть и поделиться', pressAction: { id: 'note_review', launchActivity: 'default' } },
+              { title: 'Отклонить', pressAction: { id: 'note_decline' } },
+            ]
+          : p.kind === 'approved'
+            ? [{ title: 'Открыть заметку', pressAction: { id: 'default', launchActivity: 'default' } }]
+            : [],
+    },
+  });
+  await showGroupSummary(GROUP_NOTES, CHANNEL_NOTES, 'ic_stat_offix', NOTE_COLOR, 'Заметки');
+}
+
+export async function clearNoteRequestNotification(requestId: number): Promise<void> {
+  await notifee.cancelNotification(noteRequestNotificationId(requestId)).catch(() => undefined);
+  await cleanupSummary(GROUP_NOTES);
 }
 
 // ---------- Группы ----------

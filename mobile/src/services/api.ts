@@ -246,9 +246,46 @@ export interface SharedNote {
   files: { file_url: string; file_name: string; file_size: number | null; mime_type: string | null }[];
   sender_id: number;
   sender_name: string;
+  sender_avatar_url?: string | null;
   created_at: string;
   accepted_note_id: number | null;
   is_accepted: boolean;
+  is_owner?: boolean;
+  /** Автору — его заметка (если не удалена). */
+  original_note_id?: number | null;
+  original_exists?: boolean;
+  /** Последний запрос актуальной версии от меня. */
+  my_request?: NoteVersionRequestBrief | null;
+}
+
+export interface NoteVersionRequestBrief {
+  id: number;
+  status: 'pending' | 'approved' | 'declined';
+  result_note_id: number | null;
+  created_at: string;
+  resolved_at: string | null;
+  already?: boolean;
+}
+
+/** Запрос актуальной версии заметки — экран подтверждения у автора. */
+export interface NoteVersionRequest {
+  id: number;
+  status: 'pending' | 'approved' | 'declined';
+  created_at: string;
+  resolved_at: string | null;
+  is_owner: boolean;
+  requester: { id: number; name: string; avatar_url: string | null };
+  owner: { id: number; name: string; avatar_url: string | null };
+  shared: { id: number; title: string; created_at: string };
+  note: {
+    id: number | null;
+    title: string;
+    preview: string | null;
+    files_count: number | null;
+    updated_at: string;
+    changed_since_share: boolean;
+  } | null;
+  result_note_id: number | null;
 }
 
 /** Краткая карточка пересланной заметки внутри сообщения. */
@@ -258,7 +295,25 @@ export interface NoteShareCard {
   preview: string;
   files_count: number;
   sender_id: number;
+  sender_name?: string | null;
+  sender_avatar_url?: string | null;
+  created_at?: string;
   accepted_user_ids: number[];
+}
+
+/** Колокольчик: событие для пользователя. */
+export interface AppNotification {
+  id: number;
+  kind: 'task' | 'note_request' | 'note_request_approved' | 'note_request_declined';
+  title: string;
+  body: string | null;
+  data: Record<string, any>;
+  read_at: string | null;
+  created_at: string;
+  actor_id: number | null;
+  actor_name: string | null;
+  actor_avatar_url: string | null;
+  request_status: 'pending' | 'approved' | 'declined' | null;
 }
 
 export interface DayWithNotes {
@@ -686,12 +741,38 @@ export const api = {
     return `${SERVER_URL}${url}`;
   },
 
-  shareNote: (noteId: number, data: { chat_id: number; topic_id?: number | null; comment?: string }) =>
-    request<any>(`/api/notes/${noteId}/share`, { method: 'POST', body: JSON.stringify(data) }),
+  /** Заметка уходит снимком; подпись — в том же сообщении, как у файла. */
+  shareNote: (
+    noteId: number,
+    data: { chat_id: number; topic_id?: number | null; comment?: string; reply_to_message_id?: number | null },
+  ) => request<any>(`/api/notes/${noteId}/share`, { method: 'POST', body: JSON.stringify(data) }),
 
   getSharedNote: (shareId: number) => request<SharedNote>(`/api/notes/shared/${shareId}`),
 
   acceptSharedNote: (shareId: number) => request<Note>(`/api/notes/shared/${shareId}/accept`, { method: 'POST', body: '{}' }),
+
+  /** Попросить у автора актуальную версию (повторное нажатие не дублирует запрос). */
+  requestNoteVersion: (shareId: number) =>
+    request<NoteVersionRequestBrief>(`/api/notes/shared/${shareId}/request`, { method: 'POST', body: '{}' }),
+
+  getNoteRequest: (id: number) => request<NoteVersionRequest>(`/api/notes/requests/${id}`),
+
+  approveNoteRequest: (id: number) =>
+    request<NoteVersionRequest>(`/api/notes/requests/${id}/approve`, { method: 'POST', body: '{}' }),
+
+  declineNoteRequest: (id: number) =>
+    request<NoteVersionRequest>(`/api/notes/requests/${id}/decline`, { method: 'POST', body: '{}' }),
+
+  // ==================== КОЛОКОЛЬЧИК ====================
+  getNotifications: (before?: number) =>
+    request<AppNotification[]>(`/api/notifications${before ? `?before=${before}` : ''}`),
+
+  getUnreadNotificationsCount: () => request<{ count: number }>('/api/notifications/unread-count'),
+
+  markNotificationsRead: (ids?: number[]) =>
+    request<{ count: number }>('/api/notifications/read', { method: 'POST', body: JSON.stringify(ids ? { ids } : {}) }),
+
+  clearNotifications: () => request<{ success: boolean }>('/api/notifications', { method: 'DELETE' }),
 
   // ==================== KPI ПРОДАЖИ ====================
   getSalesTargets: () => request<SalesTarget[]>('/api/kpi/sales/targets'),

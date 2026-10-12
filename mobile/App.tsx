@@ -8,6 +8,9 @@ import { ApiError, clearToken, getToken, onUnauthorized } from './src/services/h
 import { connectSocket, disconnectSocket } from './src/services/socket';
 import { navigationRef, flushPendingNavigation } from './src/navigation/ref';
 import { startNotifications, stopNotifications } from './src/notifications';
+import { startInbox } from './src/notifications/inbox';
+import NotificationsScreen from './src/screens/NotificationsScreen';
+import NoteRequestScreen from './src/screens/NoteRequestScreen';
 import NotificationBanner from './src/components/NotificationBanner';
 import type { CurrentUser } from './src/services/api';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
@@ -103,6 +106,12 @@ type AuthStackParamList = { Auth: undefined };
 
 type HomeStackParamList = { HomeMain: undefined };
 
+type RootStackParamList = {
+  Main: undefined;
+  Notifications: undefined;
+  NoteRequest: { requestId: number };
+};
+
 type MainTabsParamList = {
   HomeTab: undefined;
   SettingsTab: undefined;
@@ -122,6 +131,8 @@ const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const SettingsStack = createNativeStackNavigator<any>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
+/** Поверх вкладок: колокольчик и экран запроса заметки — открываются из любого раздела. */
+const RootStack = createNativeStackNavigator<RootStackParamList>();
 
 // ========== Обёртка для Stack-ов с общим стилем ==========
 const useHeaderStyle = () => {
@@ -428,6 +439,7 @@ function RootNavigator() {
     if (isLoggedIn) {
       connectSocket();
       startNotifications().catch(() => undefined);
+      return startInbox();
     }
   }, [isLoggedIn]);
 
@@ -480,7 +492,15 @@ function RootNavigator() {
           navState.current = st;
         }}
       >
-        {isLoggedIn ? <MainTabs onLogout={handleLogout} /> : <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />}
+        {isLoggedIn ? (
+          <RootStack.Navigator screenOptions={{ headerShown: false }}>
+            <RootStack.Screen name="Main" children={() => <MainTabs onLogout={handleLogout} />} />
+            <RootStack.Screen name="Notifications" component={NotificationsScreen} />
+            <RootStack.Screen name="NoteRequest" component={NoteRequestScreen} options={{ animation: 'slide_from_bottom' }} />
+          </RootStack.Navigator>
+        ) : (
+          <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />
+        )}
       </NavigationContainer>
       {isLoggedIn ? <NotificationBanner /> : null}
     </>

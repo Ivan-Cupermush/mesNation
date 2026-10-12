@@ -43,7 +43,22 @@ export interface ReadPush {
   messageId: number;
 }
 
-export type PushPayload = MessagePush | TaskPush | ReadPush;
+export type NoteRequestKind = 'request' | 'approved' | 'declined';
+
+/** Запрос текущей версии заметки и ответ на него. */
+export interface NoteRequestPush {
+  type: 'note_request';
+  kind: NoteRequestKind;
+  requestId: number;
+  noteTitle: string;
+  preview: string;
+  /** Для «approved» — новая копия у запросившего. */
+  noteId: number;
+  actorName: string;
+  actorAvatar: string;
+}
+
+export type PushPayload = MessagePush | TaskPush | ReadPush | NoteRequestPush;
 
 const num = (v: unknown) => (v ? Number(v) : 0);
 
@@ -82,6 +97,18 @@ export function parsePush(data: Record<string, any> | undefined | null): PushPay
       comment: data.comment || '',
     };
   }
+  if (data.type === 'note_request' && data.request_id) {
+    return {
+      type: 'note_request',
+      kind: (['request', 'approved', 'declined'].includes(data.kind) ? data.kind : 'request') as NoteRequestKind,
+      requestId: num(data.request_id),
+      noteTitle: data.note_title || 'Без названия',
+      preview: data.preview || '',
+      noteId: num(data.note_id),
+      actorName: data.actor_name || '',
+      actorAvatar: data.actor_avatar || '',
+    };
+  }
   if (data.type === 'read' && data.chat_id) {
     return { type: 'read', chatId: String(data.chat_id), messageId: num(data.message_id) };
   }
@@ -95,13 +122,15 @@ export interface NotifySettings {
   messages: boolean;
   /** Уведомления о задачах. */
   tasks: boolean;
+  /** Запросы текущей версии заметок и ответы на них. */
+  notes: boolean;
   /** Показывать текст сообщения (иначе — «Новое сообщение»). */
   preview: boolean;
   /** Всплывающие баннеры, когда приложение открыто. */
   inApp: boolean;
 }
 
-export const DEFAULT_SETTINGS: NotifySettings = { messages: true, tasks: true, preview: true, inApp: true };
+export const DEFAULT_SETTINGS: NotifySettings = { messages: true, tasks: true, notes: true, preview: true, inApp: true };
 const KEY = '@offix/notify/settings';
 
 let cache: NotifySettings | null = null;
@@ -169,5 +198,24 @@ export function taskActorLine(t: TaskPush): string {
       return who ? `Принял(а): ${who}` : '';
     case 'returned':
       return who ? `Открыл(а) снова: ${who}` : '';
+  }
+}
+
+// ---------- Заметки ----------
+
+/** Фиолетовый — цвет «заметок»: не путается ни с сообщениями, ни с задачами. */
+export const NOTE_COLOR = '#7C5CFA';
+
+/** Заголовок и текст уведомления о запросе заметки. */
+export function noteRequestText(p: NoteRequestPush): { title: string; body: string } {
+  const who = p.actorName || 'Коллега';
+  const title = `«${p.noteTitle}»`;
+  switch (p.kind) {
+    case 'request':
+      return { title: who, body: `Просит текущую версию заметки ${title}` };
+    case 'approved':
+      return { title: `${who} поделился(ась) версией`, body: `${title} — уже в ваших заметках` };
+    case 'declined':
+      return { title: `${who} не стал(а) делиться версией`, body: `Запрос по заметке ${title} отклонён` };
   }
 }

@@ -20,6 +20,7 @@ import { pick, types, isErrorWithCode, errorCodes } from '@react-native-document
 import { api, Note, NoteFile } from '../../services/api';
 import { signedFileUrl, UploadFile } from '../../services/http';
 import ShareToChatModal from '../../components/ShareToChatModal';
+import { NoteCard } from '../../components/NoteShareBubble';
 import {
   ArrowLeft, Star, Check, PenLine, Calendar, MoreVertical, Copy, CopyPlus, FileDown, Send,
   Trash2, Paperclip, FileText, X
@@ -332,7 +333,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
     try {
       await api.shareNote(note.id, { chat_id: chatId, comment: comment || undefined });
       setShareOpen(false);
-      Alert.alert('Отправлено', 'Получатель сможет принять заметку к себе.');
+      Alert.alert('Отправлено', 'Ушла копия на этот момент. Получатель добавит её к себе, а если вы что-то поменяете — сможет запросить текущую версию.');
     } catch (e: any) {
       Alert.alert('Не удалось отправить', e?.message || '');
     }
@@ -562,6 +563,21 @@ export default function NoteEditorScreen({ route, navigation }: any) {
         title="Отправить заметку"
         onClose={() => setShareOpen(false)}
         onSend={shareToChat}
+        commentPlaceholder="Добавить подпись…"
+        preview={
+          note ? (
+            <View style={{ padding: 5, borderRadius: 18, borderBottomRightRadius: 6, backgroundColor: T.myMessageBubble }}>
+              <NoteCard
+                title={note.title}
+                preview={String(note.content || '').slice(0, 400)}
+                filesCount={note.files?.length || 0}
+                ownerLine="Копия на момент отправки"
+                mine
+                width={240}
+              />
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );

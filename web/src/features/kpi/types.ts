@@ -174,6 +174,9 @@ export interface KpiCoverage {
   asOf: string;
   elapsed: number;
   days: number;
+  /** Рабочих дней (пн–сб) с 1-го числа по asOf и во всём месяце. */
+  workElapsed?: number;
+  workDays?: number;
   reports: number;
   uploadedAt: string;
 }
@@ -183,7 +186,7 @@ export interface SalesStats extends KpiCoverage {
   revenue: number;
   /** Клиенты с продажами без «Есть повод», задвоенные — одна точка. */
   akb: number;
-  /** Выручка / дней с 1-го числа по последний отчёт. */
+  /** Выручка / рабочих дней (пн–сб) с 1-го числа по последний отчёт. */
   perDay: number;
   quantity: number;
 }

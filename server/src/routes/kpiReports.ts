@@ -126,7 +126,9 @@ router.get('/month', async (req: AuthRequest, res: Response) => {
     user: user.rows[0],
     targets: enriched,
     totals: totalsOf(enriched),
-    coverage: stats ? { asOf: stats.asOf, elapsed: stats.elapsed, days: stats.days, reports: stats.reports, uploadedAt: stats.uploadedAt } : null,
+    coverage: stats
+      ? { asOf: stats.asOf, elapsed: stats.elapsed, days: stats.days, workElapsed: stats.workElapsed, workDays: stats.workDays, reports: stats.reports, uploadedAt: stats.uploadedAt }
+      : null,
     stats,
     reports: reports.rows,
     months: months.rows.map((r) => r.m),

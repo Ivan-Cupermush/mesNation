@@ -89,14 +89,14 @@ test('позиции без галочек: выполнение в процен
 });
 
 test('квадратики продаж из отчёта', async () => {
-  const stats: SalesStats = { revenue: 93600, akb: 4, perDay: 8509, quantity: 108, asOf: '2026-10-11', elapsed: 11, days: 31, reports: 1, uploadedAt: '' };
+  const stats: SalesStats = { revenue: 93600, akb: 4, perDay: 9360, quantity: 108, asOf: '2026-10-11', elapsed: 11, days: 31, workElapsed: 10, workDays: 27, reports: 1, uploadedAt: '' };
   const text = await render(<SalesTiles stats={stats} />);
   expect(text).toContain('Выручка');
   expect(text).toContain('АКБ, точек');
-  expect(text).toContain('В среднем за день');
+  expect(text).toContain('В среднем за рабочий день');
   expect(text).toContain('Продано, шт');
-  expect(text).toContain(money(8509));
-  expect(statsCaption(stats, '2026-10')).toContain('на 11 октября · 11 из 31 дн.');
+  expect(text).toContain(money(9360));
+  expect(statsCaption(stats, '2026-10')).toContain('на 11 октября · рабочих дней: 10 из 27');
   expect(statsCaption(null, '2026-10')).toContain('за октябрь пока нет');
   expect(await render(<SalesTiles stats={null} />)).toContain('—');
 });

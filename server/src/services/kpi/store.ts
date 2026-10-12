@@ -4,7 +4,7 @@ import { inScope, permissionScope, type Permission, type Scope } from '../permis
 import { computeFact, type ClientLists, type ItemProgress, type ReportLine } from './facts';
 import type { KpiKind } from './kpiFile';
 import { effectiveRules, maxPayout, payoutFor, ruleMarks, ruleText, rub, type PayoutRule } from './rules';
-import { daysInMonth, monthEnd, norm, personScore, personWords } from './text';
+import { daysInMonth, monthEnd, norm, personScore, personWords, workDays } from './text';
 
 type Db = Pick<PoolClient, 'query'>;
 
@@ -170,6 +170,9 @@ export interface Coverage {
   /** Дней месяца с данными (с 1-го числа по asOf). */
   elapsed: number;
   days: number;
+  /** Рабочих дней (пн–сб) с 1-го числа по asOf и во всём месяце. */
+  workElapsed: number;
+  workDays: number;
   reports: number;
   uploadedAt: string;
 }
@@ -194,6 +197,8 @@ export async function coverageFor(pairs: { userId: number; month: string }[]): P
       asOf: r.as_of,
       elapsed: Number(r.as_of.slice(8, 10)),
       days: daysInMonth(y, m),
+      workElapsed: workDays(y, m, Number(r.as_of.slice(8, 10))),
+      workDays: workDays(y, m),
       reports: r.reports,
       uploadedAt: new Date(r.uploaded_at).toISOString(),
     });
@@ -206,13 +211,15 @@ export interface SalesStats {
   revenue: number;
   /** АКБ: клиенты с продажами, без «Есть повод», задвоенные — одна точка. */
   akb: number;
-  /** Средняя сумма продаж в день: выручка / дней с 1-го числа по последний отчёт. */
+  /** Средняя сумма продаж в рабочий день: выручка / рабочих дней (пн–сб) с 1-го числа по последний отчёт. */
   perDay: number;
   /** Продано, шт (все товары). */
   quantity: number;
   asOf: string;
   elapsed: number;
   days: number;
+  workElapsed: number;
+  workDays: number;
   reports: number;
   uploadedAt: string;
 }
@@ -243,7 +250,7 @@ export async function reportStats(userIds: number[], month: string, lists?: Clie
     const quantity = mine.reduce((sum, r) => sum + Number(r.quantity), 0);
     const akb = computeFact({ type: 'clients', groups: [], excludeEp: true, merge: [] }, mine, l)?.value ?? 0;
     const r2 = (n: number) => Math.round(n * 100) / 100;
-    out.set(id, { revenue: r2(revenue), akb, perDay: c.elapsed > 0 ? r2(revenue / c.elapsed) : 0, quantity: r2(quantity), ...c });
+    out.set(id, { revenue: r2(revenue), akb, perDay: r2(revenue / Math.max(1, c.workElapsed)), quantity: r2(quantity), ...c });
   }
   return out;
 }
@@ -317,7 +324,7 @@ function hintFor(t: TargetRow, rule: PayoutRule, v: { plan: number; fact: number
     return left.length ? `Осталось: ${left.map((i) => `${i.name} (${i.count} из ${i.need} ТТ)`).join(', ')}` : 'Все позиции выполнены';
   }
   if (!(plan > 0)) return null;
-  const perDay = (need: number) => (daysLeft && daysLeft > 0 && t.metric_type === 'amount' ? ` (≈${rub(need / daysLeft)} в день)` : '');
+  const perDay = (need: number) => (daysLeft && daysLeft > 0 && t.metric_type === 'amount' ? ` (≈${rub(need / daysLeft)} в рабочий день)` : '');
   if (rule.type === 'rate') {
     if (fact < rule.min) return `До порога ${rub(rule.min)} — ещё ${rub(rule.min - fact)}`;
     return fact < plan ? `До плана — ещё ${amountText(plan - fact, t.unit ?? null, t.metric_type)}` : 'План выполнен';
@@ -358,7 +365,10 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
     const fact = num(t.current_value);
     const bonus = num(t.bonus_amount);
     const payable = rules.payout.type !== 'none';
-    const days = daysInMonth(Number(month.slice(0, 4)), Number(month.slice(5, 7)));
+    const [year, mon] = [Number(month.slice(0, 4)), Number(month.slice(5, 7))];
+    const days = daysInMonth(year, mon);
+    // Темп продаж — по рабочим дням (пн–сб): воскресенье — выходной.
+    const monthWork = workDays(year, mon);
 
     if (t.source === 'kpi_file') {
       // KPI из файла: факт, процент и «к выплате» — как в файле; темп — по дате загрузки.
@@ -371,7 +381,8 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
       const elapsed = asOf && asOf.slice(0, 7) === month.slice(0, 7) && month.slice(0, 7) === today.slice(0, 7) ? Number(asOf.slice(8, 10)) : null;
       // Темп считаем только для сумм продаж: точки и позиции к концу месяца не растут пропорционально дням.
       const projectable = !items && t.unit !== '%' && t.metric_type === 'amount' && rules.payout.type !== 'fixed' && plan > 0;
-      const forecastValue = projectable && elapsed && elapsed < days ? Math.round(((fact * days) / elapsed) * 100) / 100 : null;
+      const workElapsed = elapsed ? Math.max(1, workDays(year, mon, elapsed)) : null;
+      const forecastValue = projectable && workElapsed && elapsed! < days ? Math.round(((fact * monthWork) / workElapsed) * 100) / 100 : null;
       const calc: TargetCalc = {
         kind: (t.kpi_kind as KpiKind | null) ?? null,
         source: 'file',
@@ -392,7 +403,7 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
               ? t.description
                 ? `Позиции: ${t.description.split('; ').join(', ')}`
                 : null
-              : hintFor(t, rules.payout, { plan, fact }, items, elapsed ? days - elapsed : null),
+              : hintFor(t, rules.payout, { plan, fact }, items, workElapsed ? monthWork - workElapsed : null),
         items,
         asOf,
       };
@@ -412,10 +423,10 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
     let forecast = now;
     const projectable = rules.fact.type === 'revenue' || (rules.fact.type === 'products' && rules.fact.measure !== 'clients');
     if (tracked && cov && projectable && cov.elapsed > 0 && cov.elapsed < cov.days) {
-      forecastValue = Math.round(((fact * cov.days) / cov.elapsed) * 100) / 100;
+      forecastValue = Math.round(((fact * cov.workDays) / Math.max(1, cov.workElapsed)) * 100) / 100;
       forecast = payable ? payoutFor(rules.payout, { plan, fact: forecastValue, bonus }) : null;
     }
-    const daysLeft = tracked && cov ? cov.days - cov.elapsed : null;
+    const daysLeft = tracked && cov ? cov.workDays - cov.workElapsed : null;
     const calc: TargetCalc = {
       kind: (t.kpi_kind as KpiKind | null) ?? null,
       source: rules.fact.type === 'manual' ? 'manual' : 'report',

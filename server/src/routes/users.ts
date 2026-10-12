@@ -9,6 +9,7 @@ import { loadProfile } from './auth';
 import { generatePassword, hashPassword, passwordSchema } from '../lib/passwords';
 import { audit, revokeSessions } from '../services/audit';
 import { isOnline } from '../realtime/socket';
+import { effectivePermissions, permissionChangesSchema, permissionDetails, setPermissions } from '../services/permissions';
 
 /** Монтируется на /api/users (после authenticate). */
 const router = Router();
@@ -65,7 +66,36 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   const userId = paramId(req);
   const profile = await loadProfile(userId);
   if (!profile) throw notFound('Пользователь не найден');
-  res.json({ ...profile, can_manage: await canManage(req.userId!, userId) });
+  const manage = await canManage(req.userId!, userId);
+  // Функции сотрудника видят он сам и его руководители.
+  const { permissions, ...rest } = profile;
+  res.json({ ...rest, ...(manage || userId === req.userId ? { permissions } : {}), can_manage: manage });
+});
+
+/**
+ * GET /api/users/:id/permissions — функции сотрудника: по должности, включено
+ * или отключено руководителем, итог; can_edit — может ли текущий пользователь
+ * менять, grantable — какие функции он может включить (есть у него самого).
+ */
+router.get('/:id/permissions', async (req: AuthRequest, res: Response) => {
+  const userId = paramId(req);
+  const me = req.userId!;
+  const manage = await canManage(me, userId);
+  if (!manage && userId !== me) throw forbidden('Функции сотрудника видят он сам и его руководители');
+  const [items, mine] = await Promise.all([permissionDetails(userId), effectivePermissions(me)]);
+  res.json({ items: items.map((p) => ({ ...p, grantable: mine[p.key] })), can_edit: manage && !items[0]?.locked });
+});
+
+const permissionsSchema = z.object({ permissions: permissionChangesSchema });
+
+/** PUT /api/users/:id/permissions { permissions: { kpi_files: true, sales_reports: null } }. */
+router.put('/:id/permissions', validate(permissionsSchema), async (req: AuthRequest, res: Response) => {
+  const userId = paramId(req);
+  const me = req.userId!;
+  await setPermissions(me, userId, (req.body as z.infer<typeof permissionsSchema>).permissions);
+  await audit('permissions_changed', { actorId: me, targetId: userId, ip: req.ip, meta: { permissions: req.body.permissions } });
+  const [items, mine] = await Promise.all([permissionDetails(userId), effectivePermissions(me)]);
+  res.json({ items: items.map((p) => ({ ...p, grantable: mine[p.key] })), can_edit: true });
 });
 
 const activeSchema = z.object({ is_active: z.boolean({ error: 'Укажите is_active' }) });

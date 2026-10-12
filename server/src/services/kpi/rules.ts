@@ -19,6 +19,12 @@ export const factRuleSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('revenue'), groups, clients: z.enum(['all', 'ep', 'non_ep']), measure: z.enum(['revenue', 'quantity']).optional() }),
   // АКБ: число клиентов (точек) с продажами.
   z.object({ type: z.literal('clients'), groups, excludeEp: z.boolean(), merge: z.array(z.string().trim().min(1).max(200)).max(50) }),
+  // Цель, заведённая вручную: товар по названию (или группа) — выручка, штуки или число точек.
+  z.object({
+    type: z.literal('products'),
+    query: z.string().trim().min(1).max(200),
+    measure: z.enum(['revenue', 'quantity', 'clients']),
+  }),
   // Дистрибуция: позиции, каждую нужно продать в N точек.
   z.object({
     type: z.literal('items'),
@@ -101,6 +107,15 @@ export function guessFactRule(name: string, knownGroups: string[]): FactRule | n
   if (!hits.length) return null;
   if (/(^|[^а-я])тт([^а-я]|$)|точ/.test(plain)) return { type: 'clients', groups: hits, excludeEp: false, merge: [] };
   return { type: 'revenue', groups: hits, clients: 'all', measure: /(^|[^а-я])шт([^а-я]|$)/.test(plain) ? 'quantity' : 'revenue' };
+}
+
+/** Правило факта для цели, заведённой вручную: считать по отчёту продажи этого товара. */
+export function productRule(productName: string, metricType: string): FactRule {
+  return {
+    type: 'products',
+    query: productName.trim().slice(0, 200),
+    measure: metricType === 'amount' ? 'revenue' : metricType === 'contracts' ? 'clients' : 'quantity',
+  };
 }
 
 /** Правила по умолчанию для показателя из файла KPI. */

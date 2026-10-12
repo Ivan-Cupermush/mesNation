@@ -4,7 +4,7 @@ import multer from 'multer';
 import { withTransaction } from '../db/pool';
 import { AuthRequest, authenticate } from '../middleware/auth';
 import { forbidden, badRequest } from '../lib/errors';
-import { isSubordinate } from '../services/access';
+import { requireKpiAccess } from '../services/permissions';
 import { knownGroups, saveKpiFile } from '../services/kpi/imports';
 import { parseKpiFile } from '../services/kpi/kpiFile';
 import { defaultRules, ruleText } from '../services/kpi/rules';
@@ -124,8 +124,8 @@ router.post('/import', authenticate, upload.single('file'), async (req: AuthRequ
   const month = monthParam ? `${monthParam}-01` : parsed.month ?? currentMonth();
 
   if (req.body.dryRun === '1' || req.body.dryRun === 'true') {
-    const scope = await kpiScope(req.userId!);
-    if (!scope) throw forbidden('Загружать KPI можно только своим подчинённым');
+    const scope = await kpiScope(req.userId!, 'kpi_files');
+    if (!scope) throw forbidden('Загрузка файлов KPI вам не включена');
     const match = parsed.employeeName ? (await matchPeople([parsed.employeeName], scope.all ? undefined : scope.ids)).values().next().value : null;
     const groups = await knownGroups();
     return res.json({
@@ -146,8 +146,9 @@ router.post('/import', authenticate, upload.single('file'), async (req: AuthRequ
 
   const targetUserId = Number(req.body.userId);
   if (!Number.isInteger(targetUserId) || targetUserId <= 0) throw badRequest('Не указан сотрудник');
-  // Загружать KPI можно только своим подчинённым (директор — всем).
-  if (!(await isSubordinate(req.userId!, targetUserId))) throw forbidden('Загружать KPI можно только своим подчинённым');
+  // Файл KPI загружает руководитель (своим подчинённым), директор или тот,
+  // кому руководитель включил эту функцию. Себе — нельзя (кроме директора).
+  await requireKpiAccess(req.userId!, targetUserId, 'kpi_files');
 
   // Замена KPI за месяц атомарна: при ошибке старые данные остаются на месте.
   const saved = await withTransaction((db) => saveKpiFile(db, { userId: targetUserId, month, file: parsed, byUserId: req.userId! }));

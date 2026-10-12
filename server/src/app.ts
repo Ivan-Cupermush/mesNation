@@ -28,6 +28,7 @@ import kpiImportRouter from './routes/kpiImport';
 import kpiSalesRouter from './routes/kpiSales';
 import kpiReportsRouter from './routes/kpiReports';
 import knowledgeRouter from './routes/knowledge';
+import homeRouter from './routes/home';
 import { filesApiRouter, uploadsRouter } from './routes/files';
 import { createWebRouter, resolveWebDist } from './web';
 import { lastMigration, serverCommit } from './lib/version';
@@ -148,6 +149,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api/kpi/sales', kpiSalesRouter);
   app.use('/api/kpi', kpiReportsRouter);
   app.use('/api/knowledge', knowledgeRouter);
+  app.use('/api/home', homeRouter);
 
   const webDir = options.webDistDir === undefined ? resolveWebDist() : options.webDistDir;
   const web = webDir ? createWebRouter(webDir) : null;

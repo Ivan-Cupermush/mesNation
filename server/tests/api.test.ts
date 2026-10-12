@@ -834,6 +834,75 @@ describe('жизненный цикл задачи', () => {
   });
 });
 
+describe('задачи: архив и фильтры', () => {
+  it('выполненная задача через 3 дня уходит в архив сама, в истории — «Автоматически»', async () => {
+    const t = (await as(c.mgr1).post('/api/tasks', { title: 'Старая выполненная', assignee_ids: [c.mgr1.id] })).body;
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'done' })).status).toBe(200);
+    const fresh = (await as(c.mgr1).post('/api/tasks', { title: 'Свежая выполненная', assignee_ids: [c.mgr1.id] })).body;
+    await as(c.mgr1).post(`/api/tasks/${fresh.id}/transition`, { to_status: 'done' });
+    // Выполнена 4 дня назад.
+    await pool.query(`UPDATE task_status_history SET created_at = NOW() - INTERVAL '4 days' WHERE task_id = $1 AND to_status = 'done'`, [t.id]);
+
+    const { archiveDoneTasks } = await import('../src/services/taskArchive');
+    expect(await archiveDoneTasks()).toEqual([t.id]);
+    expect(await archiveDoneTasks()).toEqual([]);
+    const task = (await as(c.mgr1).get(`/api/tasks/${t.id}`)).body;
+    expect(task).toMatchObject({ status_new: 'archived', archived_as: 'done' });
+    expect((await as(c.mgr1).get(`/api/tasks/${fresh.id}`)).body.status_new).toBe('done');
+    const history = (await as(c.mgr1).get(`/api/tasks/${t.id}/history`)).body;
+    expect(history.at(-1)).toMatchObject({ from_status: 'done', to_status: 'archived', changed_by: null, changed_by_name: 'Автоматически' });
+    // Из архива задачу можно вернуть.
+    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/unarchive`)).status).toBe(200);
+  });
+
+  it('«Команда» — все задачи подчинённых, и те, где руководитель тоже участник или наблюдатель', async () => {
+    const watched = (await as(c.mgr1).post('/api/tasks', { title: 'Под наблюдением руководителя', assignee_ids: [c.mgr2.id], watcher_ids: [c.sales.id] })).body;
+    const mine = (await as(c.sales).post('/api/tasks', { title: 'От руководителя', assignee_ids: [c.mgr1.id] })).body;
+    const team = (await as(c.sales).get('/api/tasks?filter=team')).body.map((x: any) => x.id);
+    expect(team).toEqual(expect.arrayContaining([watched.id, mine.id]));
+    const watching = (await as(c.sales).get('/api/tasks?filter=watching')).body.map((x: any) => x.id);
+    expect(watching).toContain(watched.id);
+    // Создатель по умолчанию — наблюдатель: такие задачи тоже в «Наблюдаю».
+    expect(watching).toContain(mine.id);
+  });
+});
+
+describe('стартовая страница', () => {
+  it('приветствие, напутствие без повтора, квадратики, KPI и задачи на сегодня', async () => {
+    const today = await as(c.sales).post('/api/tasks', {
+      title: 'Позвонить клиенту',
+      assignee_ids: [c.mgr2.id],
+      executor_deadline: new Date(Date.now() + 3600_000).toISOString(),
+    });
+    expect(today.status).toBe(201);
+    const later = await as(c.sales).post('/api/tasks', {
+      title: 'Через неделю',
+      assignee_ids: [c.mgr2.id],
+      executor_deadline: new Date(Date.now() + 7 * 86400_000).toISOString(),
+    });
+    // Местное время: полдень по UTC+7 (tz_offset = -420).
+    const r = await as(c.mgr2).get('/api/home?tz_offset=-420&prev=3');
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.greeting).toMatch(/^(Доброе утро|Добрый день|Добрый вечер|Доброй ночи)$/);
+    expect(r.body.name).toBe('MGR2');
+    expect(r.body.phrase.text).toBeTruthy();
+    expect(r.body.phrase.id).not.toBe(3);
+    expect(r.body.stats).toBeNull();
+    expect(r.body.kpi).toMatchObject({ count: 0, focus: [] });
+    const ids = r.body.tasks.map((t: any) => t.id);
+    expect(ids).toContain(today.body.id);
+    expect(ids).not.toContain(later.body.id);
+    expect((await as().get('/api/home')).status).toBe(401);
+    expect((await as(c.mgr2).get('/api/home?tz_offset=abc')).status).toBe(400);
+  });
+
+  it('напутствие каждый раз другое', async () => {
+    const { pickPhrase, PHRASES } = await import('../src/routes/home');
+    expect(PHRASES.length).toBeGreaterThan(20);
+    for (let prev = 0; prev < PHRASES.length; prev++) expect(pickPhrase(prev, () => prev / PHRASES.length)).not.toBe(prev);
+  });
+});
+
 describe('дымовой тест: экраны не падают с ошибкой сервера', () => {
   const GETS = [
     '/api/auth/me',
@@ -877,25 +946,35 @@ describe('дымовой тест: экраны не падают с ошибк�
     expect((await as(c.sales).patch(`/api/kpi/sales/targets/${id}`, { target_value: 120000 })).status).toBe(200);
   });
 
-  it('KPI: своя цель, продажи только положительные, понятные ошибки', async () => {
-    const t = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Ноутбук', target_value: 10 });
+  it('KPI: цель ставит руководитель, продажи только положительные, понятные ошибки', async () => {
+    // Сотрудник сам себе KPI не создаёт.
+    expect((await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Ноутбук', target_value: 10 })).status).toBe(403);
+    const t = await as(c.sales).post('/api/kpi/sales/targets/assign', { user_id: c.mgr1.id, product_name: 'Ноутбук', target_value: 10 });
     expect(t.status, JSON.stringify(t.body)).toBe(201);
-    expect((await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'X', target_value: 'abc' })).status).toBe(400);
+    expect((await as(c.sales).post('/api/kpi/sales/targets/assign', { user_id: c.mgr1.id, product_name: 'X', target_value: 'abc' })).status).toBe(400);
     expect((await as(c.mgr1).post('/api/kpi/sales/transactions', { product_name: 'Ноутбук', quantity: -5, target_id: t.body.id })).status).toBe(400);
     const ok = await as(c.mgr1).post('/api/kpi/sales/transactions', { product_name: 'Ноутбук', quantity: 2, target_id: t.body.id });
     expect(ok.status).toBe(201);
+    // Продажа вручную идёт в цель, которую сотрудник ведёт сам.
+    const after = (await as(c.mgr1).get('/api/kpi/sales/targets')).body.find((x: any) => x.id === t.body.id);
+    expect(after.current_value).toBe('2.00');
     expect((await as(c.mgr1).patch('/api/kpi/sales/targets/abc', { target_value: 5 })).status).toBe(400);
-    // Все три типа показателя из приложения принимаются, своя цель редактируется.
-    const contracts = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Договоры', metric_type: 'contracts', target_value: 3 });
+    // План меняет и удаляет руководитель, не сотрудник.
+    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${t.body.id}`, { target_value: 4 })).status).toBe(403);
+    expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${t.body.id}`)).status).toBe(403);
+    expect((await as(c.sales).patch(`/api/kpi/sales/targets/${t.body.id}`, { target_value: 4 })).status).toBe(200);
+    // Все три типа показателя из приложения принимаются; директор может завести KPI себе.
+    const contracts = await as(c.dir).post('/api/kpi/sales/targets', { product_name: 'Договоры', metric_type: 'contracts', target_value: 3 });
     expect(contracts.status).toBe(201);
-    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${contracts.body.id}`, { target_value: 4 })).status).toBe(200);
-    expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${contracts.body.id}`)).status).toBe(200);
+    expect((await as(c.dir).patch(`/api/kpi/sales/targets/${contracts.body.id}`, { target_value: 4 })).status).toBe(200);
+    expect((await as(c.dir).delete(`/api/kpi/sales/targets/${contracts.body.id}`)).status).toBe(200);
+    expect((await as(c.sales).delete(`/api/kpi/sales/targets/${t.body.id}`)).status).toBe(200);
   });
 
   it('KPI: мусор в датах и фильтрах — 400, а не 500', async () => {
-    const bad = await as(c.mgr1).post('/api/kpi/sales/targets', { product_name: 'Y', target_value: 5, period_start: 'вчера' });
+    const bad = await as(c.dir).post('/api/kpi/sales/targets', { product_name: 'Y', target_value: 5, period_start: 'вчера' });
     expect(bad.status).toBe(400);
-    const reversed = await as(c.mgr1).post('/api/kpi/sales/targets', {
+    const reversed = await as(c.dir).post('/api/kpi/sales/targets', {
       product_name: 'Y', target_value: 5, period_start: '2030-02-01', period_end: '2030-01-01',
     });
     expect(reversed.status).toBe(400);

@@ -9,6 +9,7 @@ import { getAssignableUsers, getSubtreeNodeIds } from '../services/access';
 import { emailSchema, usernameSchema } from './auth';
 import { hashPassword, passwordSchema } from '../lib/passwords';
 import { audit } from '../services/audit';
+import { permissionChangesSchema, setPermissions } from '../services/permissions';
 
 /**
  * Дерево ролей (иерархия должностей). Монтируется на /api/role-tree.
@@ -208,6 +209,8 @@ const createUserSchema = z.object({
   password: passwordSchema,
   display_name: z.string().trim().max(255).optional(),
   role_node_id: id,
+  /** Функции сверх должности или отключённые (см. services/permissions.ts). */
+  permissions: permissionChangesSchema.optional(),
 });
 
 router.post('/users', requireDirector, validate(createUserSchema), async (req: AuthRequest, res: Response) => {
@@ -230,6 +233,8 @@ router.post('/users', requireDirector, validate(createUserSchema), async (req: A
     await assignNode(client, created.id, body.role_node_id, req.userId!);
     return created;
   });
+  // После создания: строка в user_permissions ссылается на уже сохранённого пользователя.
+  if (body.permissions && Object.keys(body.permissions).length) await setPermissions(req.userId!, user.id, body.permissions);
   await audit('user_created', { actorId: req.userId, targetId: user.id, ip: req.ip });
   res.status(201).json({ ...user, role_node_id: body.role_node_id });
 });

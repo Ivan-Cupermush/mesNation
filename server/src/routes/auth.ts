@@ -13,6 +13,7 @@ import { logger } from '../lib/logger';
 import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
 import { getUserNode, hasSubordinateNodes } from '../services/access';
 import { getCompanyName } from '../services/company';
+import { effectivePermissions } from '../services/permissions';
 
 const router = Router();
 
@@ -69,6 +70,8 @@ export async function loadProfile(userId: number) {
     is_director: node.isRoot,
     role_depth: node.depth,
     has_subordinates: await hasSubordinateNodes(userId),
+    // Функции, которые включил или отключил руководитель (загрузка отчётов, файлов KPI…).
+    permissions: await effectivePermissions(userId),
     company_name: await getCompanyName(),
   };
 }

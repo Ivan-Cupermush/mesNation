@@ -53,6 +53,11 @@ export interface KpiMetric {
   items: KpiItem[];
   /** План и факт в файле — «да/нет». */
   yesNo: boolean;
+  /**
+   * Выполнение в процентах: «да/нет» без отметок V/X у позиций — при «да»
+   * берётся процент выполнения из файла, при «нет» — 0.
+   */
+  percentOnly: boolean;
 }
 
 export interface KpiFile {
@@ -224,37 +229,49 @@ export function parseKpiSheet(rows: unknown[][]): KpiFile {
     m.last = type;
   }
 
-  const metrics: KpiMetric[] = drafts.map((m) => {
-    const name = m.name.replace(/[:\s]+$/, '');
-    const kind = kindOf(name, m.fixed);
-    let plan = m.plan ?? 0;
-    let fact = m.fact;
-    const bonus = m.bonus ?? 0;
-    const items = kind === 'distra' || m.subItems.length ? m.subItems.map(parseItem) : [];
-    if (items.length && (m.yesNo || kind === 'distra')) {
-      plan = items.length;
+  const metrics: KpiMetric[] = drafts
+    .map((m): KpiMetric => {
+      const name = m.name.replace(/[:\s]+$/, '');
+      const kind = kindOf(name, m.fixed);
+      let plan = m.plan ?? 0;
+      let fact = m.fact;
+      const bonus = m.bonus ?? 0;
+      const items = kind === 'distra' || m.subItems.length ? m.subItems.map(parseItem) : [];
+      // «%» со ставкой: бонус = план × ставка (3,5% от продаж), а не процент выполнения.
+      const p = m.percent;
+      const isRate =
+        p != null && p > 0 && p < 1 && m.percentBare && plan > 0 &&
+        (Math.abs(bonus - plan * p) <= Math.max(1, bonus * 0.01) || (fact != null && m.payment != null && Math.abs(m.payment - fact * p) <= Math.max(1, m.payment * 0.01)));
+      const filePercent = isRate || p == null ? null : p <= 5 ? Math.round(p * 1000) / 10 : p;
       const marked = items.filter((i) => i.fileDone != null);
-      fact = marked.length ? items.filter((i) => i.fileDone).length : null;
-    }
-    // «%» со ставкой: бонус = план × ставка (3,5% от продаж), а не процент выполнения.
-    const p = m.percent;
-    const isRate =
-      p != null && p > 0 && p < 1 && m.percentBare && plan > 0 &&
-      (Math.abs(bonus - plan * p) <= Math.max(1, bonus * 0.01) || (fact != null && m.payment != null && Math.abs(m.payment - fact * p) <= Math.max(1, m.payment * 0.01)));
-    return {
-      name,
-      kind,
-      fixed: m.fixed,
-      plan,
-      fact,
-      bonus: m.fixed ? plan : bonus,
-      payment: m.payment,
-      rate: isRate ? p : null,
-      filePercent: isRate || p == null ? null : p <= 5 ? Math.round(p * 1000) / 10 : p,
-      items,
-      yesNo: m.yesNo && !items.length,
-    };
-  });
+      let percentOnly = false;
+      if (items.length && marked.length) {
+        // Позиции с галочками и крестиками: выполнено столько, сколько галочек.
+        plan = items.length;
+        fact = items.filter((i) => i.fileDone).length;
+      } else if (m.yesNo) {
+        // Отметок нет: «да» — смотрим процент выполнения, «нет» — не выполнено.
+        percentOnly = true;
+        plan = 100;
+        fact = m.fact == null ? null : m.fact >= 1 ? filePercent ?? 100 : 0;
+      }
+      return {
+        name,
+        kind,
+        fixed: m.fixed,
+        plan,
+        fact,
+        bonus: m.fixed ? plan : bonus,
+        payment: m.payment,
+        rate: isRate ? p : null,
+        filePercent,
+        items,
+        yesNo: m.yesNo && !items.length,
+        percentOnly,
+      };
+    })
+    // ГСМ в KPI не показываем.
+    .filter((m) => m.kind !== 'fuel');
 
   for (const m of metrics) {
     if (!m.fixed && !m.plan) warnings.push(`«${m.name}»: не найден план`);

@@ -3,7 +3,7 @@ import path from 'path';
 import { AppError, badRequest, forbidden, notFound } from '../lib/errors';
 import { paramId, validate } from '../lib/validate';
 import rateLimit from 'express-rate-limit';
-import { hasSubordinateNodes } from '../services/access';
+import { hasPermission } from '../services/permissions';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { logger } from '../lib/logger';
@@ -66,8 +66,9 @@ router.get('/health', async (req: Request, res: Response) => {
  * поэтому директор (id 1) загружать не мог, а случайные роли — могли.
  */
 async function requireAdmin(req: Request, _res: Response, next: NextFunction) {
-  if (!(await hasSubordinateNodes((req as any).userId))) {
-    throw forbidden('Управлять базой знаний могут директор и руководители');
+  // По умолчанию — директор и руководители; руководитель может включить или отключить сотруднику.
+  if (!(await hasPermission((req as any).userId, 'knowledge_manage'))) {
+    throw forbidden('Управлять базой знаний могут директор, руководители и те, кому это включили');
   }
   next();
 }

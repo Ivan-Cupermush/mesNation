@@ -76,7 +76,8 @@ describe('KPI: файл сотрудника', () => {
     expect(f.month).toBe('2026-05-01');
     expect(f.hasResults).toBe(true);
     const by = Object.fromEntries(f.metrics.map((m) => [m.kind, m]));
-    expect(f.metrics.map((m) => m.kind)).toEqual(['salary', 'fuel', 'akb', 'distra', 'baltika', 'oph', 'ep', 'no_ep']);
+    // ГСМ в KPI не попадает.
+    expect(f.metrics.map((m) => m.kind)).toEqual(['salary', 'akb', 'distra', 'baltika', 'oph', 'ep', 'no_ep']);
     expect(by.akb).toMatchObject({ plan: 4, fact: 5, bonus: 5000, payment: 5000, filePercent: 125 });
     expect(by.distra.items).toEqual([
       { name: 'Балтика Стаут кег', need: 1, fileCount: null, fileDone: true },
@@ -84,13 +85,25 @@ describe('KPI: файл сотрудника', () => {
       { name: 'Балтика Хеллес', need: 1, fileCount: null, fileDone: true },
       { name: 'Балтика 0 any', need: 2, fileCount: 1, fileDone: false },
     ]);
-    expect(by.distra).toMatchObject({ plan: 4, fact: 2 });
+    // Галочки и крестики: выполнено столько позиций, сколько галочек.
+    expect(by.distra).toMatchObject({ plan: 4, fact: 2, percentOnly: false });
     // Первая строка «факт» у ЕП — это план; «%» — ставка 3,5%, а не выполнение.
     expect(by.ep).toMatchObject({ plan: 40000, fact: 30000, rate: 0.035, filePercent: null });
     expect(by.no_ep).toMatchObject({ plan: 200000, fact: 150000, filePercent: 75, payment: 0 });
     // Раньше 1,045 (104,5%) сохранялось как 1,045%.
     expect(by.baltika.filePercent).toBe(95);
     expect(by.salary).toMatchObject({ fixed: true, plan: 30000, payment: 30000 });
+  });
+
+  it('позиции без галочек: «да» — выполнение по проценту из таблицы, «нет» — не выполнено', () => {
+    const yes = parseKpiFile(kpiFile({ name: 'Анна', yesNo: true })).metrics.find((m) => m.name === 'Дистра Хайнекен')!;
+    expect(yes).toMatchObject({ kind: 'distra', percentOnly: true, plan: 100, fact: 80, filePercent: 80, payment: 2400 });
+    expect(yes.items.map((i) => [i.name, i.fileDone])).toEqual([
+      ['Охота Крепкое', null],
+      ['Бочкарев светлое', null],
+    ]);
+    const empty = parseKpiFile(kpiFile({ name: 'Анна', yesNo: true, facts: false })).metrics.find((m) => m.name === 'Дистра Хайнекен')!;
+    expect(empty).toMatchObject({ percentOnly: true, plan: 100, fact: null });
   });
 
   it('файл на начало месяца — только план, без итогов', () => {
@@ -213,7 +226,16 @@ async function month(a: Actor, userId: number, m = '2026-05') {
   return { ...r.body, by };
 }
 
+/** Текущий месяц (ГГГГ-ММ) — свой KPI сотрудник видит только за него. */
+const thisMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 describe('KPI: файл KPI и ежедневные отчёты', () => {
+  let stout = 0;
+  let bochk = 0;
+
   it('файл KPI: предпросмотр подсказывает сотрудника и месяц, загрузка — за месяц из файла', async () => {
     const preview = await upload(c.sales, '/api/kpi/import', kpiFile({ name: 'Анна' }), 'kpi.xlsx', { dryRun: '1' });
     expect(preview.status, JSON.stringify(preview.body)).toBe(200);
@@ -226,61 +248,114 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     });
     expect(manual.status).toBe(201);
 
-    const r = await upload(c.sales, '/api/kpi/import', kpiFile({ name: 'Анна' }), 'kpi.xlsx', { userId: String(c.mgr1.id) });
+    const r = await upload(c.sales, '/api/kpi/import', kpiFile({ name: 'Анна', yesNo: true }), 'kpi.xlsx', { userId: String(c.mgr1.id) });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body).toMatchObject({ imported: 8, month: '2026-05' });
     const m = await month(c.sales, c.mgr1.id);
     expect(m.targets).toHaveLength(9);
+    expect(m.targets.some((t: any) => /гсм/i.test(t.product_name))).toBe(false);
+    // Факт, процент и «к выплате» — из файла KPI.
     expect(m.by.baltika).toMatchObject({ source: 'kpi_file', target_value: '100000.00', current_value: '95000.00' });
-    // Отчётов ещё нет: факт и выплаты — по файлу.
+    expect(m.by.baltika.calc).toMatchObject({ source: 'file', percent: 95, now: 12000, condition: 'порог 90%, При выполнении 80-90% кэф 0,5' });
     expect(m.coverage).toBeNull();
-    expect(m.totals.file).toBe(61550);
-    expect(m.by.distra.calc.items.map((i: any) => i.done)).toEqual([true, false, true, false]);
+    expect(m.stats).toBeNull();
+    expect(m.totals).toMatchObject({ fixed: 30000, file: 55950 });
+    const distra = m.targets.filter((t: any) => t.kpi_kind === 'distra');
+    expect(distra[0].calc).toMatchObject({ percent: 50, now: 2500 });
+    expect(distra[0].calc.items.map((i: any) => i.done)).toEqual([true, false, true, false]);
+    // «Да» без галочек — процент выполнения из файла.
+    expect(distra[1]).toMatchObject({ product_name: 'Дистра Хайнекен', unit: '%' });
+    expect(distra[1].calc).toMatchObject({ percent: 80, now: 2400, items: null, hint: 'Позиции: Охота Крепкое, Бочкарев светлое' });
+    expect(m).toMatchObject({ canEdit: true, canSwitchMonth: true, can: { reports: true, kpiFile: true, assign: true } });
 
-    // Чужому сотруднику и без прав — нельзя.
+    // Чужому сотруднику и без прав — нельзя; себе — тоже нельзя.
     expect((await upload(c.acc, '/api/kpi/import', kpiFile({ name: 'Анна' }), 'kpi.xlsx', { userId: String(c.mgr1.id) })).status).toBe(403);
     expect((await upload(c.mgr1, '/api/kpi/import', kpiFile({ name: 'Анна' }), 'kpi.xlsx', { dryRun: '1' })).status).toBe(403);
+    expect((await upload(c.sales, '/api/kpi/import', kpiFile({ name: 'Анна' }), 'kpi.xlsx', { userId: String(c.sales.id) })).status).toBe(403);
   });
 
-  it('отчёт о продажах обновляет все показатели; имена из 1С находятся в любом порядке', async () => {
+  it('сотрудник видит свой KPI только за текущий месяц и сам KPI не ставит', async () => {
+    const own = await as(c.mgr1).get('/api/kpi/month?month=2026-05');
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ month: thisMonth(), canSwitchMonth: false, months: [], canEdit: false, can: { reports: false, kpiFile: false, assign: false } });
+
+    const body = { product_name: 'Свой план', metric_type: 'quantity', target_value: 10 };
+    expect((await as(c.mgr1).post('/api/kpi/sales/targets', body)).status).toBe(403);
+    expect((await as(c.mgr1).post('/api/kpi/sales/targets/assign', { ...body, user_id: c.mgr1.id })).status).toBe(403);
+    expect((await as(c.sales).post('/api/kpi/sales/targets/assign', { ...body, user_id: c.sales.id })).status).toBe(403);
+    // Директор себе может.
+    expect((await as(c.dir).post('/api/kpi/sales/targets', body)).status).toBe(201);
+
+    // План KPI из файла сотрудник не меняет и выполнение вручную не ставит.
+    const m = await month(c.sales, c.mgr1.id);
+    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${m.by.baltika.id}`, { current_value: 100000 })).status).toBe(403);
+    expect((await as(c.mgr1).patch(`/api/kpi/sales/targets/${m.by.baltika.id}`, { target_value: 1 })).status).toBe(403);
+    expect((await as(c.mgr1).delete(`/api/kpi/sales/targets/${m.by.baltika.id}`)).status).toBe(403);
+    // Цель, назначенную вручную без отчёта, сотрудник отмечает сам.
+    const contracts = m.targets.find((t: any) => t.product_name === 'Договоры');
+    const done = await as(c.mgr1).patch(`/api/kpi/sales/targets/${contracts.id}`, { current_value: 1 });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    expect(done.body.current_value).toBe('1.00');
+  });
+
+  it('отчёт о продажах заполняет квадратики и ручные цели, KPI из файла не меняет', async () => {
+    // Цели по отчёту: штуки товара и точки, купившие товар.
+    const a = await as(c.sales).post('/api/kpi/sales/targets/assign', {
+      user_id: c.mgr1.id, product_name: 'Балтика Stout', metric_type: 'quantity', target_value: 4, period_start: '2026-05-01', period_end: '2026-05-31', from_report: true,
+    });
+    expect(a.status, JSON.stringify(a.body)).toBe(201);
+    expect(a.body.fact_rule).toEqual({ type: 'products', query: 'Балтика Stout', measure: 'quantity' });
+    stout = a.body.id;
+    const b = await as(c.sales).post('/api/kpi/sales/targets/assign', {
+      user_id: c.mgr1.id, product_name: 'Точки Бочкарев', metric_type: 'contracts', target_value: 3, period_start: '2026-05-01', period_end: '2026-05-31',
+      fact_rule: { type: 'products', query: 'Бочкарев', measure: 'clients' },
+    });
+    expect(b.status, JSON.stringify(b.body)).toBe(201);
+    bochk = b.body.id;
+
     const r = await upload(c.sales, '/api/kpi/sales/import-report', salesReport('01.05.2026 - 15.05.2026', mayClients()), 'Отчёт 1-15.xlsx');
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     const res = Object.fromEntries(r.body.results.map((x: any) => [x.manager, x]));
-    expect(res['Смирнова Анна']).toMatchObject({ status: 'ok', userId: c.mgr1.id, total: 72000, ep: 0, noEp: 72000, updated: true });
+    expect(res['Смирнова Анна']).toMatchObject({ status: 'ok', userId: c.mgr1.id, total: 72000, ep: 0, noEp: 72000, updated: true, targetsUpdated: 2 });
     expect(res['Иванов Пётр']).toMatchObject({ status: 'ok', userId: c.mgr2.id, total: 4000 });
     expect(res['Неизвестный Менеджер']).toMatchObject({ status: 'unmatched', userId: null });
     expect(r.body.epListEmpty).toBe(true);
     expect(r.body.report).toMatchObject({ period_start: '2026-05-01', period_end: '2026-05-15', month: '2026-05-01', total_revenue: 79000 });
 
-    const m = await month(c.mgr1, c.mgr1.id);
-    expect(Number(m.by.no_ep.current_value)).toBe(72000);
-    expect(Number(m.by.baltika.current_value)).toBe(51000);
-    expect(Number(m.by.oph.current_value)).toBe(18000);
-    expect(Number(m.by.akb.current_value)).toBe(5);
-    expect(Number(m.by.distra.current_value)).toBe(3);
+    const m = await month(c.sales, c.mgr1.id);
+    // Квадратики: выручка, АКБ, средняя продажа в день, штуки.
+    expect(m.stats).toMatchObject({ revenue: 72000, akb: 6, perDay: 4800, quantity: 108, asOf: '2026-05-15', elapsed: 15, days: 31, reports: 1 });
     expect(m.coverage).toMatchObject({ asOf: '2026-05-15', elapsed: 15, days: 31, reports: 1 });
-    // Цель, созданная вручную, отчётом не трогается.
-    expect(m.targets.find((t: any) => t.product_name === 'Договоры').current_value).toBe('0.00');
+    // KPI из файла отчёт не трогает.
+    expect(Number(m.by.no_ep.current_value)).toBe(150000);
+    expect(Number(m.by.baltika.current_value)).toBe(95000);
+    expect(Number(m.by.akb.current_value)).toBe(5);
+    // Ручные цели — по отчёту.
+    const st = m.targets.find((t: any) => t.id === stout);
+    expect(st).toMatchObject({ current_value: '2.00' });
+    expect(st.calc).toMatchObject({ source: 'report', tracked: true, percent: 50, asOf: '2026-05-15' });
+    expect(m.targets.find((t: any) => t.id === bochk).current_value).toBe('2.00');
+    // Цель без отчёта — как отметил сотрудник.
+    expect(m.targets.find((t: any) => t.product_name === 'Договоры').current_value).toBe('1.00');
+    // Выплаты — из файла, ГСМ не считается.
+    expect(m.totals).toMatchObject({ fixed: 30000, now: 55950 });
 
-    // Выплата сейчас и прогноз при текущем темпе (15 из 31 дня).
-    const b = m.by.baltika.calc;
-    expect(b).toMatchObject({ tracked: true, percent: 51, now: 0, forecastValue: 105400, forecastPercent: 105.4, forecast: 12648, marks: [80, 90] });
-    expect(b.hint).toBe('До 80% — ещё 29 000 ₽ (≈1 813 ₽ в день)');
-    expect(m.by.akb.calc).toMatchObject({ now: 5000, forecast: 5000 });
-    expect(m.by.distra.calc).toMatchObject({ now: 3750, hint: 'Осталось: Балтика 0 any (1 из 2 ТТ)' });
-    expect(m.totals).toMatchObject({ fixed: 38000, now: 46750 });
+    // В команде руководителя — выручка по отчёту за текущий месяц (за май отчёта нет).
+    const team = await as(c.sales).get('/api/kpi/sales/subordinates');
+    expect(team.status).toBe(200);
+    expect(team.body.find((u: any) => u.user_id === c.mgr1.id)).toHaveProperty('sales', null);
   });
 
-  it('список «Есть повод» пересчитывает ЕП, без ЕП и АКБ', async () => {
+  it('список «Есть повод» убирает ЕП из АКБ в квадратиках', async () => {
     expect((await as(c.mgr1).post('/api/kpi/client-lists', { kind: 'ep', names: ['ИП Соколова Д.И.'] })).status).toBe(403);
     const add = await as(c.sales).post('/api/kpi/client-lists', { kind: 'ep', names: ['ИП Соколова Д.И.', ' ип  соколова д.и. '] });
     expect(add.status, JSON.stringify(add.body)).toBe(200);
     expect(add.body.added).toBe(1);
-    const m = await month(c.mgr1, c.mgr1.id);
-    expect(Number(m.by.ep.current_value)).toBe(25000);
-    expect(Number(m.by.no_ep.current_value)).toBe(47000);
-    expect(Number(m.by.akb.current_value)).toBe(3);
-    expect(m.by.ep.calc).toMatchObject({ now: 875, rule: '3,5% от продаж, если продано от 20 000 ₽' });
+    const m = await month(c.sales, c.mgr1.id);
+    expect(m.stats).toMatchObject({ revenue: 72000, akb: 4 });
+    // KPI из файла — как в файле.
+    expect(Number(m.by.ep.current_value)).toBe(30000);
+    expect(m.by.ep.calc).toMatchObject({ now: 1050, rule: '3,5% от продаж, если продано от 20 000 ₽' });
 
     const clients = await as(c.sales).get('/api/kpi/report-clients?month=2026-05');
     const sokol = clients.body.find((x: any) => x.name === 'ИП Соколова Д.И. Ленина 1');
@@ -292,8 +367,8 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     const next = await upload(c.sales, '/api/kpi/sales/import-report', salesReport('01.05.2026 - 16.05.2026', mayClients(1.1)), 'Отчёт 1-16.xlsx');
     expect(next.status, JSON.stringify(next.body)).toBe(200);
     expect(next.body.replaced).toBe(1);
-    const m = await month(c.mgr1, c.mgr1.id);
-    expect(Number(m.by.no_ep.current_value)).toBe(51700);
+    const m = await month(c.sales, c.mgr1.id);
+    expect(m.stats).toMatchObject({ revenue: 79200, perDay: 4950, asOf: '2026-05-16', reports: 1 });
     expect(m.coverage).toMatchObject({ asOf: '2026-05-16', reports: 1 });
 
     const day = await upload(c.sales, '/api/kpi/sales/import-report', salesReport('10.05.2026 - 10.05.2026', mayClients()), 'день.xlsx');
@@ -310,11 +385,12 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
       expect(r.status, JSON.stringify(r.body)).toBe(200);
       expect(r.body.replaced).toBe(0);
     }
-    const m = await month(c.mgr1, c.mgr1.id, '2026-06');
-    expect(Number(m.by.no_ep.current_value)).toBe(47000);
+    const m = await month(c.sales, c.mgr1.id, '2026-06');
+    expect(m.stats).toMatchObject({ revenue: 72000, perDay: 36000, quantity: 216, elapsed: 2, reports: 2 });
     expect(m.coverage).toMatchObject({ asOf: '2026-06-02', elapsed: 2, reports: 2 });
-    // В файле на начало месяца итогов нет.
+    // В файле на начало месяца итогов нет — факта KPI тоже нет.
     expect(m.totals.file).toBeNull();
+    expect(Number(m.by.no_ep.current_value)).toBe(0);
   });
 
   it('менеджер из 1С, которого не нашли, сопоставляется вручную', async () => {
@@ -343,6 +419,57 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     expect((await as(c.mgr1).get('/api/kpi/reports')).status).toBe(403);
   });
 
+  it('функции включаются сотруднику: оператору — загрузка отчётов, менеджеру — файлы KPI', async () => {
+    // Руководитель видит функции подчинённого, сам себе не меняет.
+    const list = await as(c.sales).get(`/api/users/${c.mgr2.id}/permissions`);
+    expect(list.status).toBe(200);
+    expect(list.body.can_edit).toBe(true);
+    expect(list.body.items.find((p: any) => p.key === 'sales_reports')).toMatchObject({ default: false, override: null, enabled: false, grantable: true });
+    expect((await as(c.mgr1).put(`/api/users/${c.mgr1.id}/permissions`, { permissions: { sales_reports: true } })).status).toBe(403);
+    expect((await as(c.acc).put(`/api/users/${c.mgr1.id}/permissions`, { permissions: { sales_reports: true } })).status).toBe(403);
+    expect((await as(c.sales).put(`/api/users/${c.mgr2.id}/permissions`, { permissions: { nope: true } })).status).toBe(400);
+
+    // Директор включает загрузку отчётов бухгалтеру (bk) — на всю компанию.
+    const on = await as(c.dir).put(`/api/users/${c.bk.id}/permissions`, { permissions: { sales_reports: true } });
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
+    expect(on.body.items.find((p: any) => p.key === 'sales_reports')).toMatchObject({ override: true, enabled: true });
+    const me = await as(c.bk).get('/api/auth/me');
+    expect(me.body.permissions).toMatchObject({ sales_reports: true, kpi_files: false, kpi_assign: false });
+    const rep = await upload(c.bk, '/api/kpi/sales/import-report', salesReport('01.08.2026 - 01.08.2026', mayClients()), 'aug.xlsx');
+    expect(rep.status, JSON.stringify(rep.body)).toBe(200);
+    expect(rep.body.results.find((x: any) => x.manager === 'Смирнова Анна')).toMatchObject({ status: 'ok' });
+
+    // Руководитель продаж включает менеджеру файлы KPI — для своего отдела, но не себе.
+    expect((await as(c.sales).put(`/api/users/${c.mgr2.id}/permissions`, { permissions: { kpi_files: true } })).status).toBe(200);
+    expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.mgr1.id) })).status).toBe(200);
+    expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.mgr2.id) })).status).toBe(403);
+    expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.bk.id) })).status).toBe(403);
+    // Функцию, которой нет у самого руководителя, включить нельзя.
+    await as(c.dir).put(`/api/users/${c.sales.id}/permissions`, { permissions: { knowledge_manage: false } });
+    expect((await as(c.sales).put(`/api/users/${c.mgr2.id}/permissions`, { permissions: { knowledge_manage: true } })).status).toBe(403);
+    expect((await as(c.sales).post('/api/knowledge/documents')).status).toBe(403);
+
+    // Отключить руководителю его функцию по должности.
+    await as(c.dir).put(`/api/users/${c.sales.id}/permissions`, { permissions: { kpi_assign: false } });
+    expect(
+      (await as(c.sales).post('/api/kpi/sales/targets/assign', { user_id: c.mgr1.id, product_name: 'X', metric_type: 'quantity', target_value: 1 })).status,
+    ).toBe(403);
+    // Вернуть «по должности».
+    const back = await as(c.dir).put(`/api/users/${c.sales.id}/permissions`, { permissions: { kpi_assign: null, knowledge_manage: null } });
+    expect(back.body.items.every((p: any) => p.override === null && p.enabled)).toBe(true);
+
+    // Функции при создании сотрудника.
+    const created = await as(c.dir).post('/api/role-tree/users', {
+      username: 'oper', email: 'oper@test.ru', password: 'secret-pass', role_node_id: c.nodes.bkNode, permissions: { sales_reports: true },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const perms = await as(c.dir).get(`/api/users/${created.body.id}/permissions`);
+    expect(perms.body.items.find((p: any) => p.key === 'sales_reports')).toMatchObject({ enabled: true, override: true });
+    // Чужие функции видят только руководители.
+    expect((await as(c.mgr1).get(`/api/users/${created.body.id}/permissions`)).status).toBe(403);
+    expect((await as(c.mgr1).get(`/api/users/${created.body.id}`)).body.permissions).toBeUndefined();
+  });
+
   it('правило выплаты можно поправить; повторная загрузка файла его сохраняет', async () => {
     const m = await month(c.sales, c.mgr1.id);
     const id = m.by.no_ep.id;
@@ -359,17 +486,20 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     const again = await month(c.sales, c.mgr1.id);
     expect(again.by.no_ep.payout_rule).toEqual(rule);
     expect(again.by.no_ep.rules_custom).toBe(true);
-    // Факт после повторной загрузки файла — снова по отчётам месяца.
-    expect(Number(again.by.no_ep.current_value)).toBe(51700);
+    // Факт после повторной загрузки — из файла KPI.
+    expect(Number(again.by.no_ep.current_value)).toBe(150000);
     expect(again.targets.filter((t: any) => t.product_name === 'Договоры')).toHaveLength(1);
+    expect(again.targets.find((t: any) => t.id === stout).current_value).toBe('2.00');
   });
 
-  it('удалённый отчёт: факт возвращается к значению из файла', async () => {
+  it('удалённый отчёт: квадратики и цели по отчёту обнуляются, KPI из файла остаётся', async () => {
     const list = await as(c.sales).get('/api/kpi/reports?month=2026-05');
     expect(list.status).toBe(200);
     for (const rep of list.body) expect((await as(c.sales).delete(`/api/kpi/reports/${rep.id}`)).status).toBe(200);
     const m = await month(c.sales, c.mgr1.id);
     expect(m.coverage).toBeNull();
+    expect(m.stats).toBeNull();
+    expect(m.targets.find((t: any) => t.id === stout).current_value).toBe('0.00');
     expect(Number(m.by.no_ep.current_value)).toBe(150000);
     expect(Number(m.by.baltika.current_value)).toBe(95000);
   });

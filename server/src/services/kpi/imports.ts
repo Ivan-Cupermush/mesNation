@@ -48,8 +48,8 @@ export interface ReportImportResult {
  * продажи посчитались бы дважды.
  */
 export async function importSalesReport(buffer: Buffer, fileName: string, uploaderId: number): Promise<ReportImportResult> {
-  const scope = await kpiScope(uploaderId);
-  if (!scope) throw forbidden('Загружать отчёт о продажах может руководитель или директор');
+  const scope = await kpiScope(uploaderId, 'sales_reports');
+  if (!scope) throw forbidden('Загрузка отчётов о продажах вам не включена — её включает руководитель');
   const report = parseSalesReport(buffer);
   const lists = await loadLists();
   const isEp = (client: string) => lists.ep.some((p) => matchesClient(client, p));
@@ -165,7 +165,8 @@ export async function importSalesReport(buffer: Buffer, fileName: string, upload
     for (const r of results) {
       if (r.status !== 'ok' || r.userId == null) continue;
       r.targetsUpdated = await recalcUserMonth(db, r.userId, report.month, lists);
-      r.updated = r.targetsUpdated > 0;
+      // Продажи сотрудника (квадратики статистики) обновились в любом случае.
+      r.updated = true;
     }
     return {
       success: true as const,
@@ -180,8 +181,8 @@ export async function importSalesReport(buffer: Buffer, fileName: string, upload
 
 /** Удаление отчёта (ошибочный файл): факт KPI пересчитывается без него. */
 export async function deleteSalesReport(reportId: number, userId: number): Promise<boolean> {
-  const scope = await kpiScope(userId);
-  if (!scope) throw forbidden('Удалять отчёты может руководитель или директор');
+  const scope = await kpiScope(userId, 'sales_reports');
+  if (!scope) throw forbidden('Удалять отчёты может тот, кому включена загрузка отчётов о продажах');
   const { rows } = await pool.query(
     `SELECT r.uploaded_by, to_char(r.month, 'YYYY-MM-DD') AS month,
             ARRAY(SELECT DISTINCT l.user_id FROM sales_report_lines l WHERE l.report_id = r.id AND l.user_id IS NOT NULL) AS users
@@ -218,6 +219,7 @@ function metricShape(m: KpiMetric): { metric: string; unit: string | null } {
   const s = norm(m.name);
   if (m.fixed) return { metric: 'amount', unit: null };
   if (m.kind === 'akb') return { metric: 'quantity', unit: 'ТТ' };
+  if (m.percentOnly) return { metric: 'quantity', unit: '%' };
   if (m.items.length) return { metric: 'quantity', unit: 'поз.' };
   if (m.yesNo) return { metric: 'boolean', unit: null };
   if (/руб|₽|выручк|сумм/.test(s) || m.rate != null) return { metric: 'amount', unit: null };
@@ -253,18 +255,24 @@ export async function saveKpiFile(db: Db, opts: { userId: number; month: string;
   const ids: number[] = [];
   for (const [i, m] of file.metrics.entries()) {
     const shape = metricShape(m);
-    const defaults = defaultRules(m, groups);
+    // Факт KPI из файла — отчёты о продажах его не меняют; правило выплаты — из названия (на случай, если в файле нет «к выплате»).
+    const defaults = { fact: { type: 'manual' } as const, payout: defaultRules(m, groups).payout };
     const keep = kept.get(ruleKey(m.kind, m.name));
-    const fileItems = m.items.length
+    const marked = m.items.some((it) => it.fileDone != null);
+    const fileItems = marked
       ? { items: m.items.map((it) => ({ name: it.name, need: it.need, count: it.fileCount ?? (it.fileDone ? it.need : 0), done: !!it.fileDone })) }
       : null;
-    const percent = m.filePercent ?? (m.plan > 0 && m.fact != null ? (m.fact / m.plan) * 100 : 0);
+    const percent = m.percentOnly
+      ? m.fact ?? 0
+      : marked
+        ? (m.items.filter((it) => it.fileDone).length / m.items.length) * 100
+        : m.filePercent ?? (m.plan > 0 && m.fact != null ? (m.fact / m.plan) * 100 : 0);
     const r = await db.query(
       `INSERT INTO sales_targets
          (user_id, product_name, metric_type, target_value, current_value, period_start, period_end,
           bonus_amount, payment_amount, target_percent, description, created_by,
-          kpi_kind, source, unit, fact_rule, payout_rule, rules_custom, file_fact, file_details, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'kpi_file',$14,$15,$16,$17,$18,$19,$20)
+          kpi_kind, source, unit, fact_rule, payout_rule, rules_custom, file_fact, file_details, sort_order, fact_updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'kpi_file',$14,$15,$16,$17,$18,$19,$20,NOW())
        RETURNING id`,
       [
         userId,
@@ -281,7 +289,7 @@ export async function saveKpiFile(db: Db, opts: { userId: number; month: string;
         byUserId,
         m.kind,
         shape.unit,
-        JSON.stringify(keep?.fact_rule ?? defaults.fact),
+        JSON.stringify(defaults.fact),
         JSON.stringify(keep?.payout_rule ?? defaults.payout),
         !!keep,
         m.fact != null ? round2(m.fact) : null,
@@ -291,7 +299,6 @@ export async function saveKpiFile(db: Db, opts: { userId: number; month: string;
     );
     ids.push(r.rows[0].id);
   }
-  await recalcUserMonth(db, userId, month, await loadLists(db));
   const { rows } = await db.query('SELECT * FROM sales_targets WHERE id = ANY($1::int[]) ORDER BY sort_order', [ids]);
   return { targets: rows, replaced: removed.rowCount ?? 0 };
 }

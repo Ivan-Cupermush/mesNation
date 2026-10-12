@@ -1,6 +1,7 @@
 import pool from '../db/pool';
 import { logger } from '../lib/logger';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from './taskDeadlines';
+import { archiveDoneTasks } from './taskArchive';
 
 export interface OverdueInfo {
   executor_overdue: Array<{ id: number; title: string; deadline: string; assignee_ids: number[] }>;
@@ -56,8 +57,11 @@ export async function checkOverdueTasks(): Promise<OverdueInfo> {
 
 export function startDeadlineChecker(intervalMs: number = 60 * 60 * 1000) {
   logger.info(`⏰ Запущена периодическая проверка дедлайнов (интервал: ${intervalMs / 1000 / 60} мин)`);
-  checkOverdueTasks().catch(e => logger.error({ err: e }, 'Ошибка первичной проверки дедлайнов'));
-  setInterval(() => {
-    checkOverdueTasks().catch(e => logger.error({ err: e }, 'Ошибка периодической проверки дедлайнов'));
-  }, intervalMs);
+  const run = (first: boolean) => {
+    checkOverdueTasks().catch(e => logger.error({ err: e }, first ? 'Ошибка первичной проверки дедлайнов' : 'Ошибка периодической проверки дедлайнов'));
+    // Заодно — выполненные задачи старше 3 дней в архив.
+    archiveDoneTasks().catch(e => logger.error({ err: e }, 'Ошибка автоматической архивации задач'));
+  };
+  run(true);
+  setInterval(() => run(false), intervalMs);
 }

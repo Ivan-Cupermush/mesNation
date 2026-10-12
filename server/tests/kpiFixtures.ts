@@ -73,7 +73,7 @@ export function salesReport(period: string, clients: ClientSales[], levels = tru
 }
 
 /** Файл KPI сотрудника в виде, как его ведёт заказчик (с опечаткой «Есть Подод»). */
-export function kpiFile(opts: { name: string; month?: Date | number | string; facts?: boolean } = { name: 'Анна' }): Buffer {
+export function kpiFile(opts: { name: string; month?: Date | number | string; facts?: boolean; yesNo?: boolean } = { name: 'Анна' }): Buffer {
   const f = opts.facts !== false;
   const v = (n: number | string) => (f ? n : '');
   const rows: unknown[][] = [
@@ -102,6 +102,16 @@ export function kpiFile(opts: { name: string; month?: Date | number | string; fa
     ['', 'бонус', 6000, v(6000)],
     ['', 'к выплате', 6000, v(3000)],
     ['', '', 66000, v(64000)],
+    // Позиции без галочек и крестиков: «да» — выполнение по проценту.
+    ...(opts.yesNo
+      ? [
+          ['Дистра Хайнекен:', 'план, ТТ', 'да', 'да'],
+          ['Охота Крепкое - 1 ТТ', 'факт', 'да', v('да')],
+          ['Бочкарев светлое - 1 ТТ', '% выполнения', 1, v(0.8)],
+          ['', 'бонус', 3000, v(3000)],
+          ['', 'к выплате', 3000, v(2400)],
+        ]
+      : []),
     [],
     ['Продажи Есть Подод, руб (Порог 20 000 руб)', 'факт', 40000, 40000],
     ['', 'факт', 40000, v(30000)],

@@ -4,6 +4,7 @@ import { Check, CheckCheck, Clock, AlertCircle, FileText, CornerUpLeft, Download
 import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
+import { highlightParts } from '../ui/HighlightText';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
 import { C, fileBadge, formatSize, formatTime, hashColor, initials, isUnlistened, messagePreview } from './chatUtils';
@@ -46,6 +47,8 @@ interface Props {
   onCancelUpload?: (msg: any) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
   onOpenNote?: (noteId: number) => void;
+  /** Идёт поиск по чату — совпадения в тексте подсвечиваются. */
+  searchQuery?: string;
   onPressSender?: (userId: number) => void;
   /** Режим выделения (как в Telegram): нажатие отмечает сообщение. */
   selecting?: boolean;
@@ -329,7 +332,17 @@ function MessageRow(props: Props) {
               style={[styles.text, { color: fg, fontSize: messageFontSize, lineHeight: Math.round(messageFontSize * 1.32) }, isVisual && styles.captionInMedia]}
               selectable={false}
             >
-              {caption}
+              {props.searchQuery
+                ? highlightParts(caption, props.searchQuery).map((p, i) =>
+                    p.hl ? (
+                      <Text key={i} style={[styles.searchHit, mine && styles.searchHitMine]}>
+                        {p.s}
+                      </Text>
+                    ) : (
+                      p.s
+                    ),
+                  )
+                : caption}
               <Text style={styles.metaSpacer}>{' '.repeat(mine ? 16 : 11)}</Text>
             </Text>
           ) : null}
@@ -431,6 +444,8 @@ const styles = themed(() => ({
   rowSelecting: { flexDirection: 'row', alignItems: 'center' },
   flex: { flex: 1 },
   highlight: { backgroundColor: withAlpha(T.accent, 0.14) },
+  searchHit: { backgroundColor: withAlpha('#FFC93C', 0.55), borderRadius: 3 },
+  searchHitMine: { backgroundColor: withAlpha('#FFE27A', 0.45) },
   selectedRow: { backgroundColor: withAlpha(T.accent, 0.16) },
   checkSlot: { width: 34, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   check: {

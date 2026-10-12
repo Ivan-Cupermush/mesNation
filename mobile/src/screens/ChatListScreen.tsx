@@ -20,7 +20,10 @@ import { MUTE_OPTIONS, isMuted, setChatMute } from '../notifications/mute';
 import { SERVER_URL } from '../config';
 import { request } from '../services/http';
 import { subscribe } from '../services/socket';
-import { fuzzyMatch } from '../utils/fuzzySearch';
+import { fuzzyMatch, snippetAround } from '../utils/fuzzySearch';
+import HighlightText from '../components/ui/HighlightText';
+import { searchableText } from '../components/chat/SearchResultsSheet';
+import { withAlpha } from '../theme/palettes';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import { C, hashColor, initials, messagePreview } from '../components/chat/chatUtils';
 
@@ -50,6 +53,13 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'groups', label: 'Группы' },
   { key: 'unread', label: 'Непрочитанные' },
 ];
+
+const hitTime = (iso: string) => {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: '2-digit' } : {}) });
+};
 
 export default function ChatListScreen({ navigation }: any) {
   const [chats, setChats] = useState<any[]>([]);
@@ -149,6 +159,53 @@ export default function ChatListScreen({ navigation }: any) {
   }, [users, query, chats, meId]);
 
   const unreadTotal = chats.reduce((n, c) => n + (c.unread_count > 0 ? 1 : 0), 0);
+
+  // ===== Сообщения во всех чатах (как раздел «Сообщения» в поиске Telegram) =====
+  const [msgHits, setMsgHits] = useState<any[]>([]);
+  const [msgQuery, setMsgQuery] = useState('');
+  const [msgBusy, setMsgBusy] = useState(false);
+  const [msgMore, setMsgMore] = useState(false);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setMsgHits([]);
+      setMsgQuery('');
+      setMsgMore(false);
+      return;
+    }
+    setMsgBusy(true);
+    const t = setTimeout(() => {
+      request<any[]>('/api/search/messages', { query: { q, limit: 30 } })
+        .then((list) => {
+          setMsgHits(list);
+          setMsgQuery(q);
+          setMsgMore(list.length >= 30);
+        })
+        .catch(() => setMsgHits([]))
+        .finally(() => setMsgBusy(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const loadMoreMessages = () => {
+    if (!msgMore || msgBusy || !msgHits.length) return;
+    setMsgBusy(true);
+    request<any[]>('/api/search/messages', { query: { q: msgQuery, limit: 30, before: msgHits[msgHits.length - 1].id } })
+      .then((list) => {
+        setMsgHits((prev) => [...prev, ...list]);
+        setMsgMore(list.length >= 30);
+      })
+      .catch(() => undefined)
+      .finally(() => setMsgBusy(false));
+  };
+
+  const openHit = (m: any) =>
+    navigation.navigate('Chat', {
+      chatId: String(m.chat_id),
+      chatName: m.chat_name || 'Чат',
+      ...(m.topic_id ? { topicId: m.topic_id } : {}),
+      messageId: m.id,
+    });
 
   const openChat = (item: any) => {
     if (item.is_supergroup) navigation.navigate('TopicList', { chatId: String(item.id), chatName: item.name });
@@ -323,11 +380,58 @@ export default function ChatListScreen({ navigation }: any) {
               </View>
             </TouchableOpacity>
           ))}
-          {visible.length > 0 && <Text style={styles.sectionLabel}>ЧАТЫ</Text>}
         </View>
       )}
+      {query.trim() && visible.length > 0 ? <Text style={styles.sectionLabel}>ЧАТЫ</Text> : null}
     </>
   );
+
+  const footer =
+    query.trim().length >= 2 ? (
+      <View>
+        {(msgHits.length > 0 || msgBusy) && (
+          <View style={styles.msgHead}>
+            <Text style={[styles.sectionLabel, styles.msgHeadText]}>СООБЩЕНИЯ{msgHits.length ? ` · ${msgHits.length}${msgMore ? '+' : ''}` : ''}</Text>
+            {msgBusy && <ActivityIndicator size="small" color={C.accent} />}
+          </View>
+        )}
+        {msgHits.map((m) => {
+          const who = m.sender_id === meId ? 'Вы' : m.sender_display_name || m.sender_name || '';
+          const where = m.topic_title ? `${m.chat_name} › ${m.topic_title}` : m.chat_name;
+          return (
+            <TouchableOpacity key={m.id} style={styles.row} onPress={() => openHit(m)} activeOpacity={0.6}>
+              <View style={[styles.avatar, { backgroundColor: hashColor(m.chat_name || '') }]}>
+                {m.chat_avatar_url ? (
+                  <Image source={{ uri: SERVER_URL + m.chat_avatar_url }} style={styles.avatarImg} />
+                ) : (
+                  <Text style={styles.avatarText}>{initials(m.chat_name || '?')}</Text>
+                )}
+              </View>
+              <View style={styles.rowBody}>
+                <View style={styles.rowTop}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {where || 'Чат'}
+                  </Text>
+                  <Text style={styles.time}>{hitTime(m.created_at)}</Text>
+                </View>
+                <HighlightText
+                  text={`${m.chat_type !== 'private' || who === 'Вы' ? `${who}: ` : ''}${snippetAround(searchableText(m), msgQuery)}`}
+                  query={msgQuery}
+                  style={[styles.preview, styles.hitText]}
+                  hlStyle={styles.hitHl}
+                  numberOfLines={2}
+                />
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        {msgMore && (
+          <TouchableOpacity style={styles.moreBtn} onPress={loadMoreMessages} disabled={msgBusy}>
+            <Text style={styles.moreText}>{msgBusy ? 'Загружаем…' : 'Показать ещё'}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    ) : null;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -383,6 +487,7 @@ export default function ChatListScreen({ navigation }: any) {
           keyExtractor={(item) => String(item.id)}
           renderItem={renderChat}
           ListHeaderComponent={header}
+          ListFooterComponent={footer}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           contentContainerStyle={{ paddingBottom: 100 }}
           keyboardShouldPersistTaps="handled"
@@ -398,7 +503,7 @@ export default function ChatListScreen({ navigation }: any) {
             />
           }
           ListEmptyComponent={
-            peopleResults.length ? null : (
+            peopleResults.length || msgHits.length || (query.trim().length >= 2 && msgBusy) ? null : (
               <View style={styles.empty}>
                 <MessageCircle size={44} color={T.textMuted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>
@@ -491,6 +596,12 @@ const styles = themed(() => ({
   rowBottom: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   preview: { flex: 1, fontSize: 15, color: C.textMuted, lineHeight: 20 },
   previewPrefix: { color: C.text },
+  msgHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 20, backgroundColor: T.background, marginTop: 6 },
+  msgHeadText: { flex: 1 },
+  hitText: { fontSize: 14.5 },
+  hitHl: { color: C.text, fontWeight: '700', backgroundColor: withAlpha('#FFC93C', 0.35) },
+  moreBtn: { alignItems: 'center', paddingVertical: 14 },
+  moreText: { color: C.accent, fontSize: 15, fontWeight: '700' },
   badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: T.onAccent, fontSize: 12, fontWeight: '800' },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: C.border, marginLeft: 80 },

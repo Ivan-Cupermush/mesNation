@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Bell, BellOff, Check, CheckCheck, LogOut, MailOpen, MessageCircle, MoreHorizontal, Pin, PinOff, Plus, Trash2, Users, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { useUsers, usePresence } from '../users/queries';
-import { fuzzyMatch } from '../../lib/fuzzy';
+import { fuzzyMatch, snippetAround } from '../../lib/fuzzy';
 import { api } from '../../lib/http';
 import { displayName, listTime } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
@@ -23,6 +23,7 @@ import type { Chat } from './types';
 import type { Employee } from '../../lib/types';
 import s from './ChatList.module.css';
 import ShellActions from '../inbox/ShellActions';
+import { HighlightedText, hitTime, searchableText, useGlobalMessageSearch } from './SearchHits';
 
 type Filter = 'all' | 'private' | 'groups' | 'unread';
 
@@ -45,6 +46,7 @@ export default function ChatList() {
   const [offerNotify, setOfferNotify] = useState(shouldOfferNotifications);
   const [menu, setMenu] = useState<{ chat: Chat; anchor: MenuAnchor; mute?: boolean } | null>(null);
   const searching = query.trim().length > 0;
+  const hits = useGlobalMessageSearch(query);
   const { data: users } = useUsers(searching);
 
   const peerIds = useMemo(() => (chats || []).filter((c) => c.type === 'private' && c.peer).map((c) => c.peer!.id), [chats]);
@@ -224,15 +226,15 @@ export default function ChatList() {
                 </div>
               </button>
             ))}
-            {visible.length > 0 && <div className={s.section}>Чаты</div>}
           </>
         )}
+        {searching && visible.length > 0 && <div className={s.section}>Чаты</div>}
 
         {isLoading && !chats ? (
           <div className={s.center}>
             <Spinner />
           </div>
-        ) : visible.length === 0 && people.length === 0 ? (
+        ) : visible.length === 0 && people.length === 0 && !hits.hits.length && !(hits.loading && query.trim().length >= 2) ? (
           <EmptyState
             compact
             icon={<MessageCircle size={40} strokeWidth={1.5} />}
@@ -263,6 +265,48 @@ export default function ChatList() {
               onMenu={(anchor) => setMenu({ chat, anchor })}
             />
           ))
+        )}
+
+        {/* Сообщения во всех чатах — как раздел «Сообщения» в поиске Telegram. */}
+        {searching && (hits.hits.length > 0 || hits.loading) && (
+          <>
+            <div className={[s.section, s.sectionRow].join(' ')}>
+              <span>
+                Сообщения{hits.hits.length ? ` · ${hits.hits.length}${hits.more ? '+' : ''}` : ''}
+              </span>
+              {hits.loading && <Spinner size={14} />}
+            </div>
+            {hits.hits.map((m) => {
+              const who = m.sender_id === meId ? 'Вы' : m.sender_display_name || m.sender_name || '';
+              const where = m.topic_title ? `${m.chat_name} › ${m.topic_title}` : m.chat_name;
+              const prefix = m.chat_type !== 'private' || who === 'Вы' ? `${who}: ` : '';
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={s.row}
+                  onClick={() => navigate(m.topic_id ? `/chats/${m.chat_id}/topic/${m.topic_id}?m=${m.id}` : `/chats/${m.chat_id}?m=${m.id}`)}
+                >
+                  <Avatar name={m.chat_name} src={m.chat_avatar_url} size={50} rounded={m.chat_type !== 'private'} />
+                  <div className={s.body}>
+                    <div className={s.top}>
+                      <span className={s.name}>{where || 'Чат'}</span>
+                      <span className={s.time}>{hitTime(m.created_at)}</span>
+                    </div>
+                    <div className={s.hitText}>
+                      {prefix}
+                      <HighlightedText text={snippetAround(searchableText(m), hits.query)} query={hits.query} />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+            {hits.more && (
+              <button type="button" className={s.moreHits} onClick={hits.loadMore} disabled={hits.loading}>
+                {hits.loading ? 'Загружаем…' : 'Показать ещё'}
+              </button>
+            )}
+          </>
         )}
       </div>
 

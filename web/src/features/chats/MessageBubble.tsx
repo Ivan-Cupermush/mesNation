@@ -6,6 +6,7 @@ import { albumLayout } from './albumLayout';
 import { isUnlistened, isVisualMedia, linkify, messagePreview, rowMain, rowMessages, type Row } from './model';
 import PollBubble from './PollBubble';
 import NoteShareBubble from './NoteShareBubble';
+import { HighlightedText } from './SearchHits';
 import { UploadRing } from './UploadRing';
 import VoiceBubble from './voice/VoiceBubble';
 import VideoNoteBubble from './voice/VideoNoteBubble';
@@ -287,26 +288,9 @@ function Linkified({ text, query }: { text: string; query?: string }) {
   );
 }
 
-/** Найденное при поиске по чату — подсвечено. */
+/** Найденное при поиске по чату — подсвечено (части слов, ё = е, раскладка). */
 function Highlighted({ text, query }: { text: string; query?: string }) {
-  const q = query?.trim().toLowerCase();
-  if (!q) return <>{text}</>;
-  const out: ReactNode[] = [];
-  const lower = text.toLowerCase();
-  let from = 0;
-  let at = lower.indexOf(q);
-  while (at !== -1) {
-    if (at > from) out.push(text.slice(from, at));
-    out.push(
-      <mark key={at} className={s.mark}>
-        {text.slice(at, at + q.length)}
-      </mark>,
-    );
-    from = at + q.length;
-    at = lower.indexOf(q, from);
-  }
-  if (from < text.length) out.push(text.slice(from));
-  return <>{out}</>;
+  return <HighlightedText text={text} query={query} />;
 }
 
 /** Реакции под сообщением: своя — закрашена; нажатие — поставить или снять. */

@@ -240,3 +240,39 @@
   border-radius: 8px;
   color: var(--c-text-muted);
 }
+
+/* Раздел «Сообщения» в поиске */
+.sectionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.hitText {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--c-text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.hitText mark {
+  color: var(--c-text-primary);
+  font-weight: 700;
+}
+
+.moreHits {
+  width: 100%;
+  padding: 14px;
+  color: var(--c-accent);
+  font-weight: 700;
+}
+
+.moreHits:hover {
+  background: var(--c-input-bg);
+}

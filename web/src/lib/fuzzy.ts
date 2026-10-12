@@ -67,7 +67,23 @@ function directRank(text: string, q: string): number {
   return idx === 0 || /[\s\-_.@]/.test(text[idx - 1]) ? 0 : 1;
 }
 
+/**
+ * Несколько слов — как в Telegram: каждое должно найтись (в любом порядке),
+ * «иван петров» найдёт «Петров Иван».
+ */
 export function fuzzyMatch(text: string, query: string): { match: boolean; rank: number } {
+  const words = normalize(query).split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return matchOne(text, query);
+  let rank = 0;
+  for (const w of words) {
+    const r = matchOne(text, w);
+    if (!r.match) return { match: false, rank: -1 };
+    rank = Math.max(rank, r.rank);
+  }
+  return { match: true, rank };
+}
+
+function matchOne(text: string, query: string): { match: boolean; rank: number } {
   const t = normalize(text);
   const q = normalize(query);
   if (!q) return { match: true, rank: 0 };
@@ -97,4 +113,52 @@ export function fuzzyMatch(text: string, query: string): { match: boolean; rank:
     }
   }
   return { match: false, rank: -1 };
+}
+
+// ---------- Подсветка найденного ----------
+
+/** Слова запроса и их варианты в другой раскладке — что подсвечивать. */
+export function highlightTerms(query: string): string[] {
+  const words = normalize(query).split(/[\s,.;:!?()«»"]+/).filter(Boolean);
+  const out = new Set<string>();
+  for (const w of words) {
+    out.add(w);
+    const sw = switchLayout(w);
+    if (sw !== w) out.add(sw);
+  }
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
+/** Участки текста [начало, конец), совпавшие с запросом (без учёта регистра, ё = е). */
+export function matchRanges(text: string, query: string): [number, number][] {
+  if (!text || !query.trim()) return [];
+  const t = (text || '').toLowerCase().replace(/ё/g, 'е');
+  const ranges: [number, number][] = [];
+  for (const term of highlightTerms(query)) {
+    let from = 0;
+    for (;;) {
+      const i = t.indexOf(term, from);
+      if (i < 0) break;
+      ranges.push([i, i + term.length]);
+      from = i + term.length;
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  }
+  return merged;
+}
+
+/** Кусок длинного текста вокруг первого совпадения — для списка результатов. */
+export function snippetAround(text: string, query: string, radius = 48): string {
+  const flat = (text || '').replace(/\s+/g, ' ').trim();
+  const first = matchRanges(flat, query)[0];
+  if (!first || flat.length <= radius * 2) return flat;
+  const start = Math.max(0, first[0] - radius);
+  const end = Math.min(flat.length, first[1] + radius * 2);
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end).trim()}${end < flat.length ? '…' : ''}`;
 }

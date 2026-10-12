@@ -46,6 +46,7 @@ import {
   Search,
   ChevronUp,
   RefreshCw,
+  List as ListIcon,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -58,6 +59,7 @@ import AttachSheet, { MediaSendOptions, PickedFile, PickedMedia } from '../compo
 import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/PollComposer';
 import NotePickerModal from '../components/chat/NotePickerModal';
 import { requestNoteVersion } from '../components/NoteShareBubble';
+import SearchResultsSheet from '../components/chat/SearchResultsSheet';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
@@ -1128,6 +1130,10 @@ export default function ChatScreen({ navigation }: any) {
   const [searching, setSearching] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [searchHits, setSearchHits] = useState<number[]>([]);
+  const [searchMsgs, setSearchMsgs] = useState<any[]>([]);
+  /** Запрос, по которому показаны результаты, — для подсветки в ленте. */
+  const [searchApplied, setSearchApplied] = useState('');
+  const [searchList, setSearchList] = useState(false);
   const [searchIdx, setSearchIdx] = useState(0);
   const [searchBusy, setSearchBusy] = useState(false);
 
@@ -1136,6 +1142,8 @@ export default function ChatScreen({ navigation }: any) {
     const q = searchQ.trim();
     if (!q) {
       setSearchHits([]);
+      setSearchMsgs([]);
+      setSearchApplied('');
       return;
     }
     setSearchBusy(true);
@@ -1144,14 +1152,17 @@ export default function ChatScreen({ navigation }: any) {
         const res = await request<any[]>(`/api/messages/${chatId}/search`, { query: { q, topic_id: topicId ?? undefined } });
         const ids = res.map((m) => m.id);
         setSearchHits(ids);
+        setSearchMsgs(res);
+        setSearchApplied(q);
         setSearchIdx(0);
         if (ids.length) scrollToMessage(ids[0]);
       } catch {
         setSearchHits([]);
+        setSearchMsgs([]);
       } finally {
         setSearchBusy(false);
       }
-    }, 350);
+    }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQ, searching, chatId, topicId]);
@@ -1167,6 +1178,9 @@ export default function ChatScreen({ navigation }: any) {
     setSearching(false);
     setSearchQ('');
     setSearchHits([]);
+    setSearchMsgs([]);
+    setSearchApplied('');
+    setSearchList(false);
   };
 
   useEffect(() => {
@@ -1391,6 +1405,7 @@ export default function ChatScreen({ navigation }: any) {
         peerLastReadId={peerLastReadId}
         currentUserId={currentUserId || 0}
         highlighted={highlightId !== null && rowMessages(item.row).some((m) => m.id === highlightId)}
+        searchQuery={searching ? searchApplied : undefined}
         onLongPress={startSelection}
         selecting={selecting}
         selected={selected.has(item.row.key)}
@@ -1506,9 +1521,17 @@ export default function ChatScreen({ navigation }: any) {
           {searching && !selecting ? (
             // Поиск: «N из M» и стрелки к старым/новым совпадениям.
             <View style={styles.selBar}>
-              <Text style={styles.searchCount}>
-                {searchBusy ? 'Ищем…' : !searchQ.trim() ? 'Введите запрос' : searchHits.length ? `${searchIdx + 1} из ${searchHits.length}` : 'Ничего не найдено'}
-              </Text>
+              <TouchableOpacity
+                style={styles.searchCountBtn}
+                onPress={() => searchHits.length && setSearchList(true)}
+                disabled={!searchHits.length}
+                accessibilityLabel="Все найденные сообщения списком"
+              >
+                {searchHits.length > 0 && <ListIcon size={19} color={C.accent} />}
+                <Text style={styles.searchCount}>
+                  {searchBusy ? 'Ищем…' : !searchQ.trim() ? 'Введите запрос' : searchHits.length ? `${searchIdx + 1} из ${searchHits.length}` : 'Ничего не найдено'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => searchStep(1)} disabled={searchIdx >= searchHits.length - 1} style={styles.pillBtn} accessibilityLabel="Предыдущее совпадение">
                 <ChevronUp size={24} color={searchIdx >= searchHits.length - 1 ? T.textMuted : C.accent} />
               </TouchableOpacity>
@@ -1788,6 +1811,19 @@ export default function ChatScreen({ navigation }: any) {
           setTimeout(() => scrollToMessage(it.id), 250);
         }}
       />
+      <SearchResultsSheet
+        visible={searchList}
+        query={searchApplied}
+        items={searchMsgs}
+        currentUserId={currentUserId ?? 0}
+        nameOf={senderNameOf}
+        onClose={() => setSearchList(false)}
+        onPick={(m, i) => {
+          setSearchList(false);
+          setSearchIdx(i);
+          scrollToMessage(m.id);
+        }}
+      />
       <ActionSheet
         visible={moreOpen && !!selSingle}
         title={selSingle ? (selSingle.sender_id === currentUserId ? 'Вы' : senderNameOf(selSingle)) : ''}
@@ -1890,7 +1926,8 @@ const styles = themed(() => ({
   pillBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   searchPill: { flexDirection: 'row', justifyContent: 'flex-start', gap: 8 },
   searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
-  searchCount: { flex: 1, fontSize: 15, fontWeight: '600', color: C.text, paddingLeft: 16 },
+  searchCountBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, height: 44 },
+  searchCount: { fontSize: 15, fontWeight: '600', color: C.text },
   reactPill: { flexGrow: 0, alignSelf: 'flex-start', maxWidth: '100%', borderRadius: 24, ...glass(0.95) },
   reactPillInner: { paddingHorizontal: 6, paddingVertical: 4, gap: 2 },
   reactBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

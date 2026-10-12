@@ -8,6 +8,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors';
 import { UPLOAD_DIRS, makeUploader, removeFile } from '../lib/uploads';
 import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
 import { MESSAGE_SELECT, createMessage, serializeMessage } from '../services/messages';
+import { searchTokens, tokensWhere } from '../services/search';
 import { processUpload } from '../services/media';
 import { emitToChat, emitToUser } from '../realtime/socket';
 
@@ -176,32 +177,79 @@ router.post('/messages/:id/reactions', validate(reactionSchema), async (req: Aut
   res.json({ id: msg.id, reactions: reactions ?? null });
 });
 
-// ---------- Поиск по чату ----------
+// ---------- Поиск ----------
 
 const searchQuery = z.object({
   q: z.string().trim().min(1, 'Пустой запрос').max(100),
   topic_id: id.optional(),
+  before: id.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
 
-/** Сообщения чата с текстом, содержащим запрос (новые первыми). */
+/** Где ищем: текст и подпись, имя файла, название заметки, вопрос опроса. */
+const SEARCH_FIELDS = ['m.text', 'm.file_name', 'sns.title', 'sp.question'];
+const SEARCH_JOINS = `LEFT JOIN note_shares sns ON sns.id = m.note_share_id
+     LEFT JOIN polls sp ON sp.id = m.poll_id`;
+
+/** Сообщения чата, где есть все слова запроса (части слов, в любом порядке). Новые первыми. */
 router.get('/messages/:chatId/search', async (req: AuthRequest, res: Response) => {
   const chatId = paramId(req, 'chatId');
   await assertChatMember(chatId, req.userId!);
   const q = searchQuery.parse(req.query);
-  const pattern = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-  const params: unknown[] = [String(chatId), req.userId, pattern, q.limit];
+  const tokens = searchTokens(q.q);
+  if (!tokens.length) return res.json([]);
+  const params: unknown[] = [String(chatId), req.userId, q.limit];
   let where = `m.chat_id = $1 AND m.deleted_for_all IS NOT TRUE AND m.content_type <> 'service'
-    AND NOT ($2::int = ANY(COALESCE(m.deleted_for_user_ids, '{}'))) AND m.text ILIKE $3`;
+    AND NOT ($2::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))`;
   if (q.topic_id) {
     params.push(q.topic_id);
     where += ` AND m.topic_id = $${params.length}`;
   } else {
     where += ' AND m.topic_id IS NULL';
   }
+  where += ` AND ${tokensWhere(SEARCH_FIELDS, tokens, params)}`;
   const { rows } = await pool.query(
     `SELECT ${MESSAGE_SELECT} FROM messages m LEFT JOIN users u ON u.id = m.sender_id
-     WHERE ${where} ORDER BY m.id DESC LIMIT $4`,
+     ${SEARCH_JOINS}
+     WHERE ${where} ORDER BY m.id DESC LIMIT $3`,
+    params,
+  );
+  res.json(rows.map(serializeMessage));
+});
+
+/**
+ * Поиск по всем моим чатам (раздел «Сообщения» в поиске списка чатов,
+ * как в Telegram). Постранично: before — id последнего показанного.
+ */
+router.get('/search/messages', async (req: AuthRequest, res: Response) => {
+  const q = searchQuery.parse(req.query);
+  const tokens = searchTokens(q.q);
+  if (!tokens.length) return res.json([]);
+  const limit = Math.min(q.limit, 50);
+  const params: unknown[] = [req.userId, limit, q.before ?? null];
+  const where = tokensWhere(SEARCH_FIELDS, tokens, params);
+  const { rows } = await pool.query(
+    `SELECT ${MESSAGE_SELECT},
+            c.type AS chat_type, c.is_supergroup,
+            CASE WHEN c.type = 'private' THEN
+              (SELECT COALESCE(ou.display_name, ou.username) FROM chat_members om JOIN users ou ON ou.id = om.user_id
+               WHERE om.chat_id = c.id AND om.user_id <> $1 LIMIT 1)
+            ELSE c.name END AS chat_name,
+            CASE WHEN c.type = 'private' THEN
+              (SELECT ou.avatar_url FROM chat_members om JOIN users ou ON ou.id = om.user_id
+               WHERE om.chat_id = c.id AND om.user_id <> $1 LIMIT 1)
+            ELSE c.avatar_url END AS chat_avatar_url,
+            (SELECT t.title FROM topics t WHERE t.id = m.topic_id) AS topic_title
+     FROM messages m
+     JOIN chats c ON c.id::text = m.chat_id AND c.deleted_at IS NULL
+     JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = $1
+     LEFT JOIN users u ON u.id = m.sender_id
+     ${SEARCH_JOINS}
+     WHERE m.deleted_for_all IS NOT TRUE AND m.content_type <> 'service'
+       AND NOT ($1::int = ANY(COALESCE(m.deleted_for_user_ids, '{}')))
+       AND ($3::int IS NULL OR m.id < $3)
+       AND ${where}
+     ORDER BY m.id DESC LIMIT $2`,
     params,
   );
   res.json(rows.map(serializeMessage));

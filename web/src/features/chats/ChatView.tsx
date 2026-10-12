@@ -28,11 +28,13 @@ import {
   Upload,
   X,
   RefreshCw,
+  List as ListIcon,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError, downloadFile, openFile } from '../../lib/http';
 import { emitEvent, subscribe } from '../../lib/socket';
-import { formatDate, lastSeenLabel, plural } from '../../lib/format';
+import { displayName, formatDate, lastSeenLabel, plural } from '../../lib/format';
+import { snippetAround } from '../../lib/fuzzy';
 import { useIsMobile } from '../../lib/useMedia';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
@@ -53,6 +55,7 @@ import AttachDialog, { type PickedItem, type SendOptions } from './AttachDialog'
 import PollComposer from './PollComposer';
 import NotePicker from './NotePicker';
 import { requestNoteVersion } from './NoteShareBubble';
+import { HighlightedText, hitTime, searchableText } from './SearchHits';
 import ChatPicker from './ChatPicker';
 import MediaViewer, { type ViewerItem } from './MediaViewer';
 import { DeleteDialog, ScheduledList } from './ChatDialogs';
@@ -145,6 +148,7 @@ export default function ChatView() {
   /** Выделенные сообщения (режим выделения, как в Telegram); null — режим выключен. */
   const [selection, setSelection] = useState<number[] | null>(null);
   const [search, setSearch] = useState<{ q: string; results: Message[]; index: number; loading: boolean; error: string | null } | null>(null);
+  const [searchList, setSearchList] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<ComposerHandle>(null);
@@ -696,6 +700,7 @@ export default function ChatView() {
   useEffect(() => {
     setSelection(null);
     setSearch(null);
+    setSearchList(false);
   }, [chatId, topicId]);
 
   const togglePin = async (m: Message) => {
@@ -1031,12 +1036,44 @@ export default function ChatView() {
                   : 'Не найдено'
                 : ''}
           </span>
+          <IconButton label="Все найденные списком" size={36} active={searchList} disabled={!search.results.length} onClick={() => setSearchList((v) => !v)}>
+            <ListIcon size={19} />
+          </IconButton>
           <IconButton label="Раньше" size={36} disabled={!search.results.length || search.index >= search.results.length - 1} onClick={() => searchStep(1)}>
             <ChevronUp size={21} />
           </IconButton>
           <IconButton label="Позже" size={36} disabled={!search.results.length || search.index <= 0} onClick={() => searchStep(-1)}>
             <ChevronDown size={21} />
           </IconButton>
+          {searchList && search.results.length > 0 && (
+            <div className={s.searchList} role="listbox" aria-label="Найденные сообщения">
+              {search.results.map((m, i) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === search.index}
+                  className={[s.searchItem, i === search.index && s.searchItemOn].filter(Boolean).join(' ')}
+                  onClick={() => {
+                    setSearch({ ...search, index: i });
+                    setSearchList(false);
+                    jumpTo(m.id);
+                  }}
+                >
+                  <Avatar name={m.sender_id === me.id ? displayName(me) : senderNameOf(m)} src={m.sender_avatar_url} size={36} />
+                  <span className={s.searchItemBody}>
+                    <span className={s.searchItemTop}>
+                      <b>{m.sender_id === me.id ? 'Вы' : senderNameOf(m)}</b>
+                      <span>{hitTime(m.created_at)}</span>
+                    </span>
+                    <span className={s.searchItemText}>
+                      <HighlightedText text={snippetAround(searchableText(m), searchQ)} query={searchQ} />
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </header>
       ) : (
         <header className={s.header}>

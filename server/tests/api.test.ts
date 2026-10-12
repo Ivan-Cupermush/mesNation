@@ -790,6 +790,45 @@ describe('мессенджер как в Telegram', () => {
     expect((await as(c.acc).get(`/api/messages/${chat.body.id}/search?q=договор`)).status).toBe(403);
   });
 
+  it('поиск как в Telegram: части слов в любом порядке, ё, раскладка, файлы и заметки, все чаты', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Поиск 2', user_ids: [c.mgr2.id] });
+    const id = chat.body.id;
+    const send = (text: string) => as(c.mgr1).post(`/api/chats/${id}/messages`, { text });
+    const report = await send('Квартальный отчёт по продажам готов');
+    await send('Отчет по закупкам отложили');
+    await send('Привет всем');
+    await as(c.mgr1).upload('/api/upload', 'file', Buffer.from('x'), 'Прайс-лист.xlsx').field('chatId', String(id)).field('as_file', 'true');
+    const note = await as(c.mgr1).post('/api/notes', { title: 'Регламент отгрузки', content: '' });
+    await as(c.mgr1).post(`/api/notes/${note.body.id}/share`, { chat_id: id });
+
+    const find = async (q: string) =>
+      ((await as(c.mgr2).get(`/api/messages/${id}/search?q=${encodeURIComponent(q)}`)).body as any[]).map((m) => m.text || m.file_name || m.note_share?.title);
+    // Часть слова и ё = е — оба «отчёта».
+    expect(await find('отчет')).toHaveLength(2);
+    expect(await find('ОТЧЁ')).toHaveLength(2);
+    // Слова в любом порядке, части слов.
+    expect(await find('прод квартал')).toEqual(['Квартальный отчёт по продажам готов']);
+    expect(await find('отчет закуп')).toEqual(['Отчет по закупкам отложили']);
+    // Не та раскладка: «ghbdtn» → «привет».
+    expect(await find('ghbdtn')).toEqual(['Привет всем']);
+    // Имя файла и название заметки тоже ищутся.
+    expect(await find('прайс')).toEqual(['Прайс-лист.xlsx']);
+    expect(await find('регламент')).toEqual(['Регламент отгрузки']);
+
+    // Поиск по всем чатам: с названием чата, без чужих чатов.
+    const all = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('квартал отч')}`);
+    expect(all.status).toBe(200);
+    const hit = (all.body as any[]).find((m) => m.id === report.body.id);
+    expect(hit.chat_name).toBe('Поиск 2');
+    expect(hit.chat_type).toBe('group');
+    expect(((await as(c.acc).get(`/api/search/messages?q=${encodeURIComponent('квартал отч')}`)).body as any[]).some((m) => m.id === report.body.id)).toBe(false);
+    // Постранично.
+    const page = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('отч')}&limit=1`);
+    expect(page.body).toHaveLength(1);
+    const next = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('отч')}&limit=1&before=${page.body[0].id}`);
+    expect(next.body[0].id).toBeLessThan(page.body[0].id);
+  });
+
   it('голосовое и кружочек из браузера (WebM) пересохраняются в m4a и mp4', async () => {
     const { execFileSync } = await import('child_process');
     const { mkdtempSync, readFileSync } = await import('fs');

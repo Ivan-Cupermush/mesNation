@@ -446,6 +446,118 @@ describe('заметки: вложения, копия, PDF, отправка в
     const history = (await as(c.mgr2).get(`/api/messages/${chat.body.id}`)).body as any[];
     expect(history.find((m) => m.id === msg.body.id).note_share.accepted_user_ids).toContain(c.mgr2.id);
   });
+
+  it('подпись в том же сообщении, запрос актуальной версии, копия «Название (2)»', async () => {
+    const note = await as(c.mgr1).post('/api/notes', { title: 'Скрипт звонка', content: 'Версия 1' });
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    const msg = await as(c.mgr1).post(`/api/notes/${note.body.id}/share`, { chat_id: chat.body.id, comment: 'Посмотри до созвона' });
+    expect(msg.status).toBe(201);
+    // Подпись — текст самой заметки-сообщения, отдельного сообщения нет.
+    expect(msg.body.text).toBe('Посмотри до созвона');
+    expect(msg.body.note_share.sender_name).toBeTruthy();
+    const list = (await as(c.mgr2).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === chat.body.id).last_message.note_title).toBe('Скрипт звонка');
+    const shareId = msg.body.note_share_id;
+
+    // Принял снимок, автор потом обновил заметку.
+    await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    await as(c.mgr1).patch(`/api/notes/${note.body.id}`, { content: 'Версия 2' });
+
+    // Автор сам у себя запросить не может, посторонний — тоже.
+    expect((await as(c.mgr1).post(`/api/notes/shared/${shareId}/request`)).status).toBe(400);
+    expect((await as(c.bk).post(`/api/notes/shared/${shareId}/request`)).status).toBe(403);
+
+    const before = (await as(c.mgr1).get('/api/notifications/unread-count')).body.count;
+    const r1 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r1.status).toBe(201);
+    expect(r1.body.status).toBe('pending');
+    // Повторное нажатие не создаёт второй запрос.
+    const r2 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r2.body.id).toBe(r1.body.id);
+    expect(r2.body.already).toBe(true);
+    expect((await as(c.mgr2).get(`/api/notes/shared/${shareId}`)).body.my_request.status).toBe('pending');
+
+    // У автора — уведомление в колокольчике и экран запроса с актуальной версией.
+    expect((await as(c.mgr1).get('/api/notifications/unread-count')).body.count).toBe(before + 1);
+    const feed = (await as(c.mgr1).get('/api/notifications')).body as any[];
+    const n = feed.find((x) => x.kind === 'note_request' && x.data.request_id === r1.body.id);
+    expect(n.request_status).toBe('pending');
+    expect(n.actor_id).toBe(c.mgr2.id);
+    const view = await as(c.mgr1).get(`/api/notes/requests/${r1.body.id}`);
+    expect(view.body.is_owner).toBe(true);
+    expect(view.body.note.preview).toBe('Версия 2');
+    expect(view.body.note.changed_since_share).toBe(true);
+    // Запросивший не видит текст до подтверждения, чужие — вообще ничего.
+    expect((await as(c.mgr2).get(`/api/notes/requests/${r1.body.id}`)).body.note.preview).toBeNull();
+    expect((await as(c.bk).get(`/api/notes/requests/${r1.body.id}`)).status).toBe(404);
+    expect((await as(c.mgr2).post(`/api/notes/requests/${r1.body.id}/approve`)).status).toBe(403);
+
+    const ok = await as(c.mgr1).post(`/api/notes/requests/${r1.body.id}/approve`);
+    expect(ok.status).toBe(200);
+    expect(ok.body.status).toBe('approved');
+    // Повтор ничего не ломает и не плодит копий.
+    expect((await as(c.mgr1).post(`/api/notes/requests/${r1.body.id}/approve`)).body.status).toBe('approved');
+
+    // У запросившего — новая копия рядом с принятой ранее, как в Проводнике.
+    const mine = (await as(c.mgr2).get('/api/notes')).body as any[];
+    const copies = mine.filter((x) => x.title.startsWith('Скрипт звонка'));
+    expect(copies.map((x) => x.title).sort()).toEqual(['Скрипт звонка', 'Скрипт звонка (2)']);
+    expect(copies.find((x) => x.title === 'Скрипт звонка (2)').content).toBe('Версия 2');
+    expect(copies.find((x) => x.title === 'Скрипт звонка').content).toBe('Версия 1');
+    const done = await as(c.mgr2).get(`/api/notes/requests/${r1.body.id}`);
+    expect(done.body.result_note_id).toBe(copies.find((x) => x.title === 'Скрипт звонка (2)').id);
+    const feed2 = (await as(c.mgr2).get('/api/notifications')).body as any[];
+    expect(feed2.find((x) => x.kind === 'note_request_approved' && x.data.request_id === r1.body.id).body).toBe('Скрипт звонка (2)');
+
+    // Второй запрос, отказ, третий запрос и третья копия.
+    const r3 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r3.body.id).not.toBe(r1.body.id);
+    expect((await as(c.mgr1).post(`/api/notes/requests/${r3.body.id}/decline`)).body.status).toBe('declined');
+    expect((await as(c.mgr2).get('/api/notifications')).body.some((x: any) => x.kind === 'note_request_declined')).toBe(true);
+    const r4 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    await as(c.mgr1).post(`/api/notes/requests/${r4.body.id}/approve`);
+    const titles = ((await as(c.mgr2).get('/api/notes')).body as any[]).map((x) => x.title);
+    expect(titles).toContain('Скрипт звонка (3)');
+
+    // Прочитать всё.
+    expect((await as(c.mgr2).post('/api/notifications/read', {})).body.count).toBe(0);
+
+    // Подпись у заметки можно изменить и убрать.
+    const ed = await as(c.mgr1).patch(`/api/messages/${msg.body.id}`, { text: '' });
+    expect(ed.status).toBe(200);
+    expect(ed.body.text).toBeNull();
+
+    // Автор удалил заметку — запросить уже нечего.
+    await as(c.mgr1).delete(`/api/notes/${note.body.id}`);
+    const gone = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(gone.status).toBe(400);
+    expect(gone.body.error).toMatch(/удалил/);
+  });
+});
+
+describe('колокольчик', () => {
+  it('новая задача появляется в уведомлениях исполнителя', async () => {
+    const t = await as(c.mgr1).post('/api/tasks', {
+      title: 'Обзвонить клиентов',
+      assignee_ids: [c.bk.id],
+      executor_deadline: new Date(Date.now() + 86400_000).toISOString(),
+    });
+    expect(t.status).toBe(201);
+    // Уведомление пишется в фоне — даём ему мгновение.
+    let found: any;
+    for (let i = 0; i < 20 && !found; i++) {
+      const feed = (await as(c.bk).get('/api/notifications')).body as any[];
+      found = feed.find((x) => x.kind === 'task' && x.data.task_id === t.body.id);
+      if (!found) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(found.title).toBe('Новая задача');
+    expect(found.body).toBe('Обзвонить клиентов');
+    expect(found.actor_name).toBeTruthy();
+    expect(found.read_at).toBeNull();
+    // Автор задачи сам себе уведомление не получает.
+    const own = (await as(c.mgr1).get('/api/notifications')).body as any[];
+    expect(own.some((x) => x.kind === 'task' && x.data.task_id === t.body.id)).toBe(false);
+  });
 });
 
 describe('название компании', () => {

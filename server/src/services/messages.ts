@@ -24,6 +24,9 @@ export const MESSAGE_SELECT = `
   (SELECT json_build_object(
      'id', ns.id, 'title', ns.title, 'preview', LEFT(ns.content, 400),
      'files_count', jsonb_array_length(ns.files), 'sender_id', ns.sender_id,
+     'sender_name', (SELECT COALESCE(su.display_name, su.username) FROM users su WHERE su.id = ns.sender_id),
+     'sender_avatar_url', (SELECT su.avatar_url FROM users su WHERE su.id = ns.sender_id),
+     'created_at', ns.created_at,
      'accepted_user_ids', COALESCE((SELECT json_agg(a.user_id) FROM note_share_acceptances a WHERE a.share_id = ns.id), '[]'::json))
    FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_share,
   u.display_name AS sender_display_name,

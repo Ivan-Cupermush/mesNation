@@ -84,9 +84,9 @@ const editSchema = z.object({ text: z.string().trim().max(4000) });
 router.patch('/messages/:id', validate(editSchema), async (req: AuthRequest, res: Response) => {
   const msg = await loadMessage(paramId(req));
   if (msg.sender_id !== req.userId) throw forbidden('Редактировать можно только свои сообщения');
-  if (msg.poll_id || msg.note_share_id || msg.content_type === 'service') throw badRequest('Это сообщение нельзя изменить');
-  // У фото и файлов подпись можно убрать, у текстового сообщения текст обязателен.
-  if (!req.body.text && !msg.file_url) throw badRequest('Текст обязателен');
+  if (msg.poll_id || msg.content_type === 'service') throw badRequest('Это сообщение нельзя изменить');
+  // У фото, файлов и заметок подпись можно убрать, у текстового сообщения текст обязателен.
+  if (!req.body.text && !msg.file_url && !msg.note_share_id) throw badRequest('Текст обязателен');
   await assertChatMember(msg.chat_id, req.userId!);
   await pool.query('UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2', [req.body.text || null, msg.id]);
   const updated = serializeMessage(await loadMessage(msg.id));

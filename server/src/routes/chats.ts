@@ -129,6 +129,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
                       m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id,
                       (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
+                      (SELECT ns.title FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_title,
                       COALESCE(u.display_name, u.username) AS sender_name
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.chat_id = c.id::text AND m.deleted_for_all IS NOT TRUE

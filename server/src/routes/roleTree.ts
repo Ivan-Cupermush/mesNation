@@ -234,7 +234,7 @@ router.post('/users', requireDirector, validate(createUserSchema), async (req: A
     return created;
   });
   // После создания: строка в user_permissions ссылается на уже сохранённого пользователя.
-  if (body.permissions && Object.keys(body.permissions).length) await setPermissions(req.userId!, user.id, body.permissions);
+  if (body.permissions && Object.keys(body.permissions).length) await setPermissions(req.userId!, user.id, body.permissions, { explicit: true });
   await audit('user_created', { actorId: req.userId, targetId: user.id, ip: req.ip });
   res.status(201).json({ ...user, role_node_id: body.role_node_id });
 });

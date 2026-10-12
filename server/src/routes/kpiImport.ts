@@ -137,9 +137,10 @@ router.post('/import', authenticate, upload.single('file'), async (req: AuthRequ
       hasResults: parsed.hasResults,
       warnings: parsed.warnings,
       suggestedUser: match?.userId ? { id: match.userId, name: match.userName } : null,
+      // Факт KPI — из файла (отчёты о продажах его не меняют); выплата — по правилу из названия.
       metrics: parsed.metrics.map((m) => {
         const rules = defaultRules(m, groups);
-        return { ...m, factRule: rules.fact, payoutRule: rules.payout, rule: ruleText(rules.payout, m.bonus, m.items.length) };
+        return { ...m, factRule: { type: 'manual' }, payoutRule: rules.payout, rule: ruleText(rules.payout, m.bonus, m.items.length) };
       }),
     });
   }

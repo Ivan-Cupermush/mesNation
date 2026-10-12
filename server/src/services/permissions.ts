@@ -108,7 +108,13 @@ export async function permissionDetails(userId: number) {
  * руководитель (своим подчинённым), включить можно только ту функцию,
  * которая есть у самого руководителя. null — вернуть «по умолчанию».
  */
-export async function setPermissions(actorId: number, targetId: number, changes: Partial<Record<Permission, boolean | null>>) {
+export async function setPermissions(
+  actorId: number,
+  targetId: number,
+  changes: Partial<Record<Permission, boolean | null>>,
+  /** При создании сотрудника: сохранить выбор как есть (подчинённых у него ещё нет, «по должности» — потом). */
+  opts: { explicit?: boolean } = {},
+) {
   if (actorId === targetId) throw forbidden('Свои функции меняет руководитель');
   const [actor, target] = await Promise.all([getUserNode(actorId), getUserNode(targetId)]);
   if (target.isRoot) throw badRequest('У директора все функции включены');
@@ -117,7 +123,7 @@ export async function setPermissions(actorId: number, targetId: number, changes:
   for (const [key, raw] of Object.entries(changes) as [Permission, boolean | null][]) {
     if (!PERMISSION_KEYS.includes(key)) throw badRequest(`Неизвестная функция: ${key}`);
     // Совпадает с должностью — храним «по умолчанию»: при переводе на другую должность функция поменяется сама.
-    const value = raw === byDefault ? null : raw;
+    const value = !opts.explicit && raw === byDefault ? null : raw;
     if (value === true && !(await hasPermission(actorId, key))) {
       throw forbidden(`Нельзя включить функцию, которой нет у вас: «${PERMISSIONS.find((p) => p.key === key)!.label}»`);
     }

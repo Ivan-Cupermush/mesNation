@@ -369,7 +369,8 @@ export async function enrichTargets<T extends TargetRow>(rows: T[]): Promise<(T 
       const now = t.payment_amount != null ? num(t.payment_amount) : payable ? payoutFor(rules.payout, { plan, fact, bonus, done: fact, total }) : null;
       const asOf = isoDay(t.fact_updated_at);
       const elapsed = asOf && asOf.slice(0, 7) === month.slice(0, 7) && month.slice(0, 7) === today.slice(0, 7) ? Number(asOf.slice(8, 10)) : null;
-      const projectable = !items && t.unit !== '%' && rules.payout.type !== 'fixed' && plan > 0;
+      // Темп считаем только для сумм продаж: точки и позиции к концу месяца не растут пропорционально дням.
+      const projectable = !items && t.unit !== '%' && t.metric_type === 'amount' && rules.payout.type !== 'fixed' && plan > 0;
       const forecastValue = projectable && elapsed && elapsed < days ? Math.round(((fact * days) / elapsed) * 100) / 100 : null;
       const calc: TargetCalc = {
         kind: (t.kpi_kind as KpiKind | null) ?? null,

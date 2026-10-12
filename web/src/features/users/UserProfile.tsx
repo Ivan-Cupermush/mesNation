@@ -15,6 +15,7 @@ import { EmptyState } from '../../ui/EmptyState';
 import { useFeedback } from '../../ui/feedback';
 import { chatKeys, useChats } from '../chats/queries';
 import type { Chat } from '../chats/types';
+import { UserPermissions } from './Permissions';
 import { usePresence, userKeys } from './queries';
 import s from './UserProfile.module.css';
 
@@ -23,7 +24,7 @@ type UserProfileData = Profile & { can_manage: boolean; is_active: boolean };
 /**
  * Профиль сотрудника — как в приложении: фото, должность, «в сети»,
  * контакты, «Написать», общие группы. Директору и руководителю — сброс
- * пароля и (де)активация учётной записи.
+ * пароля, (де)активация учётной записи и функции сотрудника.
  */
 export default function UserProfile() {
   const { id = '' } = useParams();
@@ -204,6 +205,13 @@ export default function UserProfile() {
                   </span>
                 </button>
               </section>
+            </>
+          )}
+
+          {((user.can_manage && !isMe) || (isMe && !user.is_director)) && (
+            <>
+              <div className={s.section}>{isMe ? 'Мои функции' : 'Функции'}</div>
+              <UserPermissions userId={userId} editable={!!user.can_manage && !isMe} />
             </>
           )}
 

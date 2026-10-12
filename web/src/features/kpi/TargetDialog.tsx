@@ -5,6 +5,7 @@ import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
 import { Chips, Segmented, TextArea, TextField } from '../../ui/Field';
 import { Modal } from '../../ui/Modal';
+import { SwitchList, SwitchRow } from '../../ui/SwitchRow';
 import type { MenuItem } from '../../ui/ActionMenu';
 import { useFeedback } from '../../ui/feedback';
 import { METRICS, isoDay, metricLabel, metricValue, targetRights } from './format';
@@ -68,6 +69,9 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
   const [span, setSpan] = useState<Span>('30d');
   const [[start, end], setDates] = useState<[string, string]>(() => spanDates('30d'));
   const [user, setUser] = useState<{ id: number; name: string } | null>(mode.kind === 'assign' ? mode.user ?? null : null);
+  // Новая цель по умолчанию считается по отчёту о продажах (продажи товара или группы с этим названием).
+  const [fromReport, setFromReport] = useState(true);
+  const tracked = !!edit && (!!edit.calc?.tracked || edit.calc?.source === 'report');
   const [picking, setPicking] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -81,7 +85,7 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
     const t = parseNumber(target);
     if (canEditPlan && !(t > 0)) e.target = 'Цель — число больше нуля';
     const c = current.trim() ? parseNumber(current) : 0;
-    if (!(c >= 0)) e.current = 'Число не меньше нуля';
+    if (!(c >= 0) && !(fromReport && !edit)) e.current = 'Число не меньше нуля';
     if (!edit && (!start || !end || start > end)) e.period = 'Начало периода не может быть позже конца';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -94,7 +98,7 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
       const c = current.trim() ? parseNumber(current) : 0;
       if (edit) {
         const patch: Record<string, unknown> = {};
-        if (c !== Number(edit.current_value)) patch.current_value = c;
+        if (!tracked && c !== Number(edit.current_value)) patch.current_value = c;
         if (canEditPlan && parseNumber(target) !== Number(edit.target_value)) patch.target_value = parseNumber(target);
         if (canEditPlan && description.trim() !== (edit.description || '').trim()) patch.description = description.trim() || null;
         if (Object.keys(patch).length) await api.patch(`/api/kpi/sales/targets/${edit.id}`, patch);
@@ -104,10 +108,11 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
           product_name: product.trim(),
           metric_type: metric,
           target_value: parseNumber(target),
-          current_value: c,
+          current_value: fromReport ? 0 : c,
           period_start: start,
           period_end: end,
           description: description.trim() || undefined,
+          from_report: fromReport,
         };
         if (mode.kind === 'assign') {
           await api.post('/api/kpi/sales/targets/assign', { ...body, user_id: user!.id });
@@ -150,7 +155,7 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
                   <b>{user.name}</b>
                 </>
               ) : (
-                <span className={s.placeholder}>Выберите из своей команды</span>
+                <span className={s.placeholder}>Выберите сотрудника</span>
               )}
               <ChevronRight size={18} />
             </button>
@@ -185,6 +190,18 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
             <span className={s.formLabel}>Что считаем</span>
             <Segmented options={METRICS.map((m) => ({ key: m.key, label: m.label }))} value={metric as (typeof METRICS)[number]['key']} onChange={setMetric} />
           </div>
+          <SwitchList>
+            <SwitchRow
+              title="Считать по отчёту о продажах"
+              hint={
+                fromReport
+                  ? `Факт — ${metric === 'amount' ? 'сумма продаж' : metric === 'contracts' ? 'точки, купившие' : 'проданные штуки'} товара или группы «${product.trim() || '…'}» из отчёта 1С. Правило можно уточнить в меню цели.`
+                  : 'Выполнение отмечают вручную.'
+              }
+              checked={fromReport}
+              onChange={setFromReport}
+            />
+          </SwitchList>
         </>
       )}
 
@@ -197,17 +214,21 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
           placeholder="50"
           error={errors.target}
           disabled={!canEditPlan}
-          hint={!canEditPlan ? 'План назначил руководитель' : undefined}
+          hint={!canEditPlan ? 'План ставит руководитель' : undefined}
         />
-        <TextField
-          label={edit ? `Выполнено${unit ? `, ${unit}` : ''}` : 'Уже выполнено'}
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-          inputMode="decimal"
-          placeholder="0"
-          error={errors.current}
-          autoFocus={!!edit && !canEditPlan}
-        />
+        {!(fromReport && !edit) && (
+          <TextField
+            label={edit ? `Выполнено${unit ? `, ${unit}` : ''}` : 'Уже выполнено'}
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            inputMode="decimal"
+            placeholder="0"
+            error={errors.current}
+            disabled={tracked}
+            hint={tracked ? 'Считается по отчёту о продажах' : undefined}
+            autoFocus={!!edit && !canEditPlan && !tracked}
+          />
+        )}
       </div>
 
       {!edit && (
@@ -268,6 +289,7 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
       {mode.kind === 'assign' && !mode.user && (
         <TeamPicker
           open={picking}
+          permission="kpi_assign"
           title="Кому назначить"
           onClose={() => setPicking(false)}
           onPick={(u) => {
@@ -283,9 +305,10 @@ function TargetForm({ mode, onDone, suggestions }: { mode: TargetMode; onDone: (
 
 /**
  * Действия с целями: меню «⋯» у карточки и диалоги. Права — как на сервере.
- * viewerIsManager — смотрит руководитель сотрудника (карточка сотрудника).
+ * manage — зритель ставит KPI этому сотруднику (руководитель, директор или
+ * тот, кому включено «Назначение KPI вручную»).
  */
-export function useTargetActions({ viewerId, viewerIsManager, onSale }: { viewerId: number; viewerIsManager: boolean; onSale?: (t: SalesTarget) => void }) {
+export function useTargetActions({ viewerId, manage, onSale }: { viewerId: number; manage: boolean; onSale?: (t: SalesTarget) => void }) {
   const { confirm, toast } = useFeedback();
   const refresh = useKpiRefresh();
   const [mode, setMode] = useState<TargetMode | null>(null);
@@ -308,7 +331,7 @@ export function useTargetActions({ viewerId, viewerIsManager, onSale }: { viewer
   };
 
   const itemsFor = (t: SalesTarget): MenuItem[] => {
-    const r = targetRights(t, viewerId, viewerIsManager);
+    const r = targetRights(t, viewerId, manage);
     const items: MenuItem[] = [];
     if (r.canProgress) {
       items.push({
@@ -318,10 +341,10 @@ export function useTargetActions({ viewerId, viewerIsManager, onSale }: { viewer
         onSelect: () => setMode({ kind: 'edit', target: t, canEditPlan: r.canEditPlan }),
       });
     }
-    if (onSale && t.user_id === viewerId && t.metric_type !== 'boolean') {
+    if (onSale && t.user_id === viewerId && t.metric_type !== 'boolean' && r.canProgress) {
       items.push({ key: 'sale', label: 'Записать продажу', icon: <ShoppingCart size={18} />, onSelect: () => onSale(t) });
     }
-    if (r.canEditPlan) items.push({ key: 'delete', label: 'Удалить', icon: <Trash2 size={18} />, danger: true, onSelect: () => remove(t) });
+    if (r.canDelete) items.push({ key: 'delete', label: 'Удалить', icon: <Trash2 size={18} />, danger: true, onSelect: () => remove(t) });
     return items;
   };
 

@@ -1,16 +1,4 @@
-import type { MetricType, Period, SalesTarget } from './types';
-
-export const PERIODS: { key: Period; label: string }[] = [
-  { key: 'week', label: 'Неделя' },
-  { key: 'month', label: 'Месяц' },
-  { key: 'quarter', label: 'Квартал' },
-];
-
-export const PERIOD_HINT: Record<Period, string> = {
-  week: 'за последние 7 дней',
-  month: 'с начала месяца',
-  quarter: 'с начала квартала',
-};
+import type { MetricType, SalesTarget } from './types';
 
 /** Типы показателя, которые можно выбрать в форме (как в приложении). */
 export const METRICS: { key: Exclude<MetricType, 'boolean'>; label: string; unit: string }[] = [
@@ -70,16 +58,21 @@ export function periodLabel(t: Pick<SalesTarget, 'period_start' | 'period_end'>)
 }
 
 /**
- * Что может зритель с целью — повторяет правила сервера (targetAccess):
- * прогресс ведут владелец и его руководители; план, назначенный
- * руководителем, сотрудник не меняет и не удаляет.
+ * Что может зритель с целью — повторяет правила сервера (targetAccess): план
+ * ставит и меняет руководитель (manage), сотрудник сам себе KPI не ставит —
+ * он только отмечает выполнение целей, которые ведутся вручную, и может
+ * удалить цель, которую когда-то завёл себе сам.
  */
-export function targetRights(t: Pick<SalesTarget, 'user_id' | 'created_by'>, viewerId: number, viewerIsManager: boolean) {
+export function targetRights(t: Pick<SalesTarget, 'user_id' | 'created_by' | 'source' | 'calc'>, viewerId: number, manage: boolean) {
   const isOwner = t.user_id === viewerId;
+  const fromFile = t.source === 'kpi_file';
   const assignedByOther = t.created_by != null && t.created_by !== t.user_id;
+  // Факт по отчёту или из файла KPI вручную не ставится.
+  const manualFact = !fromFile && !t.calc?.tracked && (t.calc?.source ?? 'manual') === 'manual';
   return {
-    canProgress: isOwner || viewerIsManager,
-    canEditPlan: viewerIsManager || t.created_by === viewerId || (isOwner && !assignedByOther),
+    canProgress: manage || (isOwner && manualFact),
+    canEditPlan: manage,
+    canDelete: manage || (isOwner && !fromFile && !assignedByOther),
     assignedByOther,
   };
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ChevronRight, Clock, CreditCard, Package, ShoppingCart, TrendingUp, Wallet } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, Clock, ShoppingCart } from 'lucide-react';
 import { fuzzyMatch } from '../../lib/fuzzy';
 import { displayName, plural } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
@@ -22,33 +22,6 @@ export function Section({ title, count, action, children }: { title: string; cou
       </div>
       {children}
     </section>
-  );
-}
-
-/** Выручка, сделки, средний чек (и проданные штуки на широком экране). */
-export function FactTiles({ fact }: { fact: { total_amount: unknown; total_transactions: unknown; total_quantity?: unknown } }) {
-  const deals = toNum(fact.total_transactions);
-  const avg = deals > 0 ? toNum(fact.total_amount) / deals : 0;
-  const tiles = [
-    { key: 'sum', label: 'Выручка', value: money(fact.total_amount), icon: <Wallet size={20} />, tone: 'accent' },
-    { key: 'deals', label: 'Сделки', value: number(deals), icon: <TrendingUp size={20} />, tone: 'info' },
-    { key: 'avg', label: 'Средний чек', value: avg ? money(avg) : '—', icon: <CreditCard size={20} />, tone: 'warning' },
-    ...(fact.total_quantity !== undefined
-      ? [{ key: 'qty', label: 'Продано, шт', value: number(fact.total_quantity), icon: <Package size={20} />, tone: 'violet' }]
-      : []),
-  ];
-  return (
-    <div className={s.tiles}>
-      {tiles.map((t) => (
-        <div key={t.key} className={s.tile}>
-          <span className={s.tileIcon} data-tone={t.tone}>
-            {t.icon}
-          </span>
-          <b className={s.tileValue}>{t.value}</b>
-          <span className={s.tileLabel}>{t.label}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -109,17 +82,24 @@ export function SalesHistory({ items }: { items: SalesTransaction[] }) {
   );
 }
 
-/** Команда руководителя: поиск, выручка за период и средний прогресс KPI. */
+const revenueOf = (m: Subordinate, fromReports: boolean) => (fromReports ? (m.sales?.revenue ?? 0) : toNum(m.total_amount));
+
+/**
+ * Команда руководителя: поиск, выручка за текущий месяц по отчётам о продажах
+ * (пока отчётов нет — по продажам, записанным вручную) и средний прогресс KPI.
+ */
 export function TeamList({ team, avatars }: { team: Subordinate[]; avatars?: Map<number, string | null> }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const fromReports = team.some((m) => m.sales);
+  const revenue = (m: Subordinate) => revenueOf(m, fromReports);
   const list = useMemo(() => {
     const q = query.trim();
-    const sorted = [...team].sort((a, b) => toNum(b.total_amount) - toNum(a.total_amount));
+    const sorted = [...team].sort((a, b) => revenueOf(b, fromReports) - revenueOf(a, fromReports));
     if (!q) return sorted;
     return sorted.filter((m) => fuzzyMatch(`${m.display_name || ''} ${m.username} ${m.role_name || ''}`, q).match);
-  }, [team, query]);
-  const best = Math.max(...team.map((m) => toNum(m.total_amount)), 1);
+  }, [team, query, fromReports]);
+  const best = Math.max(...team.map(revenue), 1);
   return (
     <div className={s.listCard}>
       {team.length > 5 && <SearchField value={query} onChange={setQuery} placeholder="Поиск по имени" className={s.teamSearch} />}
@@ -133,14 +113,15 @@ export function TeamList({ team, avatars }: { team: Subordinate[]; avatars?: Map
               <b>{displayName(m)}</b>
               <span>
                 {m.role_name || 'Сотрудник'}
+                {m.sales && ` · АКБ ${number(m.sales.akb)}`}
                 {avg != null && ` · KPI ${avg}%`}
                 {m.kpis.length > 0 && ` (${m.kpis.length} ${plural(m.kpis.length, ['цель', 'цели', 'целей'])})`}
               </span>
               <span className={s.memberBar}>
-                <span style={{ width: `${Math.max(2, (toNum(m.total_amount) / best) * 100)}%` }} />
+                <span style={{ width: `${Math.max(2, (revenue(m) / best) * 100)}%` }} />
               </span>
             </span>
-            <span className={s.memberSum}>{money(m.total_amount)}</span>
+            <span className={s.memberSum}>{money(revenue(m))}</span>
             <ChevronRight size={18} className={s.chevron} />
           </button>
         );

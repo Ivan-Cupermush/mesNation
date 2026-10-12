@@ -36,9 +36,9 @@ export function kpiTitle(t: Pick<KpiTarget, 'product_name' | 'kpi_kind'>): strin
 const pctText = (p: number) => `${Math.round(p)}%`;
 
 /**
- * Показатель KPI как в приложении (вариант 2): факт и план, полоса с порогами
- * и прогнозом, сколько заработано сейчас и сколько выйдет к концу месяца при
- * текущем темпе, что сделать для следующего порога.
+ * Показатель KPI: факт и план, полоса с порогами, сколько заработано сейчас.
+ * У KPI из файла всё — по файлу (и прогноз выполнения в процентах), у целей
+ * по отчёту — ещё прогноз выплаты к концу месяца при текущем темпе.
  */
 export function KpiCard({ target: t, monthEnd, actions }: { target: KpiTarget; monthEnd: string | null; actions?: MenuItem[] }) {
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
@@ -50,10 +50,14 @@ export function KpiCard({ target: t, monthEnd, actions }: { target: KpiTarget; m
   const width = Math.max(0, Math.min(100, c.percent));
   const projected = c.forecastPercent != null && c.forecastPercent > c.percent ? Math.min(100, c.forecastPercent) : 0;
   const reached = (c.now ?? 0) > 0;
-  const source = c.tracked ? 'по отчётам' : t.source === 'kpi_file' ? 'по файлу KPI' : 'вручную';
-  const subtitle = [kind.label || (t.metric_type === 'amount' ? 'сумма, ₽' : 'количество'), source].filter(Boolean).join(' · ');
-  const filePay = t.source === 'kpi_file' && t.payment_amount != null ? toNum(t.payment_amount) : null;
-  const showForecast = c.forecast != null && c.forecastValue != null && monthEnd;
+  const fromFile = t.source === 'kpi_file';
+  const percentOnly = t.unit === '%';
+  const source = fromFile ? `по файлу KPI${c.asOf ? ` от ${dayMonth(c.asOf)}` : ''}` : c.tracked ? 'по отчёту о продажах' : 'вручную';
+  const subtitle = [percentOnly ? 'выполнение, %' : kind.label || (t.metric_type === 'amount' ? 'сумма, ₽' : 'количество'), source].filter(Boolean).join(' · ');
+  const filePay = fromFile && t.payment_amount != null ? toNum(t.payment_amount) : null;
+  // Прогноз выплаты — у целей по отчёту; у KPI из файла — только прогноз выполнения в процентах.
+  const showForecast = !fromFile && c.forecast != null && c.forecastValue != null && monthEnd;
+  const fileForecast = fromFile && c.forecastPercent != null && monthEnd ? c.forecastPercent : null;
 
   return (
     <article className={s.kpi}>
@@ -89,8 +93,21 @@ export function KpiCard({ target: t, monthEnd, actions }: { target: KpiTarget; m
       </div>
 
       <div className={s.value}>
-        <b>{kpiValue(t, t.current_value)}</b> <i>из</i> {kpiValue(t, t.target_value)}
+        {percentOnly ? (
+          <>
+            Выполнено <b>{pctText(c.percent)}</b>
+          </>
+        ) : (
+          <>
+            <b>{kpiValue(t, t.current_value)}</b> <i>из</i> {kpiValue(t, t.target_value)}
+          </>
+        )}
       </div>
+      {fileForecast != null && (
+        <p className={s.forecastLine}>
+          При текущем темпе к {dayMonth(monthEnd!)} — ≈{pctText(fileForecast)}
+        </p>
+      )}
 
       {items && (
         <ul className={s.items}>
@@ -133,6 +150,7 @@ export function KpiCard({ target: t, monthEnd, actions }: { target: KpiTarget; m
           <span>{c.hint}</span>
         </p>
       )}
+      {c.condition && <p className={s.rule}>Условие: {c.condition}</p>}
       {(c.rule || filePay != null) && (
         <p className={s.rule}>
           {c.rule && <>Правило: {c.rule}</>}

@@ -9,7 +9,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors';
 import { fixOriginalName } from '../lib/uploads';
 import { paramId } from '../lib/validate';
 import { getUserNode, isSubordinate } from '../services/access';
-import { canApply, type Permission } from '../services/permissions';
+import { canApply, PERMISSION_KEYS, type Permission } from '../services/permissions';
 import { PATH_SEP } from '../services/kpi/facts';
 import { deleteSalesReport } from '../services/kpi/imports';
 import { enrichTargets, inScope, kpiScope, recalcMany, recentPairs, reportStats, totalsOf, type KpiScope } from '../services/kpi/store';
@@ -138,6 +138,25 @@ router.get('/month', async (req: AuthRequest, res: Response) => {
     // Для старых версий приложения.
     canUpload: !!reportsScope || kpiFiles,
   });
+});
+
+/**
+ * GET /api/kpi/people?for=kpi_files|kpi_assign|sales_reports — сотрудники, которым
+ * пользователь может применить функцию (загрузить файл KPI, назначить KPI):
+ * руководителю — его команда, директору и тем, кому функцию включил директор, — все.
+ */
+router.get('/people', async (req: AuthRequest, res: Response) => {
+  const me = req.userId!;
+  const perm = z.enum(PERMISSION_KEYS as [Permission, ...Permission[]]).parse(req.query.for ?? 'kpi_assign');
+  const scope = await kpiScope(me, perm);
+  if (!scope) return res.json([]);
+  const isRoot = (await getUserNode(me)).isRoot;
+  const { rows } = await pool.query(
+    `SELECT u.id AS user_id, u.username, u.display_name, u.avatar_url, rt.name AS role_name, rt.color AS role_color
+     FROM users u LEFT JOIN user_role_assignments ura ON ura.user_id = u.id LEFT JOIN role_tree rt ON rt.id = ura.role_node_id
+     WHERE u.is_active ORDER BY COALESCE(u.display_name, u.username)`,
+  );
+  res.json(rows.filter((r) => (r.user_id === me ? isRoot : inScope(scope, r.user_id))));
 });
 
 // ===================== ИСТОРИЯ ОТЧЁТОВ =====================

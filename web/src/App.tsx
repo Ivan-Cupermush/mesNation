@@ -12,6 +12,7 @@ import OfflinePage from './features/auth/OfflinePage';
 import AppShell from './app/AppShell';
 
 // Новые разделы
+const HomePage = lazy(() => import('./features/home/HomePage'));
 const ChatsRoutes = lazy(() => import('./features/chats/ChatsRoutes'));
 const UserProfile = lazy(() => import('./features/users/UserProfile'));
 const TasksRoutes = lazy(() => import('./features/tasks/TasksRoutes'));
@@ -62,7 +63,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/tasks" replace />} />
+          <Route index element={<HomePage />} />
           <Route path="chats/*" element={<ChatsRoutes />} />
           <Route path="users/:id" element={<UserProfile />} />
 
@@ -82,7 +83,7 @@ function AppRoutes() {
           <Route path="roles" element={<RolesPage />} />
           <Route path="create-user" element={<CreateUserPage />} />
 
-          <Route path="*" element={<Navigate to="/tasks" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </Suspense>

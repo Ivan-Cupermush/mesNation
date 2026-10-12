@@ -444,6 +444,13 @@ describe('KPI: файл KPI и ежедневные отчёты', () => {
     expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.mgr1.id) })).status).toBe(200);
     expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.mgr2.id) })).status).toBe(403);
     expect((await upload(c.mgr2, '/api/kpi/import', kpiFile({ name: 'Анна', month: '01.07.2026' }), 'k.xlsx', { userId: String(c.bk.id) })).status).toBe(403);
+    // Кому можно загрузить файл KPI: менеджеру — отдел руководителя (кроме себя), бухгалтеру — никому.
+    const people = (await as(c.mgr2).get('/api/kpi/people?for=kpi_files')).body.map((u: any) => u.user_id);
+    expect(people).toEqual(expect.arrayContaining([c.mgr1.id]));
+    expect(people).not.toContain(c.mgr2.id);
+    expect(people).not.toContain(c.bk.id);
+    expect((await as(c.bk).get('/api/kpi/people?for=kpi_files')).body).toEqual([]);
+    expect((await as(c.bk).get('/api/kpi/people?for=nope')).status).toBe(400);
     // Функцию, которой нет у самого руководителя, включить нельзя.
     await as(c.dir).put(`/api/users/${c.sales.id}/permissions`, { permissions: { knowledge_manage: false } });
     expect((await as(c.sales).put(`/api/users/${c.mgr2.id}/permissions`, { permissions: { knowledge_manage: true } })).status).toBe(403);

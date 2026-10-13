@@ -256,22 +256,28 @@ export async function notifyChatRead(userId: number, chatId: number, messageId: 
   await pushToUsers([userId], { type: 'read', chat_id: String(chatId), message_id: String(messageId) }, `read-${chatId}`);
 }
 
-export type TaskPushKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned';
+export type TaskPushKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned' | 'request' | 'request_done' | 'thanks';
 
-/** События задачи: назначили, сдали на проверку, вернули, приняли. */
+/**
+ * События задачи: назначили, сдали на проверку, вернули, приняли.
+ * Просьбы: попросили, просьбу выполнили, за выполненную просьбу поблагодарили.
+ */
 const TASK_TITLES: Record<TaskPushKind, string> = {
   assigned: 'Новая задача',
   review: 'Задача на проверке',
   rejected: 'Задача вернулась на доработку',
   done: 'Задача принята',
   returned: 'Задача снова в работе',
+  request: 'Вас просят помочь',
+  request_done: 'Ваша просьба выполнена',
+  thanks: 'Вам сказали спасибо',
 };
 
 export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: number[], actorId: number, comment?: string | null) {
   const recipients = Array.from(new Set(userIds)).filter((u) => u !== actorId);
   if (!recipients.length) return;
   const { rows } = await pool.query(
-    `SELECT t.id, t.title, t.description, t.importance,
+    `SELECT t.id, t.kind, t.title, t.description, t.importance,
             COALESCE(t.executor_deadline, t.hard_deadline) AS deadline, t.reviewer_deadline,
             (SELECT COALESCE(display_name, username) FROM users WHERE id = $2) AS actor_name,
             (SELECT avatar_url FROM users WHERE id = $2) AS actor_avatar
@@ -284,11 +290,13 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
     kind: 'task',
     actorId,
     title: TASK_TITLES[kind],
-    body: clip(t.title || 'Задача', 200),
+    body: clip(t.title || (t.kind === 'request' ? 'Просьба' : 'Задача'), 200),
     data: {
       task_id: t.id,
       task_kind: kind,
-      importance: t.importance || 'yellow',
+      // Просьба или задача — у просьбы нет важности.
+      kind: t.kind || 'task',
+      importance: t.kind === 'request' ? null : t.importance || 'yellow',
       deadline: t.deadline ? new Date(t.deadline).toISOString() : null,
       comment: (comment || '').trim() ? clip(comment!.trim(), 300) : null,
     },
@@ -298,9 +306,10 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
     type: 'task',
     kind,
     task_id: String(t.id),
-    title: clip(t.title || 'Задача', 200),
+    task_type: t.kind || 'task',
+    title: clip(t.title || (t.kind === 'request' ? 'Просьба' : 'Задача'), 200),
     description: clip((t.description || '').trim(), 400),
-    importance: t.importance || 'yellow',
+    importance: t.kind === 'request' ? '' : t.importance || 'yellow',
     deadline: t.deadline ? new Date(t.deadline).toISOString() : '',
     review_deadline: t.reviewer_deadline ? new Date(t.reviewer_deadline).toISOString() : '',
     actor_name: t.actor_name || '',

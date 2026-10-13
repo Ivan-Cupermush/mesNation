@@ -123,7 +123,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     ),
     // Мои задачи (я исполнитель): срок сегодня или уже прошёл, и всё, что в работе.
     pool.query(
-      `SELECT t.id, t.title, t.status_new AS status, t.importance,
+      `SELECT t.id, t.kind, t.title, t.status_new AS status, t.importance,
               ${CURRENT_DEADLINE_SQL} AS deadline, ${OVERDUE_SQL} AS is_overdue
        FROM tasks t
        WHERE EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $1)

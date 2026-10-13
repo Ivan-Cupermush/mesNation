@@ -167,7 +167,7 @@ describe('иерархия при постановке задач', () => {
   const assignable = async (a: Actor) =>
     ((await as(a).get('/api/users/assignable')).body as any[]).map((u) => u.username).sort();
 
-  it('менеджер: себе, коллеге своей должности и людям своего уровня из других отделов; вверх — нельзя', async () => {
+  it('менеджер: себе, коллеге своей должности и людям своего уровня из других отделов (просьбой); вверх — нельзя', async () => {
     expect(await assignable(c.mgr1)).toEqual(['bk', 'mgr1', 'mgr2']);
   });
 
@@ -188,13 +188,106 @@ describe('иерархия при постановке задач', () => {
     expect((await as(c.sales).post('/api/tasks', { title: 'Вниз', assignee_ids: [c.mgr1.id] })).status).toBe(201);
     expect((await as(c.mgr1).post('/api/tasks', { title: 'Себе', assignee_ids: [c.mgr1.id] })).status).toBe(201);
   });
+
+  it('кем приходится: себе, подчинённый, коллега своей должности и своего уровня', async () => {
+    const list = (await as(c.mgr1).get('/api/users/assignable')).body as any[];
+    const by = (u: string) => list.find((x) => x.username === u);
+    expect(by('mgr1')).toMatchObject({ relation: 'self', can_task: true, can_request: true });
+    expect(by('mgr2')).toMatchObject({ relation: 'colleague', same_role: true, can_task: false, can_request: true });
+    expect(by('bk')).toMatchObject({ relation: 'colleague', same_role: false, can_task: false, can_request: true });
+    const forSales = (await as(c.sales).get('/api/users/assignable')).body as any[];
+    expect(forSales.find((x) => x.username === 'mgr1')).toMatchObject({ relation: 'subordinate', can_task: true, can_request: true });
+    expect(forSales.find((x) => x.username === 'acc')).toMatchObject({ relation: 'colleague', can_task: false });
+  });
+
+  it('коллегам — только просьба, задачу нельзя; начальнику — ни то ни другое', async () => {
+    const task = await as(c.mgr1).post('/api/tasks', { title: 'Коллеге задачей', assignee_ids: [c.mgr2.id] });
+    expect(task.status).toBe(403);
+    expect(task.body.error).toMatch(/просьбу/);
+    expect((await as(c.mgr1).post('/api/tasks', { title: 'Соседнему отделу', assignee_ids: [c.bk.id] })).status).toBe(403);
+    expect((await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Коллеге', assignee_ids: [c.mgr2.id, c.bk.id] })).status).toBe(201);
+    expect((await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Начальнику', assignee_ids: [c.sales.id] })).status).toBe(403);
+    expect((await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Себе', assignee_ids: [c.mgr1.id] })).status).toBe(201);
+    expect((await as(c.sales).post('/api/tasks', { kind: 'request', title: 'Подчинённому', assignee_ids: [c.mgr1.id] })).status).toBe(201);
+  });
+});
+
+describe('просьбы', () => {
+  it('без важности, наблюдателей и проверки', async () => {
+    const base = { kind: 'request', title: 'Помоги со сверкой', assignee_ids: [c.bk.id] };
+    expect((await as(c.mgr1).post('/api/tasks', { ...base, importance: 'red' })).status).toBe(400);
+    expect((await as(c.mgr1).post('/api/tasks', { ...base, watcher_ids: [c.mgr2.id] })).status).toBe(400);
+    expect((await as(c.mgr1).post('/api/tasks', { ...base, reviewer_deadline: new Date(Date.now() + 3600_000).toISOString() })).status).toBe(400);
+    const r = await as(c.mgr1).post('/api/tasks', {
+      ...base,
+      executor_deadline: new Date(Date.now() + 86400_000).toISOString(),
+      checkpoints: [{ title: 'Выгрузка', deadline: new Date(Date.now() + 3600_000).toISOString() }],
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(r.body).toMatchObject({ kind: 'request', importance: null, reviewer_deadline: null, watchers: [], status_new: 'new' });
+    expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { importance: 'red' })).status).toBe(400);
+    expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { watcher_ids: [c.mgr2.id] })).status).toBe(400);
+    // Срок и исполнители меняются как у задачи; задачу коллеге добавить нельзя, просьбу — можно.
+    expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { assignee_ids: [c.bk.id, c.mgr2.id] })).status).toBe(200);
+    // Контрольную точку отмечает исполнитель.
+    const cp = (await as(c.bk).get(`/api/tasks/${r.body.id}`)).body.checkpoints[0];
+    expect((await as(c.bk).patch(`/api/tasks/${r.body.id}/checkpoints/${cp.id}`, { status: 'completed' })).status).toBe(200);
+    // Фильтр «только просьбы».
+    const list = (await as(c.bk).get('/api/tasks?kind=request')).body as any[];
+    expect(list.every((t) => t.kind === 'request')).toBe(true);
+    expect(list.some((t) => t.id === r.body.id)).toBe(true);
+    expect(((await as(c.bk).get('/api/tasks?kind=task')).body as any[]).some((t) => t.id === r.body.id)).toBe(false);
+  });
+
+  it('исполнитель отмечает «Готово», просивший получает уведомление, благодарит и отправляет в архив', async () => {
+    const r = (await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Подменить на звонке', assignee_ids: [c.mgr2.id] })).body;
+    const acts = async (who: Actor) => ((await as(who).get(`/api/tasks/${r.id}`)).body.available_transitions as any[]).map((a) => a.to);
+    expect((await acts(c.mgr2)).sort()).toEqual(['done', 'in_progress']);
+    expect(await acts(c.mgr1)).toEqual([]);
+    // Проверки у просьбы нет.
+    const review = await as(c.mgr2).post(`/api/tasks/${r.id}/transition`, { to_status: 'on_review' });
+    expect(review.status).toBe(400);
+    expect(review.body.error).toMatch(/нет проверки/);
+    expect((await as(c.mgr1).post(`/api/tasks/${r.id}/transition`, { to_status: 'done' })).status).toBe(403);
+    expect((await as(c.mgr1).post(`/api/tasks/${r.id}/thanks`)).status).toBe(400); // ещё не выполнена
+    const done = await as(c.mgr2).post(`/api/tasks/${r.id}/transition`, { to_status: 'done', comment: 'Готово, созвонились' });
+    expect(done.body.status_new).toBe('done');
+    let found: any;
+    for (let i = 0; i < 20 && !found; i++) {
+      found = ((await as(c.mgr1).get('/api/notifications')).body as any[]).find((x) => x.data?.task_id === r.id);
+      if (!found) await new Promise((res) => setTimeout(res, 50));
+    }
+    expect(found).toMatchObject({ title: 'Ваша просьба выполнена', body: 'Подменить на звонке' });
+    expect(found.data).toMatchObject({ kind: 'request', task_kind: 'request_done', importance: null });
+    // Спасибо — один раз, только от просившего.
+    expect((await as(c.mgr2).post(`/api/tasks/${r.id}/thanks`)).status).toBe(403);
+    const thanks = await as(c.mgr1).post(`/api/tasks/${r.id}/thanks`);
+    expect(thanks.status).toBe(200);
+    expect(thanks.body.thanked_at).toBeTruthy();
+    await as(c.mgr1).post(`/api/tasks/${r.id}/thanks`);
+    const comments = (await as(c.mgr2).get(`/api/tasks/${r.id}/comments`)).body as any[];
+    expect(comments.filter((x) => x.content.includes('Спасибо'))).toHaveLength(1);
+    // В архив — только просивший.
+    expect((await acts(c.mgr1))).toEqual(['archived']);
+    expect((await as(c.mgr2).post(`/api/tasks/${r.id}/transition`, { to_status: 'archived' })).status).toBe(403);
+    expect((await as(c.mgr1).post(`/api/tasks/${r.id}/transition`, { to_status: 'archived' })).body.status_new).toBe('archived');
+    expect((await as(c.mgr1).post(`/api/tasks/${r.id}/unarchive`)).body.status_new).toBe('done');
+  });
+
+  it('отменить просьбу может только тот, кто её отправил', async () => {
+    const r = (await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Ненужная', assignee_ids: [c.bk.id] })).body;
+    expect((await as(c.bk).delete(`/api/tasks/${r.id}`)).status).toBe(403);
+    expect((await as(c.mgr1).delete(`/api/tasks/${r.id}`)).body.archived_as).toBe('deleted');
+    const history = (await as(c.mgr1).get(`/api/tasks/${r.id}/history`)).body as any[];
+    expect(history.at(-1).comment).toBe('Просьба отменена');
+  });
 });
 
 describe('задачи', () => {
   let taskId: number;
 
   beforeAll(async () => {
-    const r = await as(c.mgr1).post('/api/tasks', {
+    const r = await as(c.acc).post('/api/tasks', {
       title: 'Сверка с бухгалтерией',
       assignee_ids: [c.bk.id],
       watcher_ids: [c.mgr2.id],
@@ -216,23 +309,23 @@ describe('задачи', () => {
   });
 
   it('просрочка вычисляется (фильтр «Просроченные» больше не пустой)', async () => {
-    const list = (await as(c.mgr1).get('/api/tasks?overdue=true')).body as any[];
+    const list = (await as(c.acc).get('/api/tasks?overdue=true')).body as any[];
     expect(list.some((t) => t.id === taskId && t.is_overdue)).toBe(true);
   });
 
   it('дедлайн проверки — не позже дедлайна выполнения (общего срока)', async () => {
     const soon = new Date(Date.now() + 86400_000).toISOString();
     const later = new Date(Date.now() + 3 * 86400_000).toISOString();
-    const bad = await as(c.mgr1).post('/api/tasks', { title: 'Х', assignee_ids: [c.bk.id], executor_deadline: soon, reviewer_deadline: later });
+    const bad = await as(c.acc).post('/api/tasks', { title: 'Х', assignee_ids: [c.bk.id], executor_deadline: soon, reviewer_deadline: later });
     expect(bad.status).toBe(400);
-    const ok = await as(c.mgr1).post('/api/tasks', { title: 'Отчёт', assignee_ids: [c.bk.id], executor_deadline: later, reviewer_deadline: soon });
+    const ok = await as(c.acc).post('/api/tasks', { title: 'Отчёт', assignee_ids: [c.bk.id], executor_deadline: later, reviewer_deadline: soon });
     expect(ok.status).toBe(201);
     // Текущий срок до сдачи — дедлайн проверки.
     expect(new Date(ok.body.current_deadline).toISOString()).toBe(soon);
     // Перенос общего срока раньше дедлайна проверки запрещён.
-    expect((await as(c.mgr1).patch(`/api/tasks/${ok.body.id}`, { executor_deadline: new Date(Date.now() + 3600_000).toISOString() })).status).toBe(400);
+    expect((await as(c.acc).patch(`/api/tasks/${ok.body.id}`, { executor_deadline: new Date(Date.now() + 3600_000).toISOString() })).status).toBe(400);
     // Сдали на проверку после дедлайна проверки — наблюдателям остаётся общий срок.
-    const late = await as(c.mgr1).post('/api/tasks', {
+    const late = await as(c.acc).post('/api/tasks', {
       title: 'Поздняя сдача',
       assignee_ids: [c.bk.id],
       executor_deadline: later,
@@ -242,13 +335,13 @@ describe('задачи', () => {
     await as(c.bk).post(`/api/tasks/${late.body.id}/transition`, { to_status: 'in_progress' });
     const sent = await as(c.bk).post(`/api/tasks/${late.body.id}/transition`, { to_status: 'on_review' });
     expect(sent.status).toBe(200);
-    const after = (await as(c.mgr1).get(`/api/tasks/${late.body.id}`)).body;
+    const after = (await as(c.acc).get(`/api/tasks/${late.body.id}`)).body;
     expect(after.is_overdue).toBe(false);
     expect(new Date(after.current_deadline).toISOString()).toBe(later);
   });
 
   it('проверяют наблюдатели: наблюдатель принимает или отклоняет, исполнитель — нет', async () => {
-    const t = await as(c.mgr1).post('/api/tasks', { title: 'Проверка наблюдателем', assignee_ids: [c.bk.id], watcher_ids: [c.mgr2.id] });
+    const t = await as(c.acc).post('/api/tasks', { title: 'Проверка наблюдателем', assignee_ids: [c.bk.id], watcher_ids: [c.mgr2.id] });
     await as(c.bk).post(`/api/tasks/${t.body.id}/transition`, { to_status: 'on_review' });
     const forWatcher = (await as(c.mgr2).get(`/api/tasks/${t.body.id}`)).body;
     expect(forWatcher.available_transitions.map((x: any) => x.to).sort()).toEqual(['done', 'rejected']);
@@ -260,10 +353,10 @@ describe('задачи', () => {
   });
 
   it('посторонний не видит задачу, руководитель исполнителя — видит', async () => {
-    expect((await as(c.sales).get(`/api/tasks/${taskId}`)).status).toBe(200); // руководитель создателя
-    expect((await as(c.acc).get(`/api/tasks/${taskId}`)).status).toBe(200); // руководитель исполнителя
+    expect((await as(c.dir).get(`/api/tasks/${taskId}`)).status).toBe(200); // директор видит всё
+    expect((await as(c.sales).get(`/api/tasks/${taskId}`)).status).toBe(403); // руководитель другой ветки
     const outsider = await login(app, 'mgr2', 'secret-pass');
-    await as(c.mgr1).patch(`/api/tasks/${taskId}`, { watcher_ids: [c.mgr1.id] });
+    await as(c.acc).patch(`/api/tasks/${taskId}`, { watcher_ids: [c.acc.id] });
     expect((await as(outsider).get(`/api/tasks/${taskId}`)).status).toBe(403);
     expect((await as(outsider).get(`/api/tasks/${taskId}/comments`)).status).toBe(403);
   });
@@ -271,21 +364,21 @@ describe('задачи', () => {
   it('дедлайн может переносить только создатель', async () => {
     const r = await as(c.bk).patch(`/api/tasks/${taskId}`, { executor_deadline: new Date().toISOString() });
     expect(r.status).toBe(403);
-    const ok = await as(c.mgr1).patch(`/api/tasks/${taskId}`, { executor_deadline: new Date(Date.now() + 86400_000).toISOString() });
+    const ok = await as(c.acc).patch(`/api/tasks/${taskId}`, { executor_deadline: new Date(Date.now() + 86400_000).toISOString() });
     expect(ok.status).toBe(200);
   });
 
   it('вложения: выделить, удалить несколько, переслать в чат альбомом с подписью', async () => {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     const up = async (who: Actor, name: string, data: Buffer) => (await as(who).upload(`/api/tasks/${taskId}/files`, 'file', data, name)).body;
-    const a = await up(c.mgr1, 'схема.png', png);
-    const b = await up(c.mgr1, 'фото.png', png);
+    const a = await up(c.acc, 'схема.png', png);
+    const b = await up(c.acc, 'фото.png', png);
     const doc = await up(c.bk, 'акт.txt', Buffer.from('акт сверки'));
     expect(a.id && b.id && doc.id).toBeTruthy();
 
     // Пересылка в чат: два фото альбомом, документ отдельно, подпись — у первого фото.
-    const chat = (await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] })).body;
-    const fwd = await as(c.mgr1).post(`/api/tasks/${taskId}/files/forward`, {
+    const chat = (await as(c.acc).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] })).body;
+    const fwd = await as(c.acc).post(`/api/tasks/${taskId}/files/forward`, {
       file_ids: [a.id, b.id, doc.id],
       targets: [{ chat_id: chat.id }],
       comment: 'Файлы по сверке',
@@ -305,24 +398,24 @@ describe('задачи', () => {
     expect((await as(c.mgr2).get(copy.file_url)).status).toBe(200);
 
     // В чужой чат переслать нельзя.
-    const foreign = (await as(c.dir).post('/api/chats', { type: 'private', user_ids: [c.acc.id] })).body;
-    expect((await as(c.mgr1).post(`/api/tasks/${taskId}/files/forward`, { file_ids: [a.id], targets: [{ chat_id: foreign.id }] })).status).toBe(403);
+    const foreign = (await as(c.dir).post('/api/chats', { type: 'private', user_ids: [c.sales.id] })).body;
+    expect((await as(c.acc).post(`/api/tasks/${taskId}/files/forward`, { file_ids: [a.id], targets: [{ chat_id: foreign.id }] })).status).toBe(403);
 
     // Удалить несколько: создатель задачи (mgr1) — любые; наблюдатель mgr2 — только свои.
     const denied = await as(c.mgr2).post(`/api/tasks/${taskId}/files/bulk-delete`, { file_ids: [a.id, doc.id] });
     expect(denied.status).toBe(403);
-    const del = await as(c.mgr1).post(`/api/tasks/${taskId}/files/bulk-delete`, { file_ids: [a.id, b.id, doc.id] });
+    const del = await as(c.acc).post(`/api/tasks/${taskId}/files/bulk-delete`, { file_ids: [a.id, b.id, doc.id] });
     expect(del.body.deleted.sort()).toEqual([a.id, b.id, doc.id].sort());
-    expect((await as(c.mgr1).get(`/api/tasks/${taskId}/files`)).body).toHaveLength(0);
+    expect((await as(c.acc).get(`/api/tasks/${taskId}/files`)).body).toHaveLength(0);
     expect((await as(c.mgr2).get(copy.file_url)).status).toBe(200);
   });
 
   it('удаление = архив с пометкой, разархивация возвращает задачу', async () => {
     await as(c.bk).post(`/api/tasks/${taskId}/transition`, { to_status: 'in_progress' });
-    expect((await as(c.mgr1).delete(`/api/tasks/${taskId}`)).body.archived_as).toBe('deleted');
-    const archived = (await as(c.mgr1).get(`/api/tasks/${taskId}`)).body;
+    expect((await as(c.acc).delete(`/api/tasks/${taskId}`)).body.archived_as).toBe('deleted');
+    const archived = (await as(c.acc).get(`/api/tasks/${taskId}`)).body;
     expect(archived.status_new).toBe('archived');
-    const back = await as(c.mgr1).post(`/api/tasks/${taskId}/unarchive`);
+    const back = await as(c.acc).post(`/api/tasks/${taskId}/unarchive`);
     expect(back.status).toBe(200);
     expect(back.body.status_new).toBe('in_progress');
   });
@@ -681,7 +774,7 @@ describe('контакты как в Telegram', () => {
 
 describe('колокольчик', () => {
   it('новая задача появляется в уведомлениях исполнителя', async () => {
-    const t = await as(c.mgr1).post('/api/tasks', {
+    const t = await as(c.acc).post('/api/tasks', {
       title: 'Обзвонить клиентов',
       assignee_ids: [c.bk.id],
       executor_deadline: new Date(Date.now() + 86400_000).toISOString(),
@@ -1181,18 +1274,18 @@ describe('список чатов', () => {
 
 describe('жизненный цикл задачи', () => {
   it('сервер отдаёт доступные действия, полный цикл с возвратом на доработку', async () => {
-    const t = (await as(c.mgr1).post('/api/tasks', { title: 'Цикл', assignee_ids: [c.mgr2.id] })).body;
+    const t = (await as(c.sales).post('/api/tasks', { title: 'Цикл', assignee_ids: [c.mgr2.id] })).body;
     const actions = async (who: any) => ((await as(who).get(`/api/tasks/${t.id}`)).body.available_transitions as any[]).map((a) => a.to);
     expect(await actions(c.mgr2)).toEqual(expect.arrayContaining(['in_progress', 'on_review']));
-    expect(await actions(c.mgr1)).toEqual([]);
+    expect(await actions(c.sales)).toEqual([]);
     await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' });
     await as(c.mgr2).post(`/api/tasks/${t.id}/transition`, { to_status: 'on_review' });
     expect(await actions(c.mgr2)).toEqual(['in_progress']); // отозвать с проверки
-    expect(await actions(c.mgr1)).toEqual(expect.arrayContaining(['done', 'rejected']));
-    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'done' })).status).toBe(200);
+    expect(await actions(c.sales)).toEqual(expect.arrayContaining(['done', 'rejected']));
+    expect((await as(c.sales).post(`/api/tasks/${t.id}/transition`, { to_status: 'done' })).status).toBe(200);
     // Вернуть принятую задачу можно только с комментарием.
-    expect((await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' })).status).toBe(400);
-    const back = await as(c.mgr1).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress', comment: 'Добавь итоги' });
+    expect((await as(c.sales).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress' })).status).toBe(400);
+    const back = await as(c.sales).post(`/api/tasks/${t.id}/transition`, { to_status: 'in_progress', comment: 'Добавь итоги' });
     expect(back.body.status_new).toBe('in_progress');
   });
 
@@ -1202,7 +1295,7 @@ describe('жизненный цикл задачи', () => {
     expect(acts).toContain('done');
     expect(acts).not.toContain('on_review');
     expect((await as(c.mgr1).post(`/api/tasks/${own.id}/transition`, { to_status: 'done' })).body.status_new).toBe('done');
-    const other = (await as(c.mgr1).post('/api/tasks', { title: 'Чужая', assignee_ids: [c.mgr2.id] })).body;
+    const other = (await as(c.sales).post('/api/tasks', { title: 'Чужая', assignee_ids: [c.mgr2.id] })).body;
     expect((await as(c.mgr2).post(`/api/tasks/${other.id}/transition`, { to_status: 'done' })).status).toBe(403);
   });
 });
@@ -1229,7 +1322,7 @@ describe('задачи: архив и фильтры', () => {
   });
 
   it('«Команда» — все задачи подчинённых, и те, где руководитель тоже участник или наблюдатель', async () => {
-    const watched = (await as(c.mgr1).post('/api/tasks', { title: 'Под наблюдением руководителя', assignee_ids: [c.mgr2.id], watcher_ids: [c.sales.id] })).body;
+    const watched = (await as(c.mgr1).post('/api/tasks', { title: 'Под наблюдением руководителя', assignee_ids: [c.mgr1.id], watcher_ids: [c.sales.id] })).body;
     const mine = (await as(c.sales).post('/api/tasks', { title: 'От руководителя', assignee_ids: [c.mgr1.id] })).body;
     const team = (await as(c.sales).get('/api/tasks?filter=team')).body.map((x: any) => x.id);
     expect(team).toEqual(expect.arrayContaining([watched.id, mine.id]));

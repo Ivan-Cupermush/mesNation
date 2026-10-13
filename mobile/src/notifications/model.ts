@@ -31,7 +31,7 @@ const TASK_KINDS: TaskKind[] = ['assigned', 'review', 'rejected', 'done', 'retur
 export interface TaskPush {
   type: 'task';
   kind: TaskKind;
-  /** Просьба (а не задача): своё оформление — фиолетовое, без важности. */
+  /** Запрос (а не задача): своё оформление — фиолетовое, без важности. */
   isRequest: boolean;
   taskId: number;
   title: string;
@@ -185,16 +185,16 @@ export const TASK_KIND_TITLE: Record<TaskKind, string> = {
   done: 'Задача принята',
   returned: 'Задачу снова открыли',
   request: 'Вас просят помочь',
-  request_done: 'Ваша просьба выполнена',
+  request_done: 'Ваш запрос выполнен',
   thanks: 'Вам сказали спасибо',
 };
 
-/** Фиолетовый — цвет просьб (как на сайте и в списке задач). */
+/** Фиолетовый — цвет запросов (как на сайте и в списке задач). */
 export const REQUEST_COLOR = '#7C5CFA';
 
-/** Цвет и подпись уведомления: у задачи — важность, у просьбы — «Просьба». */
+/** Цвет и подпись уведомления: у задачи — важность, у запроса — «Запрос». */
 export function taskTone(t: TaskPush): { label: string; color: string } {
-  if (t.isRequest) return { label: 'Просьба', color: REQUEST_COLOR };
+  if (t.isRequest) return { label: 'Запрос', color: REQUEST_COLOR };
   return IMPORTANCE[t.importance] || IMPORTANCE.yellow;
 }
 

@@ -199,7 +199,7 @@ function startSocketFallback(): () => void {
           kind: isReq ? 'request' : 'assigned',
           isRequest: isReq,
           taskId: t.id,
-          title: t.title || (isReq ? 'Просьба' : 'Задача'),
+          title: t.title || (isReq ? 'Запрос' : 'Задача'),
           description: t.description || '',
           importance: t.importance || 'yellow',
           deadline: t.executor_deadline || t.hard_deadline || '',

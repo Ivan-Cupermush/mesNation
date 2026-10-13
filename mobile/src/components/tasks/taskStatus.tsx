@@ -28,7 +28,7 @@ export const TASK_STATUS: Record<string, StatusMeta> = {
   archived: { label: 'В архиве', color: T.textSecondary, soft: T.inputBg, icon: Archive, step: 3 }
 };
 
-/** У просьбы нет проверки: «Принята» → «Выполнена», этапов три. */
+/** У запроса нет проверки: «Принята» → «Выполнена», этапов три. */
 export const statusMeta = (s?: string | null, kind?: string | null): StatusMeta => {
   const base = TASK_STATUS[s || 'new'] || TASK_STATUS.new;
   return kind === 'request' && s === 'done' ? { ...base, label: 'Выполнена', step: 2 } : base;
@@ -101,20 +101,20 @@ export function StatusTrack({ status, kind }: { status: string; kind?: string | 
   );
 }
 
-/** Что дальше по просьбе — тепло и по-человечески (как на сайте). */
+/** Что дальше по запросу — тепло и по-человечески (как на сайте). */
 function requestHint(status: string, roles: { creator: boolean; assignee: boolean }, thanked?: boolean): string {
   switch (status) {
     case 'new':
-      return roles.assignee ? 'Вас попросили помочь. Возьмите в работу или сразу отметьте «Готово».' : 'Просьба отправлена — ждём, когда коллега возьмётся.';
+      return roles.assignee ? 'Вас попросили помочь. Возьмите в работу или сразу отметьте «Готово».' : 'Запрос отправлен — ждём, когда коллега возьмётся.';
     case 'in_progress':
-      return roles.assignee ? 'Когда сделаете — нажмите «Готово». Проверки не будет.' : 'Коллега уже занимается вашей просьбой.';
+      return roles.assignee ? 'Когда сделаете — нажмите «Готово». Проверки не будет.' : 'Коллега уже занимается вашим запросом.';
     case 'overdue':
       return roles.assignee ? 'Срок вышел. Если всё сделано — отметьте «Готово».' : 'Срок вышел. Можно перенести его в меню «⋯» или напомнить в комментариях.';
     case 'done':
-      if (roles.creator) return thanked ? 'Просьба выполнена — вы уже сказали спасибо.' : 'Просьба выполнена! Скажите коллеге спасибо — это приятно.';
+      if (roles.creator) return thanked ? 'Запрос выполнен — вы уже сказали спасибо.' : 'Запрос выполнен! Скажите коллеге спасибо — это приятно.';
       return thanked ? 'Готово — вас поблагодарили. Так держать!' : 'Готово! Спасибо, что помогли коллеге.';
     case 'archived':
-      return 'Просьба в архиве.';
+      return 'Запрос в архиве.';
     default:
       return '';
   }

@@ -82,7 +82,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
   const isWatcher = task.is_watcher ?? task.watchers.some((w) => w.id === me.id);
   const archived = task.status_new === 'archived';
   const request = isRequest(task);
-  const noun = request ? 'Просьба' : 'Задача';
+  const noun = request ? 'Запрос' : 'Задача';
   const priority = priorityOf(task.importance);
   const deadline = finalDeadline(task);
   const creatorName = task.creator ? displayName(task.creator) : task.creator_name || 'Неизвестно';
@@ -110,7 +110,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
   const unarchive = async () => {
     const ok = await confirm(
       request
-        ? { title: 'Вернуть просьбу из архива?', text: 'Просьба вернётся в статус, в котором была до архива.', confirmText: 'Вернуть' }
+        ? { title: 'Вернуть запрос из архива?', text: 'Запрос вернётся в статус, в котором был до архива.', confirmText: 'Вернуть' }
         : { title: 'Вернуть задачу из архива?', text: 'Задача вернётся в статус, в котором была до архивации.', confirmText: 'Разархивировать' },
     );
     if (ok) run(() => api.post(`/api/tasks/${task.id}/unarchive`), 'Не удалось вернуть из архива');
@@ -118,17 +118,17 @@ function TaskView({ task }: { task: TaskDetailData }) {
 
   const remove = async () => {
     const reason = await prompt({
-      title: request ? 'Отменить просьбу?' : 'Удалить задачу?',
-      text: request ? 'Просьба уйдёт в архив с пометкой «отменена». Её можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
+      title: request ? 'Отменить запрос?' : 'Удалить задачу?',
+      text: request ? 'Запрос уйдёт в архив с пометкой «отменён». Его можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
       label: 'Причина (необязательно)',
       placeholder: request ? 'Например: уже не нужно, справился сам' : 'Например: задача больше не актуальна',
       multiline: true,
       maxLength: 2000,
-      confirmText: request ? 'Отменить просьбу' : 'Удалить',
+      confirmText: request ? 'Отменить запрос' : 'Удалить',
       danger: true,
     });
     if (reason === null) return;
-    run(() => api.delete(`/api/tasks/${task.id}`, reason ? { reason } : undefined), request ? 'Не удалось отменить просьбу' : 'Не удалось удалить задачу');
+    run(() => api.delete(`/api/tasks/${task.id}`, reason ? { reason } : undefined), request ? 'Не удалось отменить запрос' : 'Не удалось удалить задачу');
   };
 
   const thank = async () => {
@@ -152,13 +152,13 @@ function TaskView({ task }: { task: TaskDetailData }) {
   const menuItems: MenuItem[] = [
     ...(isCreator && !archived
       ? [
-          { key: 'edit', label: request ? 'Редактировать просьбу' : 'Редактировать задачу', icon: <Pencil size={19} />, onSelect: () => navigate(`/tasks/${task.id}/edit`) },
+          { key: 'edit', label: request ? 'Редактировать запрос' : 'Редактировать задачу', icon: <Pencil size={19} />, onSelect: () => navigate(`/tasks/${task.id}/edit`) },
           { key: 'deadline', label: 'Перенести срок', icon: <CalendarClock size={19} />, onSelect: () => setMoveDeadline(true) },
         ]
       : []),
     { key: 'send', label: 'Отправить в чат', icon: <Send size={19} />, onSelect: () => setSendToChat(true) },
     { key: 'link', label: 'Скопировать ссылку', icon: <Link2 size={19} />, onSelect: copyLink },
-    ...(isCreator && !archived ? [{ key: 'delete', label: request ? 'Отменить просьбу' : 'Удалить (в архив)', danger: true, icon: <Trash2 size={19} />, onSelect: remove }] : []),
+    ...(isCreator && !archived ? [{ key: 'delete', label: request ? 'Отменить запрос' : 'Удалить (в архив)', danger: true, icon: <Trash2 size={19} />, onSelect: remove }] : []),
   ];
 
   const listOf = (p: TaskPerson[]) => (p.length === 1 ? displayName(p[0]) : `${p.length} чел.`);
@@ -200,7 +200,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
               <div className={s.asks}>
                 <HandHeart size={15} />
                 {isCreator && isAssignee && task.assignees.length === 1
-                  ? 'Просьба себе — как напоминание'
+                  ? 'Запрос себе — как напоминание'
                   : isCreator
                     ? `Вы попросили: ${task.assignees.map((a) => displayName(a)).join(', ') || '—'}`
                     : `${creatorName} просит ${isAssignee ? 'вас' : task.assignees.map((a) => displayName(a)).join(', ')} помочь`}
@@ -346,7 +346,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
                 !isCreator && !isAssignee && !isWatcher && (
                   <div className={s.readOnly}>
                     {request
-                      ? 'Вы видите просьбу как руководитель участника — отмечать её могут те, кого попросили.'
+                      ? 'Вы видите запрос как руководитель участника — отмечать его могут те, кого попросили.'
                       : 'Вы видите задачу как руководитель участника — менять её статус могут создатель, исполнители и наблюдатели.'}
                   </div>
                 )
@@ -358,7 +358,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
                 <Archive size={20} />
               </span>
               <span className={s.archivedBody}>
-                <b>{task.archived_as === 'deleted' ? (request ? 'Просьба отменена' : 'Задача удалена') : `${noun} в архиве`}</b>
+                <b>{task.archived_as === 'deleted' ? (request ? 'Запрос отменён' : 'Задача удалена') : `${noun} в архиве`}</b>
                 <small>{task.archived_at ? formatDate(task.archived_at, true) : ''}</small>
               </span>
               {isCreator && (
@@ -382,7 +382,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
       <ActionMenu open={!!menu} anchor={menu} items={menuItems} onClose={() => setMenu(null)} />
       <ChatPicker
         open={sendToChat}
-        title={request ? 'Отправить просьбу в чат' : 'Отправить задачу в чат'}
+        title={request ? 'Отправить запрос в чат' : 'Отправить задачу в чат'}
         commentPlaceholder="Комментарий (необязательно)"
         onClose={() => setSendToChat(false)}
         preview={
@@ -392,9 +392,9 @@ function TaskView({ task }: { task: TaskDetailData }) {
           </span>
         }
         onSend={async (chatId, topicId, comment) => {
-          const text = [comment, `${request ? '🤝 Просьба' : '📋 Задача'} «${task.title}»`, `${window.location.origin}/tasks/${task.id}`].filter(Boolean).join('\n');
+          const text = [comment, `${request ? '🤝 Запрос' : '📋 Задача'} «${task.title}»`, `${window.location.origin}/tasks/${task.id}`].filter(Boolean).join('\n');
           await api.post(`/api/chats/${chatId}/messages`, { text, topic_id: topicId ?? undefined });
-          toast.success(request ? 'Просьба отправлена в чат' : 'Задача отправлена в чат');
+          toast.success(request ? 'Запрос отправлен в чат' : 'Задача отправлена в чат');
         }}
       />
 
@@ -473,11 +473,11 @@ const TRANSITION_HINT: Record<string, string> = {
 
 const REQUEST_HINT = (to: string, creator?: string) =>
   to === 'done'
-    ? `${creator || 'Коллега'} получит уведомление, что просьба выполнена.`
+    ? `${creator || 'Коллега'} получит уведомление, что запрос выполнен.`
     : to === 'in_progress'
-      ? 'Просьба будет отмечена «В работе».'
+      ? 'Запрос будет отмечен «В работе».'
       : to === 'archived'
-        ? 'Просьба переместится в архив. Её можно будет вернуть.'
+        ? 'Запрос переместится в архив. Его можно будет вернуть.'
         : '';
 
 /** Подтверждение смены статуса; комментарий обязателен (отклонение) или по желанию. */

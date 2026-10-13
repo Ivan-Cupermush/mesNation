@@ -25,9 +25,9 @@ import { CURRENT_DEADLINE_SQL, OVERDUE_SQL, REVIEW_AFTER_FINAL_MESSAGE, reviewWi
  * задачу, пишут комментарий наблюдателя, отмечают контрольные точки).
  * Руководитель видит задачи своих подчинённых.
  *
- * Просьба (kind = 'request') — та же задача без важности, наблюдателей и
+ * Запрос (kind = 'request') — та же задача без важности, наблюдателей и
  * проверки: исполнитель выполняет и отмечает «Готово», создатель может
- * отправить в архив и сказать спасибо. Просьбу можно отправить коллегам
+ * отправить в архив и сказать спасибо. Запрос можно отправить коллегам
  * своего уровня, задачу — только себе и своему поддереву.
  */
 const router = Router();
@@ -230,7 +230,7 @@ async function notifyTransition(taskId: number, from: string, to: string, actorI
   ).rows[0];
   if (!people) return;
   if (people.kind === 'request') {
-    // Просьба выполнена — радуем того, кто просил.
+    // Запрос выполнен — радуем того, кто просил.
     if (to === 'done') return notifyTask('request_done', taskId, [people.creator_id], actorId, comment);
     return;
   }
@@ -266,10 +266,10 @@ const createSchema = z
   })
   .superRefine((v, ctx) => {
     if (v.kind !== 'request') return;
-    // У просьбы нет важности, наблюдателей и проверки.
-    if (v.importance) ctx.addIssue({ code: 'custom', path: ['importance'], message: 'У просьбы нет важности' });
-    if (v.watcher_ids?.length) ctx.addIssue({ code: 'custom', path: ['watcher_ids'], message: 'У просьбы нет наблюдателей' });
-    if (v.reviewer_deadline) ctx.addIssue({ code: 'custom', path: ['reviewer_deadline'], message: 'У просьбы нет проверки — только срок выполнения' });
+    // У запроса нет важности, наблюдателей и проверки.
+    if (v.importance) ctx.addIssue({ code: 'custom', path: ['importance'], message: 'У запроса нет важности' });
+    if (v.watcher_ids?.length) ctx.addIssue({ code: 'custom', path: ['watcher_ids'], message: 'У запроса нет наблюдателей' });
+    if (v.reviewer_deadline) ctx.addIssue({ code: 'custom', path: ['reviewer_deadline'], message: 'У запроса нет проверки — только срок выполнения' });
   });
 
 async function setPeople(client: PoolClient, table: 'task_assignees' | 'task_watchers', taskId: number, ids: number[]) {
@@ -292,7 +292,7 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
   const request = body.kind === 'request';
   const assignees = Array.from(new Set(body.assignee_ids));
   // Создатель и так имеет все права наблюдателя; если наблюдатели не выбраны — он сам.
-  // У просьбы наблюдателей нет.
+  // У запроса наблюдателей нет.
   const watchers = request ? [] : Array.from(new Set(body.watcher_ids?.length ? body.watcher_ids : [me]));
   await assertCanAssign(me, assignees, body.kind);
   await assertActiveUsers([...assignees, ...watchers]);
@@ -314,12 +314,12 @@ router.post('/', validate(createSchema), async (req: AuthRequest, res: Response)
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
        VALUES ($1, NULL, 'new', $2, $3)`,
-      [task.id, me, request ? 'Просьба создана' : 'Задача создана'],
+      [task.id, me, request ? 'Запрос создан' : 'Задача создана'],
     );
     return task.id;
   });
   await notifyParticipants(taskId, 'task_created');
-  fireAndForget(notifyTask(request ? 'request' : 'assigned', taskId, assignees, me), request ? 'новая просьба' : 'новая задача');
+  fireAndForget(notifyTask(request ? 'request' : 'assigned', taskId, assignees, me), request ? 'новый запрос' : 'новая задача');
   res.status(201).json(await loadTask(taskId, me));
 });
 
@@ -350,16 +350,16 @@ async function updateTask(req: AuthRequest, res: Response) {
     await pool.query('SELECT kind, status_new, executor_deadline, hard_deadline, reviewer_deadline FROM tasks WHERE id = $1', [taskId])
   ).rows[0];
   const request = current.kind === 'request';
-  if (current.status_new === 'archived') throw badRequest(request ? 'Просьба в архиве. Сначала верните её из архива.' : 'Задача в архиве. Сначала разархивируйте её.');
+  if (current.status_new === 'archived') throw badRequest(request ? 'Запрос в архиве. Сначала верните его из архива.' : 'Задача в архиве. Сначала разархивируйте её.');
   if (request) {
-    if (body.importance !== undefined) throw badRequest('У просьбы нет важности');
-    if (body.watcher_ids !== undefined || body.watcher_comment !== undefined) throw badRequest('У просьбы нет наблюдателей');
-    if (body.reviewer_deadline) throw badRequest('У просьбы нет проверки — только срок выполнения');
+    if (body.importance !== undefined) throw badRequest('У запроса нет важности');
+    if (body.watcher_ids !== undefined || body.watcher_comment !== undefined) throw badRequest('У запроса нет наблюдателей');
+    if (body.reviewer_deadline) throw badRequest('У запроса нет проверки — только срок выполнения');
   }
 
   const touchesCreatorFields = CREATOR_FIELDS.some((f) => body[f] !== undefined);
   if (touchesCreatorFields && !roles.isCreator) {
-    throw forbidden(request ? 'Менять просьбу может только тот, кто её отправил' : 'Менять параметры задачи может только её создатель');
+    throw forbidden(request ? 'Менять запрос может только тот, кто его отправил' : 'Менять параметры задачи может только её создатель');
   }
   if (body.executor_comment !== undefined && !roles.isAssignee && !roles.isCreator) {
     throw forbidden('Комментарий исполнителя пишет исполнитель');
@@ -457,7 +457,7 @@ const TRANSITIONS: Record<string, Transition> = {
 };
 
 /**
- * Просьба: без проверки. Исполнитель берёт в работу и отмечает «Готово»
+ * Запрос: без проверки. Исполнитель берёт в работу и отмечает «Готово»
  * (ошибся — возвращает в работу), создатель отправляет в архив.
  */
 const REQUEST_TRANSITIONS: Record<string, Transition> = {
@@ -512,7 +512,7 @@ router.post('/:id/transition', validate(transitionSchema), async (req: AuthReque
     if (!t) {
       throw badRequest(
         task.kind === 'request' && (to_status === 'on_review' || to_status === 'rejected')
-          ? 'У просьбы нет проверки: исполнитель просто отмечает «Готово»'
+          ? 'У запроса нет проверки: исполнитель просто отмечает «Готово»'
           : `Переход «${task.status_new}» → «${to_status}» невозможен`,
         { allowed_from_current: Object.keys(map).filter((k) => k.startsWith(task.status_new + '→')).map((k) => k.split('→')[1]) },
       );
@@ -521,8 +521,8 @@ router.post('/:id/transition', validate(transitionSchema), async (req: AuthReque
       throw forbidden(
         task.kind === 'request'
           ? t.role === 'assignee'
-            ? 'Отметить просьбу может тот, кого попросили'
-            : 'В архив просьбу отправляет тот, кто просил'
+            ? 'Отметить запрос может тот, кого попросили'
+            : 'В архив запрос отправляет тот, кто просил'
           : t.role === 'assignee'
           ? `Только исполнитель может: ${t.action}`
           : t.role === 'creator'
@@ -571,7 +571,7 @@ router.post('/:id/unarchive', async (req: AuthRequest, res: Response) => {
     if (!task) throw notFound('Задача не найдена');
     if (task.creator_id !== me) throw forbidden('Разархивировать задачу может только её создатель');
     if (task.status_new !== 'archived') throw badRequest('Задача не в архиве');
-    // Просьба без проверки: «на проверке» и «отклонена» у неё не бывает.
+    // Запрос без проверки: «на проверке» и «отклонена» у него не бывает.
     if (task.kind === 'request' && ['on_review', 'rejected'].includes(task.status_before_archive)) task.status_before_archive = 'in_progress';
     const back = task.status_before_archive && task.status_before_archive !== 'archived' ? task.status_before_archive : 'in_progress';
     await client.query(
@@ -582,7 +582,7 @@ router.post('/:id/unarchive', async (req: AuthRequest, res: Response) => {
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
        VALUES ($1, 'archived', $2, $3, $4)`,
-      [taskId, back, me, task.kind === 'request' ? 'Просьба возвращена из архива' : 'Задача разархивирована'],
+      [taskId, back, me, task.kind === 'request' ? 'Запрос возвращён из архива' : 'Задача разархивирована'],
     );
   });
   await notifyParticipants(taskId);
@@ -590,18 +590,18 @@ router.post('/:id/unarchive', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * «Спасибо» за выполненную просьбу: в комментариях появляется благодарность,
+ * «Спасибо» за выполненный запрос: в комментариях появляется благодарность,
  * исполнителям — уведомление. Один раз на каждое выполнение.
  */
 router.post('/:id/thanks', async (req: AuthRequest, res: Response) => {
   const taskId = paramId(req);
   const me = req.userId!;
   const task = (await pool.query('SELECT kind, creator_id, status_new, archived_as, thanked_at FROM tasks WHERE id = $1', [taskId])).rows[0];
-  if (!task) throw notFound('Просьба не найдена');
-  if (task.kind !== 'request') throw badRequest('Поблагодарить можно за выполненную просьбу');
+  if (!task) throw notFound('Запрос не найден');
+  if (task.kind !== 'request') throw badRequest('Поблагодарить можно за выполненный запрос');
   if (task.creator_id !== me) throw forbidden('Поблагодарить может тот, кто просил');
   const done = task.status_new === 'done' || (task.status_new === 'archived' && task.archived_as === 'done');
-  if (!done) throw badRequest('Просьба ещё не выполнена');
+  if (!done) throw badRequest('Запрос ещё не выполнен');
   if (!task.thanked_at) {
     await withTransaction(async (client) => {
       await client.query('UPDATE tasks SET thanked_at = NOW() WHERE id = $1', [taskId]);
@@ -613,7 +613,7 @@ router.post('/:id/thanks', async (req: AuthRequest, res: Response) => {
       ]);
     });
     const assignees = (await pool.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [taskId])).rows.map((r) => r.user_id);
-    fireAndForget(notifyTask('thanks', taskId, assignees, me), 'спасибо за просьбу');
+    fireAndForget(notifyTask('thanks', taskId, assignees, me), 'спасибо за запрос');
     await notifyParticipants(taskId);
   }
   res.json(await loadTask(taskId, me));
@@ -631,8 +631,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const task = (await client.query('SELECT * FROM tasks WHERE id = $1 FOR UPDATE', [taskId])).rows[0];
     if (!task) throw notFound('Задача не найдена');
     const request = task.kind === 'request';
-    if (task.creator_id !== me) throw forbidden(request ? 'Отменить просьбу может только тот, кто её отправил' : 'Удалить задачу может только её создатель');
-    if (task.status_new === 'archived') throw badRequest(request ? 'Просьба уже в архиве' : 'Задача уже в архиве');
+    if (task.creator_id !== me) throw forbidden(request ? 'Отменить запрос может только тот, кто его отправил' : 'Удалить задачу может только её создатель');
+    if (task.status_new === 'archived') throw badRequest(request ? 'Запрос уже в архиве' : 'Задача уже в архиве');
     await client.query(
       `UPDATE tasks SET status_new = 'archived', archived_at = NOW(), archived_as = 'deleted', archived_by = $1,
               status_before_archive = status_new, updated_at = NOW() WHERE id = $2`,
@@ -641,7 +641,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await client.query(
       `INSERT INTO task_status_history (task_id, from_status, to_status, changed_by, comment)
        VALUES ($1, $2, 'archived', $3, $4)`,
-      [taskId, task.status_new, me, `${request ? 'Просьба отменена' : 'Задача удалена'}${reason ? `: ${reason}` : ''}`],
+      [taskId, task.status_new, me, `${request ? 'Запрос отменён' : 'Задача удалена'}${reason ? `: ${reason}` : ''}`],
     );
   });
   await notifyParticipants(taskId);
@@ -689,7 +689,7 @@ router.patch('/:id/checkpoints/:cpId', validate(checkpointPatch), async (req: Au
   const body = req.body as z.infer<typeof checkpointPatch>;
   if ((body.title || body.deadline) && !roles.isCreator) throw forbidden('Менять контрольную точку может создатель');
   // Отметить результат контрольной точки может создатель или наблюдатель,
-  // в просьбе (наблюдателей нет) — создатель или исполнитель.
+  // в запросе (наблюдателей нет) — создатель или исполнитель.
   if (body.status && !roles.isCreator && !roles.isWatcher) {
     const kind = (await pool.query('SELECT kind FROM tasks WHERE id = $1', [taskId])).rows[0]?.kind;
     if (kind !== 'request' || !roles.isAssignee) throw forbidden('Отмечать контрольные точки может создатель или наблюдатель');

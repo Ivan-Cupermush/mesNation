@@ -47,11 +47,11 @@ const BASE_FILTERS = [
 ];
 const TEAM_FILTER = { id: 'team', label: 'Команда' };
 
-/** Всё, только задачи или только просьбы. */
+/** Всё, только задачи или только запросы. */
 const KIND_FILTERS: { id: 'all' | TaskKind; label: string }[] = [
   { id: 'all', label: 'Всё' },
   { id: 'task', label: 'Задачи' },
-  { id: 'request', label: 'Просьбы' },
+  { id: 'request', label: 'Запросы' },
 ];
 
 /**
@@ -202,7 +202,7 @@ export default function TasksScreen({ navigation }: any) {
     const doneRank = (t: Task) => (t.status_new === 'done' ? 1 : 0);
     list.sort((a, b) => {
       if (doneRank(a) !== doneRank(b)) return doneRank(a) - doneRank(b);
-      // У просьбы важности нет — считаем средней.
+      // У запроса важности нет — считаем средней.
       const pA = prio[a.importance ?? 'yellow'] ?? 9;
       const pB = prio[b.importance ?? 'yellow'] ?? 9;
       const dA = dl(a);
@@ -217,7 +217,7 @@ export default function TasksScreen({ navigation }: any) {
     return list;
   }, [tasks, teamTasks, searchQuery, activeFilter, kindFilter, sortBy, meId]);
 
-  /** Просьбы ко мне, за которые ещё никто не взялся. */
+  /** Запросы ко мне, за которые ещё никто не взялся. */
   const newRequests = useMemo(() => tasks.filter((t) => isRequest(t) && t.is_assignee && t.status_new === 'new').length, [tasks]);
 
   const renderTaskCard = (task: Task) => {
@@ -427,13 +427,13 @@ export default function TasksScreen({ navigation }: any) {
           ListEmptyComponent={
             <View style={styles.emptyBlock}>
               <Search size={40} color={T.textMuted} strokeWidth={1.5} />
-              <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'Ничего не найдено' : kindFilter === 'request' ? 'Просьб пока нет' : 'Задач пока нет'}</Text>
+              <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'Ничего не найдено' : kindFilter === 'request' ? 'Запросов пока нет' : 'Задач пока нет'}</Text>
               <Text style={styles.emptySubtitle}>
                 {searchQuery.trim()
                   ? 'Попробуйте изменить запрос или фильтр'
                   : kindFilter === 'request'
-                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Просьба»'
-                    : 'Нажмите «+», чтобы создать задачу или просьбу'}
+                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Запрос»'
+                    : 'Нажмите «+», чтобы создать задачу или запрос'}
               </Text>
             </View>
           }
@@ -447,7 +447,7 @@ export default function TasksScreen({ navigation }: any) {
         </View>
       )}
 
-      <TouchableOpacity onPress={() => setChoosing(true)} activeOpacity={0.85} style={styles.fab} accessibilityLabel="Создать задачу или просьбу">
+      <TouchableOpacity onPress={() => setChoosing(true)} activeOpacity={0.85} style={styles.fab} accessibilityLabel="Создать задачу или запрос">
         <Plus size={24} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
 
@@ -546,7 +546,7 @@ const styles = themed(() => ({
   emptyTitle: { fontSize: 16, fontWeight: '600', color: T.textPrimary, marginTop: 16 },
   emptySubtitle: { fontSize: 13, color: T.textSecondary, marginTop: 4 },
   taskCard: { backgroundColor: T.card, borderRadius: 22, padding: 20, shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4 },
-  // Просьба: фиолетовая полоска слева и лёгкая обводка — сразу видно, что это не задача.
+  // Запрос: фиолетовая полоска слева и лёгкая обводка — сразу видно, что это не задача.
   requestCard: { borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.3), overflow: 'hidden' },
   requestStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: T.violet },
   requestFrom: { fontSize: 13, fontWeight: '700', color: T.violet, marginTop: -4, marginBottom: 6 },

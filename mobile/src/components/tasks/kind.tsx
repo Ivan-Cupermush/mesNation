@@ -9,18 +9,18 @@ import { firstNameOf } from '../../utils/names';
 import type { Task } from '../../services/api';
 
 /**
- * Просьба — дружеская «сестра» задачи (как на сайте): фиолетовый цвет (не
+ * Запрос — дружеская разновидность задачи (как на сайте): фиолетовый цвет (не
  * пересекается с важностью и статусами), значок с сердечком, тёплые подписи.
  */
 export type TaskKind = 'task' | 'request';
 export const isRequest = (t?: { kind?: string | null } | null) => t?.kind === 'request';
 
-/** Метка «Просьба» на карточке и в заголовке. */
+/** Метка «Запрос» на карточке и в заголовке. */
 export function RequestBadge({ large }: { large?: boolean }) {
   return (
     <View style={[styles.badge, large && styles.badgeLarge]}>
       <HandHeart size={large ? 15 : 13} color={T.violet} strokeWidth={2.3} />
-      <Text style={[styles.badgeText, large && styles.badgeTextLarge]}>Просьба</Text>
+      <Text style={[styles.badgeText, large && styles.badgeTextLarge]}>Запрос</Text>
     </View>
   );
 }
@@ -39,7 +39,7 @@ export function requestLine(task: Task): string {
 const CHOICES: { kind: TaskKind; title: string; text: string; who: string }[] = [
   {
     kind: 'request',
-    title: 'Просьба',
+    title: 'Запрос',
     text: 'Попросите коллегу помочь — по-дружески, без важности и проверки.',
     who: 'Кому: коллегам своего уровня, себе и подчинённым',
   },
@@ -51,7 +51,7 @@ const CHOICES: { kind: TaskKind; title: string; text: string; who: string }[] = 
   },
 ];
 
-/** «+» на экране задач: что создать — просьбу или задачу (шторка снизу). */
+/** «+» на экране задач: что создать — запрос или задачу (шторка снизу). */
 export function KindChooserSheet({ visible, onClose, onPick }: { visible: boolean; onClose: () => void; onPick: (kind: TaskKind) => void }) {
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {

@@ -107,7 +107,7 @@ export async function handleNotificationEvent({ type, detail }: Event): Promise<
       const taskId = Number(data.task_id);
       if (action === 'default') return openFromData(data);
       if (action === 'task_thanks') {
-        // «Спасибо» за выполненную просьбу — прямо из шторки.
+        // «Спасибо» за выполненный запрос — прямо из шторки.
         await request(`/api/tasks/${taskId}/thanks`, { method: 'POST' });
         await clearTaskNotification(taskId);
         return;

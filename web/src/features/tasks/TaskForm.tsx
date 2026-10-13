@@ -30,9 +30,9 @@ interface DraftCheckpoint {
 }
 
 /**
- * Новая задача или просьба и редактирование — как в приложении: название,
+ * Новая задача или запрос и редактирование — как в приложении: название,
  * описание, приоритет, срок выполнения и проверки, исполнители (кому можно —
- * решает сервер), наблюдатели, файлы и контрольные точки. У просьбы нет
+ * решает сервер), наблюдатели, файлы и контрольные точки. У запроса нет
  * приоритета, наблюдателей и проверки.
  */
 export default function TaskForm() {
@@ -43,10 +43,10 @@ export default function TaskForm() {
   if (editId && !task) return <Blocked text="Задача не найдена или у вас нет к ней доступа." />;
   const request = task?.kind === 'request';
   if (editId && task && !task.is_creator) {
-    return <Blocked text={request ? 'Менять просьбу может только тот, кто её отправил.' : 'Менять параметры задачи может только её создатель.'} />;
+    return <Blocked text={request ? 'Менять запрос может только тот, кто его отправил.' : 'Менять параметры задачи может только её создатель.'} />;
   }
   if (editId && task?.status_new === 'archived') {
-    return <Blocked text={request ? 'Просьба в архиве. Сначала верните её из архива.' : 'Задача в архиве. Сначала разархивируйте её.'} />;
+    return <Blocked text={request ? 'Запрос в архиве. Сначала верните его из архива.' : 'Задача в архиве. Сначала разархивируйте её.'} />;
   }
   return <Form key={editId || 'new'} task={editId ? (task ?? null) : null} />;
 }
@@ -70,7 +70,7 @@ function Form({ task }: { task: Task | null }) {
   const assignable = useAssignableUsers();
   const allUsers = useUsers();
   const [params, setParams] = useSearchParams();
-  // Задача или просьба: при создании выбрали по «+», у сохранённой — её тип.
+  // Задача или запрос: при создании выбрали по «+», у сохранённой — её тип.
   const [kind, setKindState] = useState<TaskKind>(task?.kind ?? (params.get('kind') === 'request' ? 'request' : 'task'));
   const request = kind === 'request';
 
@@ -127,7 +127,7 @@ function Form({ task }: { task: Task | null }) {
   const selfOnly = assignees.length === 1 && assignees[0].id === me.id;
 
   const cancel = async () => {
-    if (dirty && !(await confirm({ title: isEdit ? 'Отменить изменения?' : request ? 'Не отправлять просьбу?' : 'Отменить создание задачи?', text: 'Введённые данные не сохранятся.', confirmText: 'Выйти', cancelText: 'Остаться', danger: true }))) return;
+    if (dirty && !(await confirm({ title: isEdit ? 'Отменить изменения?' : request ? 'Не отправлять запрос?' : 'Отменить создание задачи?', text: 'Введённые данные не сохранятся.', confirmText: 'Выйти', cancelText: 'Остаться', danger: true }))) return;
     navigate(isEdit ? `/tasks/${task!.id}` : '/tasks');
   };
 
@@ -159,7 +159,7 @@ function Form({ task }: { task: Task | null }) {
         });
         initial.current = snapshot;
         qc.invalidateQueries({ queryKey: taskKeys.all });
-        toast.success(request ? 'Просьба сохранена' : 'Задача сохранена');
+        toast.success(request ? 'Запрос сохранён' : 'Задача сохранена');
         navigate(`/tasks/${task!.id}`, { replace: true });
         return;
       }
@@ -188,13 +188,13 @@ function Form({ task }: { task: Task | null }) {
           failed.push(f.name);
         }
       }
-      if (failed.length) toast.error(`${request ? 'Просьба отправлена' : 'Задача создана'}, но не прикрепились: ${failed.join(', ')}. Добавьте их в карточке.`);
-      else if (request) toast.success(assignees.length === 1 && assignees[0].id !== me.id ? `Просьба отправлена — ${displayName(assignees[0])} получит уведомление` : 'Просьба отправлена');
+      if (failed.length) toast.error(`${request ? 'Запрос отправлен' : 'Задача создана'}, но не прикрепились: ${failed.join(', ')}. Добавьте их в карточке.`);
+      else if (request) toast.success(assignees.length === 1 && assignees[0].id !== me.id ? `Запрос отправлен — ${displayName(assignees[0])} получит уведомление` : 'Запрос отправлен');
       else toast.success('Задача создана');
       qc.invalidateQueries({ queryKey: taskKeys.all });
       navigate(`/tasks/${created.id}`, { replace: true });
     } catch (e) {
-      toast.error(e, request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу');
+      toast.error(e, request ? 'Не удалось отправить запрос' : 'Не удалось сохранить задачу');
     } finally {
       setSaving(false);
     }
@@ -226,7 +226,7 @@ function Form({ task }: { task: Task | null }) {
           <ChevronLeft size={26} />
         </IconButton>
         <div className={s.headerTitle}>
-          {isEdit ? (request ? 'Редактирование просьбы' : 'Редактирование задачи') : request ? 'Новая просьба' : 'Новая задача'}
+          {isEdit ? (request ? 'Редактирование запроса' : 'Редактирование задачи') : request ? 'Новый запрос' : 'Новая задача'}
         </div>
         <Button onClick={submit} loading={saving} className={request ? s.requestBtn : undefined}>
           {isEdit ? 'Сохранить' : request ? 'Попросить' : 'Создать'}
@@ -253,7 +253,7 @@ function Form({ task }: { task: Task | null }) {
                   onClick={() => setKind(k)}
                 >
                   <KindIcon kind={k} size={17} />
-                  {k === 'request' ? 'Просьба' : 'Задача'}
+                  {k === 'request' ? 'Запрос' : 'Задача'}
                 </button>
               ))}
             </div>
@@ -373,7 +373,7 @@ function Form({ task }: { task: Task | null }) {
               </div>
             )}
             {selfOnly && !request && <div className={s.hint}>Задача себе: проверка не нужна — завершите её сами кнопкой «Завершить».</div>}
-            {selfOnly && request && <div className={s.hint}>Просьба себе — как напоминание: отметите «Готово», когда сделаете.</div>}
+            {selfOnly && request && <div className={s.hint}>Запрос себе — как напоминание: отметите «Готово», когда сделаете.</div>}
             {!request && (
             <>
             <button type="button" className={s.peopleRow} onClick={() => setPicker('watchers')}>
@@ -480,7 +480,7 @@ function Form({ task }: { task: Task | null }) {
             </section>
           )}
 
-          {isEdit && <div className={s.hint}>Контрольные точки и файлы меняются в карточке {request ? 'просьбы' : 'задачи'}.</div>}
+          {isEdit && <div className={s.hint}>Контрольные точки и файлы меняются в карточке {request ? 'запроса' : 'задачи'}.</div>}
           <button type="submit" hidden />
         </form>
       </div>

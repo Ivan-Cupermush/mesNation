@@ -167,7 +167,7 @@ describe('иерархия при постановке задач', () => {
   const assignable = async (a: Actor) =>
     ((await as(a).get('/api/users/assignable')).body as any[]).map((u) => u.username).sort();
 
-  it('менеджер: себе, коллеге своей должности и людям своего уровня из других отделов (просьбой); вверх — нельзя', async () => {
+  it('менеджер: себе, коллеге своей должности и людям своего уровня из других отделов (запросом); вверх — нельзя', async () => {
     expect(await assignable(c.mgr1)).toEqual(['bk', 'mgr1', 'mgr2']);
   });
 
@@ -200,10 +200,10 @@ describe('иерархия при постановке задач', () => {
     expect(forSales.find((x) => x.username === 'acc')).toMatchObject({ relation: 'colleague', can_task: false });
   });
 
-  it('коллегам — только просьба, задачу нельзя; начальнику — ни то ни другое', async () => {
+  it('коллегам — только запрос, задачу нельзя; начальнику — ни то ни другое', async () => {
     const task = await as(c.mgr1).post('/api/tasks', { title: 'Коллеге задачей', assignee_ids: [c.mgr2.id] });
     expect(task.status).toBe(403);
-    expect(task.body.error).toMatch(/просьбу/);
+    expect(task.body.error).toMatch(/запрос/);
     expect((await as(c.mgr1).post('/api/tasks', { title: 'Соседнему отделу', assignee_ids: [c.bk.id] })).status).toBe(403);
     expect((await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Коллеге', assignee_ids: [c.mgr2.id, c.bk.id] })).status).toBe(201);
     expect((await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Начальнику', assignee_ids: [c.sales.id] })).status).toBe(403);
@@ -212,7 +212,7 @@ describe('иерархия при постановке задач', () => {
   });
 });
 
-describe('просьбы', () => {
+describe('запросы', () => {
   it('без важности, наблюдателей и проверки', async () => {
     const base = { kind: 'request', title: 'Помоги со сверкой', assignee_ids: [c.bk.id] };
     expect((await as(c.mgr1).post('/api/tasks', { ...base, importance: 'red' })).status).toBe(400);
@@ -227,12 +227,12 @@ describe('просьбы', () => {
     expect(r.body).toMatchObject({ kind: 'request', importance: null, reviewer_deadline: null, watchers: [], status_new: 'new' });
     expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { importance: 'red' })).status).toBe(400);
     expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { watcher_ids: [c.mgr2.id] })).status).toBe(400);
-    // Срок и исполнители меняются как у задачи; задачу коллеге добавить нельзя, просьбу — можно.
+    // Срок и исполнители меняются как у задачи; задачу коллеге добавить нельзя, запрос — можно.
     expect((await as(c.mgr1).patch(`/api/tasks/${r.body.id}`, { assignee_ids: [c.bk.id, c.mgr2.id] })).status).toBe(200);
     // Контрольную точку отмечает исполнитель.
     const cp = (await as(c.bk).get(`/api/tasks/${r.body.id}`)).body.checkpoints[0];
     expect((await as(c.bk).patch(`/api/tasks/${r.body.id}/checkpoints/${cp.id}`, { status: 'completed' })).status).toBe(200);
-    // Фильтр «только просьбы».
+    // Фильтр «только запросы».
     const list = (await as(c.bk).get('/api/tasks?kind=request')).body as any[];
     expect(list.every((t) => t.kind === 'request')).toBe(true);
     expect(list.some((t) => t.id === r.body.id)).toBe(true);
@@ -244,7 +244,7 @@ describe('просьбы', () => {
     const acts = async (who: Actor) => ((await as(who).get(`/api/tasks/${r.id}`)).body.available_transitions as any[]).map((a) => a.to);
     expect((await acts(c.mgr2)).sort()).toEqual(['done', 'in_progress']);
     expect(await acts(c.mgr1)).toEqual([]);
-    // Проверки у просьбы нет.
+    // Проверки у запроса нет.
     const review = await as(c.mgr2).post(`/api/tasks/${r.id}/transition`, { to_status: 'on_review' });
     expect(review.status).toBe(400);
     expect(review.body.error).toMatch(/нет проверки/);
@@ -257,7 +257,7 @@ describe('просьбы', () => {
       found = ((await as(c.mgr1).get('/api/notifications')).body as any[]).find((x) => x.data?.task_id === r.id);
       if (!found) await new Promise((res) => setTimeout(res, 50));
     }
-    expect(found).toMatchObject({ title: 'Ваша просьба выполнена', body: 'Подменить на звонке' });
+    expect(found).toMatchObject({ title: 'Ваш запрос выполнен', body: 'Подменить на звонке' });
     expect(found.data).toMatchObject({ kind: 'request', task_kind: 'request_done', importance: null });
     // Спасибо — один раз, только от просившего.
     expect((await as(c.mgr2).post(`/api/tasks/${r.id}/thanks`)).status).toBe(403);
@@ -274,12 +274,12 @@ describe('просьбы', () => {
     expect((await as(c.mgr1).post(`/api/tasks/${r.id}/unarchive`)).body.status_new).toBe('done');
   });
 
-  it('отменить просьбу может только тот, кто её отправил', async () => {
+  it('отменить запрос может только тот, кто его отправил', async () => {
     const r = (await as(c.mgr1).post('/api/tasks', { kind: 'request', title: 'Ненужная', assignee_ids: [c.bk.id] })).body;
     expect((await as(c.bk).delete(`/api/tasks/${r.id}`)).status).toBe(403);
     expect((await as(c.mgr1).delete(`/api/tasks/${r.id}`)).body.archived_as).toBe('deleted');
     const history = (await as(c.mgr1).get(`/api/tasks/${r.id}/history`)).body as any[];
-    expect(history.at(-1).comment).toBe('Просьба отменена');
+    expect(history.at(-1).comment).toBe('Запрос отменён');
   });
 });
 

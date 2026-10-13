@@ -65,7 +65,7 @@ export interface AssignableUser extends UserShort {
   relation?: 'self' | 'subordinate' | 'colleague';
   /** Та же должность, что у меня. */
   same_role?: boolean;
-  /** Задачу — себе и подчинённым, просьбу — ещё и коллегам. */
+  /** Задачу — себе и подчинённым, запрос — ещё и коллегам. */
   can_task?: boolean;
   can_request?: boolean;
 }

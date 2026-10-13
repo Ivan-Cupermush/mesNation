@@ -23,9 +23,9 @@ interface Group {
 const byName = (a: AssignableUser, b: AssignableUser) => displayName(a).localeCompare(displayName(b), 'ru');
 
 /**
- * Кого назначить. Просьба: сначала коллеги вашей должности, потом остальные —
+ * Кого назначить. Запрос: сначала коллеги вашей должности, потом остальные —
  * по ролям (коллеги своего уровня, затем подчинённые), в конце — себе.
- * Задача: себе и подчинённые по ролям; коллегам — только просьбой (подсказка
+ * Задача: себе и подчинённые по ролям; коллегам — только запросом (подсказка
  * с переключением).
  */
 export function groupAssignees(users: AssignableUser[], kind: TaskKind, myRole: string | null): Group[] {
@@ -66,7 +66,7 @@ interface Props {
   myRole: string | null;
   selected: number[];
   onToggle: (user: AssignableUser) => void;
-  /** Задача: коллегам — только просьбой. Переключить форму на просьбу. */
+  /** Задача: коллегам — только запросом. Переключить форму на запрос. */
   onSwitchToRequest?: () => void;
 }
 
@@ -149,10 +149,10 @@ export function AssigneePicker({ users, loading, kind, meId, myRole, selected, o
             </span>
             <span className={s.tipText}>
               <b>Нужна помощь коллеги?</b>
-              <span>Коллегам своего уровня ставят не задачу, а просьбу — без проверки и важности.</span>
+              <span>Коллегам своего уровня ставят не задачу, а запрос — без проверки и важности.</span>
             </span>
             <Button size="sm" variant="soft" onClick={onSwitchToRequest}>
-              Просьба
+              Запрос
             </Button>
           </div>
         )}

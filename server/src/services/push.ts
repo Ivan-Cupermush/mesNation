@@ -260,7 +260,7 @@ export type TaskPushKind = 'assigned' | 'review' | 'rejected' | 'done' | 'return
 
 /**
  * События задачи: назначили, сдали на проверку, вернули, приняли.
- * Просьбы: попросили, просьбу выполнили, за выполненную просьбу поблагодарили.
+ * Запросы: попросили, запрос выполнили, за выполненный запрос поблагодарили.
  */
 const TASK_TITLES: Record<TaskPushKind, string> = {
   assigned: 'Новая задача',
@@ -269,7 +269,7 @@ const TASK_TITLES: Record<TaskPushKind, string> = {
   done: 'Задача принята',
   returned: 'Задача снова в работе',
   request: 'Вас просят помочь',
-  request_done: 'Ваша просьба выполнена',
+  request_done: 'Ваш запрос выполнен',
   thanks: 'Вам сказали спасибо',
 };
 
@@ -290,11 +290,11 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
     kind: 'task',
     actorId,
     title: TASK_TITLES[kind],
-    body: clip(t.title || (t.kind === 'request' ? 'Просьба' : 'Задача'), 200),
+    body: clip(t.title || (t.kind === 'request' ? 'Запрос' : 'Задача'), 200),
     data: {
       task_id: t.id,
       task_kind: kind,
-      // Просьба или задача — у просьбы нет важности.
+      // Запрос или задача — у запроса нет важности.
       kind: t.kind || 'task',
       importance: t.kind === 'request' ? null : t.importance || 'yellow',
       deadline: t.deadline ? new Date(t.deadline).toISOString() : null,
@@ -307,7 +307,7 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
     kind,
     task_id: String(t.id),
     task_type: t.kind || 'task',
-    title: clip(t.title || (t.kind === 'request' ? 'Просьба' : 'Задача'), 200),
+    title: clip(t.title || (t.kind === 'request' ? 'Запрос' : 'Задача'), 200),
     description: clip((t.description || '').trim(), 400),
     importance: t.kind === 'request' ? '' : t.importance || 'yellow',
     deadline: t.deadline ? new Date(t.deadline).toISOString() : '',
@@ -320,7 +320,7 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
 
 /**
  * Запрос актуальной версии заметки и ответ на него. В шторке выглядит как
- * просьба от человека: его аватар, имя, название заметки и кнопки действий.
+ * запрос от человека: его аватар, имя, название заметки и кнопки действий.
  */
 export async function notifyNoteRequest(
   kind: 'request' | 'approved' | 'declined',

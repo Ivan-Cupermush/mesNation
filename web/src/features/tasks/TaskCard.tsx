@@ -43,7 +43,7 @@ function requestLine(task: Task): string {
   return toText ? `${from} просит: ${toText}` : `Просит ${from}`;
 }
 
-/** Карточка задачи в списке — как в приложении. У просьбы — фиолетовая полоска и «кто просит». */
+/** Карточка задачи в списке — как в приложении. У запроса — фиолетовая полоска и «кто просит». */
 function TaskCard({ task, active, onOpen }: Props) {
   const request = isRequest(task);
   const priority = priorityOf(task.importance);

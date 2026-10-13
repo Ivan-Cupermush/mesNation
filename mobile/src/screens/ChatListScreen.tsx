@@ -30,6 +30,7 @@ import { C, hashColor, initials, messagePreview } from '../components/chat/chatU
 
 import { T, themed } from '../theme/runtime';
 import HeaderBell from '../components/HeaderBell';
+import { firstNameOf } from '../utils/names';
 /**
  * Список чатов как в Telegram: закреплённые сверху, счётчики непрочитанных,
  * галочки прочтения своего последнего сообщения, «в сети» у собеседников,
@@ -308,7 +309,7 @@ export default function ChatListScreen({ navigation }: any) {
     if (lm.content_type === 'service') return { prefix: '', text: lm.text };
     const preview = messagePreview({ ...lm, poll: lm.poll_question ? { question: lm.poll_question } : undefined });
     const lmName = contactName(lm.sender_id) || lm.sender_name;
-    const prefix = lm.sender_id === meId ? 'Вы: ' : item.type === 'group' && lmName ? `${lmName.split(' ')[0]}: ` : '';
+    const prefix = lm.sender_id === meId ? 'Вы: ' : item.type === 'group' && lmName ? `${firstNameOf(lmName)}: ` : '';
     return { prefix, text: preview };
   };
 

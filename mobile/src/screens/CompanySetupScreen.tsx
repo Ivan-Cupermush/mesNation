@@ -15,7 +15,8 @@ import { themed } from '../theme/runtime';
 export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetupSuccess: (token: string, user: any) => void; onBack?: () => void }) {
   const { colors, isDark } = useTheme();
   const [companyName, setCompanyName] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +27,10 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
     // Валидация
     if (!companyName.trim()) {
       Alert.alert('Ошибка', 'Введите название компании');
+      return;
+    }
+    if (!firstName.trim()) {
+      Alert.alert('Ошибка', 'Введите ваше имя');
       return;
     }
     if (!username.trim()) {
@@ -55,7 +60,8 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
           username: username.trim(),
           email: email.trim(),
           password,
-          display_name: displayName.trim() || username.trim(),
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
         },
       });
 
@@ -122,10 +128,21 @@ export default function CompanySetupScreen({ onSetupSuccess, onBack }: { onSetup
               ДИРЕКТОР
             </Text>
             <Input
-              label="Отображаемое имя"
-              placeholder="Иван Иванов"
-              value={displayName}
-              onChangeText={setDisplayName}
+              label="Имя *"
+              placeholder="Иван"
+              value={firstName}
+              onChangeText={setFirstName}
+              autoCapitalize="words"
+              autoComplete="name-given"
+              icon={<User size={18} color={colors.textMuted} strokeWidth={2} />}
+            />
+            <Input
+              label="Фамилия"
+              placeholder="Петров"
+              value={lastName}
+              onChangeText={setLastName}
+              autoCapitalize="words"
+              autoComplete="name-family"
               icon={<User size={18} color={colors.textMuted} strokeWidth={2} />}
             />
             <Input

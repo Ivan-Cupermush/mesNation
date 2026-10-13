@@ -212,3 +212,16 @@
   color: var(--c-text-primary);
   box-shadow: var(--shadow-sm);
 }
+
+/* Два поля в строку («Имя» и «Фамилия»), на узком экране — друг под другом. */
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 420px) {
+  .pair {
+    grid-template-columns: 1fr;
+  }
+}

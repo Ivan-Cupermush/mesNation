@@ -12,6 +12,7 @@ import ActionSheet, { SheetAction } from '../chat/ActionSheet';
 import ShareToChatModal, { sentToLabel } from '../ShareToChatModal';
 import UserAvatar from '../ui/UserAvatar';
 import { ContactCard, SharedContact } from './ContactCard';
+import { splitFullName } from '../../utils/names';
 
 /**
  * Меню ⋯ в профиле сотрудника и в информации о личном чате — как в Telegram:
@@ -81,7 +82,7 @@ function EditContactModal({ user, onClose, onSaved }: { user: SharedContact; onC
   const insets = useSafeAreaInsets();
   const rec = contactRecord(user.id);
   const real = user.display_name || user.username;
-  const [first, setFirst] = useState(rec?.first_name ?? real.split(' ')[0] ?? '');
+  const [first, setFirst] = useState(rec?.first_name ?? splitFullName(real).first);
   const [last, setLast] = useState(rec?.last_name ?? real.split(' ').slice(1).join(' '));
   const [busy, setBusy] = useState(false);
 

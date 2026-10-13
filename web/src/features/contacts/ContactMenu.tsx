@@ -17,6 +17,7 @@ import ChatPicker from '../chats/ChatPicker';
 import { ContactCard, type SharedContact } from './ContactCard';
 import { useContactNames, useSaveContactName } from './names';
 import s from './contacts.module.css';
+import { splitFullName } from '../../lib/names';
 
 /**
  * Меню ⋯ в профиле сотрудника и в информации о личном чате — как в Telegram:
@@ -78,7 +79,7 @@ function EditContact({ user, onClose }: { user: SharedContact; onClose: () => vo
   const save = useSaveContactName();
   const real = user.display_name || user.username;
   const rec = map.get(user.id);
-  const [first, setFirst] = useState(rec?.first_name ?? real.split(' ')[0] ?? '');
+  const [first, setFirst] = useState(rec?.first_name ?? splitFullName(real).first);
   const [last, setLast] = useState(rec?.last_name ?? real.split(' ').slice(1).join(' '));
   const [busy, setBusy] = useState(false);
 

@@ -9,11 +9,11 @@ import SalesTiles, { statsCaption } from '../components/kpi/SalesTiles';
 import HeaderBell from '../components/HeaderBell';
 import { statusMeta } from '../components/tasks/taskStatus';
 import { errorText, HomeData, kpiApi, kpiTitle, money } from '../services/kpi';
+import { firstNameOf } from '../utils/names';
 
 const PHRASE_KEY = 'offix.home.phrase';
 
 /** Имя для приветствия: «Анна Смирнова» → «Анна». */
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /** «Понедельник, 12 октября». */
 const today = () => {
@@ -89,7 +89,7 @@ export default function HomeScreen({ navigation }: any) {
             <HeaderBell style={styles.heroBell} />
           </View>
           <Text style={styles.greeting}>
-            {data.greeting}, {firstName(data.name)}!
+            {data.greeting}, {data.first_name || firstNameOf(data.name)}!
           </Text>
           <View style={styles.phrase}>
             <Quote size={18} color={T.accent} />

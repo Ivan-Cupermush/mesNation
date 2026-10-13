@@ -14,6 +14,7 @@ import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/upl
 import { getUserNode, hasSubordinateNodes } from '../services/access';
 import { getCompanyName } from '../services/company';
 import { effectivePermissions } from '../services/permissions';
+import { namesFromBody, splitFullName } from '../lib/names';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ export const emailSchema = z
 /** Публичные данные пользователя + его место в иерархии. */
 export async function loadProfile(userId: number) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.username, u.email, u.display_name, u.avatar_url, u.is_active, u.created_at,
+    `SELECT u.id, u.username, u.email, u.display_name, u.first_name, u.last_name, u.avatar_url, u.is_active, u.created_at,
             u.department_id, rt.id AS role_id, rt.name AS role_name, rt.color AS role_color, rt.icon AS role_icon
      FROM users u
      LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
@@ -100,6 +101,8 @@ const setupSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   display_name: z.string().trim().max(255).optional(),
+  first_name: z.string().trim().max(100).optional(),
+  last_name: z.string().trim().max(100).optional(),
 });
 
 router.post('/setup-company', validate(setupSchema), async (req, res) => {
@@ -124,12 +127,13 @@ router.post('/setup-company', validate(setupSchema), async (req, res) => {
       [body.company_name],
     );
     const hash = await hashPassword(body.password);
+    const names = namesFromBody(body, body.username);
     const user = (
       await client.query(
-        `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-         VALUES ($1, $2, $3, $4, $5, $1)
-         RETURNING id, username, email, display_name, avatar_url`,
-        [body.username, body.email, hash, body.display_name || body.username, root.id],
+        `INSERT INTO users (username, email, password_hash, display_name, first_name, last_name, role_id, name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $1)
+         RETURNING id, username, email, display_name, first_name, last_name, avatar_url`,
+        [body.username, body.email, hash, names.display_name, names.first_name, names.last_name, root.id],
       )
     ).rows[0];
     await client.query('INSERT INTO user_role_assignments (user_id, role_node_id) VALUES ($1, $2)', [user.id, root.id]);
@@ -208,19 +212,39 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
 const profileSchema = z
   .object({
     display_name: z.string().trim().min(1, 'Имя не может быть пустым').max(255).optional(),
+    first_name: z.string().trim().min(1, 'Имя не может быть пустым').max(100).optional(),
+    last_name: z.string().trim().max(100).optional(),
     email: emailSchema.optional(),
   })
-  .refine((v) => v.display_name !== undefined || v.email !== undefined, { message: 'Нет данных для обновления' });
+  .refine((v) => v.display_name !== undefined || v.first_name !== undefined || v.last_name !== undefined || v.email !== undefined, {
+    message: 'Нет данных для обновления',
+  });
 
 async function updateProfile(req: AuthRequest, res: Response) {
-  const { display_name, email } = req.body as z.infer<typeof profileSchema>;
+  const body = req.body as z.infer<typeof profileSchema>;
+  const { email } = body;
   if (email) {
     const dup = await pool.query('SELECT 1 FROM users WHERE LOWER(email) = $1 AND id <> $2', [email, req.userId]);
     if (dup.rows.length) throw conflict('Этот email уже используется');
   }
+  let names: ReturnType<typeof namesFromBody> | null = null;
+  if (body.first_name !== undefined || body.last_name !== undefined) {
+    // Пришло одно из двух — второе берём из сохранённого.
+    const cur = (await pool.query('SELECT first_name, last_name, display_name FROM users WHERE id = $1', [req.userId])).rows[0];
+    const split = splitFullName(cur?.display_name);
+    names = namesFromBody(
+      { first_name: body.first_name ?? cur?.first_name ?? split.first, last_name: body.last_name ?? cur?.last_name ?? split.last },
+      '',
+    );
+    if (!names.first_name) throw badRequest('Имя не может быть пустым');
+  } else if (body.display_name !== undefined) {
+    names = namesFromBody({ display_name: body.display_name }, body.display_name);
+  }
   await pool.query(
-    `UPDATE users SET display_name = COALESCE($1, display_name), email = COALESCE($2, email) WHERE id = $3`,
-    [display_name ?? null, email ?? null, req.userId],
+    `UPDATE users SET display_name = COALESCE($1, display_name), first_name = CASE WHEN $5 THEN $2 ELSE first_name END,
+            last_name = CASE WHEN $5 THEN $3 ELSE last_name END, email = COALESCE($4, email)
+     WHERE id = $6`,
+    [names?.display_name ?? null, names?.first_name ?? null, names?.last_name ?? null, email ?? null, !!names, req.userId],
   );
   res.json(await loadProfile(req.userId!));
 }

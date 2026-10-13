@@ -23,6 +23,7 @@ import { openNote } from '../navigation/ref';
 import UserAvatar from '../components/ui/UserAvatar';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { firstNameOf } from '../utils/names';
 
 /**
  * «Поделиться новой версией?» — экран, который открывается из колокольчика,
@@ -46,7 +47,7 @@ const ago = (iso: string) => {
   return when(iso);
 };
 
-const firstName = (name?: string | null) => (name || 'Коллега').split(' ')[0];
+const firstName = (name?: string | null) => firstNameOf(name) || 'Коллега';
 
 export default function NoteRequestScreen({ navigation, route }: any) {
   const requestId = Number(route.params?.requestId);

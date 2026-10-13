@@ -9,6 +9,8 @@ export interface UserShort {
 }
 
 export interface Profile extends UserShort {
+  first_name?: string | null;
+  last_name?: string | null;
   email: string | null;
   created_at: string;
   role_id: number | null;

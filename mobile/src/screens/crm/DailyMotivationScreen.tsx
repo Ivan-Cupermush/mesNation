@@ -5,6 +5,7 @@ import { ArrowRight, Quote } from 'lucide-react-native';
 import { api } from '../../services/api';
 
 import { T, themed } from '../../theme/runtime';
+import { firstNameOf } from '../../utils/names';
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 const fmtNum = (n: number) => new Intl.NumberFormat('ru-RU').format(Math.round(n));
@@ -81,7 +82,7 @@ export default function DailyMotivationScreen({ navigation }: any) {
         <Text style={styles.dateLine}>
           {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Text>
-        <Text style={styles.title}>{name ? name.split(' ')[0] + ', вперёд!' : 'Вперёд!'}</Text>
+        <Text style={styles.title}>{name ? firstNameOf(name) + ', вперёд!' : 'Вперёд!'}</Text>
         <Text style={styles.subtitle}>Твои показатели за {monthName}</Text>
 
         <View style={styles.hero}>

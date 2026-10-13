@@ -5,6 +5,7 @@ import { AuthRequest } from '../middleware/auth';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
 import { enrichTargets, reportStats, totalsOf } from '../services/kpi/store';
 import { monthEnd } from '../services/kpi/text';
+import { splitFullName } from '../lib/names';
 
 /**
  * Стартовая страница: приветствие, напутствие (каждый раз новое), продажи за
@@ -82,7 +83,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   const dayEnd = new Date(Date.UTC(y, m, local.getUTCDate() + 1) + offset * 60_000);
 
   const [user, targets, tasks] = await Promise.all([
-    pool.query('SELECT id, COALESCE(NULLIF(display_name, \'\'), username) AS name FROM users WHERE id = $1', [me]),
+    pool.query("SELECT id, COALESCE(NULLIF(display_name, ''), username) AS name, first_name FROM users WHERE id = $1", [me]),
     pool.query(
       `SELECT * FROM sales_targets
        WHERE user_id = $1 AND NOT is_personal_monthly_target AND period_start >= $2::date AND period_start <= $3::date
@@ -117,6 +118,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   res.json({
     greeting: greetingFor(local.getUTCHours()),
     name: user.rows[0]?.name ?? '',
+    // Как обратиться: имя, а не первое слово («Тимуров Тимур» — это фамилия).
+    first_name: user.rows[0]?.first_name || splitFullName(user.rows[0]?.name).first || user.rows[0]?.name || '',
     phrase: { id: phrase, text: PHRASES[phrase] },
     month: month.slice(0, 7),
     stats,

@@ -23,6 +23,7 @@ import { C, hashColor, initials, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { firstNameOf } from '../utils/names';
 /**
  * Новый чат как в Telegram:
  *  1. «Новое сообщение» — список сотрудников; нажатие сразу открывает
@@ -236,7 +237,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
                 <TouchableOpacity key={u.id} style={styles.chip} onPress={() => toggle(u.id)} activeOpacity={0.7}>
                   <Avatar user={u} size={26} />
                   <Text style={styles.chipText} numberOfLines={1}>
-                    {(u.display_name || u.username).split(' ')[0]}
+                    {firstNameOf(u)}
                   </Text>
                   <X size={14} color={C.textMuted} />
                 </TouchableOpacity>

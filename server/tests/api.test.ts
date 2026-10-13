@@ -714,6 +714,61 @@ describe('название компании', () => {
   });
 });
 
+describe('имя и фамилия', () => {
+  it('разбор полного имени: фамилия первой, ФИО, обычный порядок', async () => {
+    const { splitFullName } = await import('../src/lib/names');
+    expect(splitFullName('Тимуров Тимур')).toEqual({ first: 'Тимур', last: 'Тимуров' });
+    expect(splitFullName('Тимур Тимуров')).toEqual({ first: 'Тимур', last: 'Тимуров' });
+    expect(splitFullName('Иванова Анна')).toEqual({ first: 'Анна', last: 'Иванова' });
+    expect(splitFullName('Тимуров Тимур Тимурович')).toEqual({ first: 'Тимур Тимурович', last: 'Тимуров' });
+    expect(splitFullName('Тимур Тимурович Тимуров')).toEqual({ first: 'Тимур Тимурович', last: 'Тимуров' });
+    // Короткие имена с «фамильным» окончанием не переставляем.
+    expect(splitFullName('Лев Толстой')).toEqual({ first: 'Лев', last: 'Толстой' });
+    expect(splitFullName('Константин Ким')).toEqual({ first: 'Константин', last: 'Ким' });
+    expect(splitFullName('  Анна  ')).toEqual({ first: 'Анна', last: '' });
+    expect(splitFullName('')).toEqual({ first: '', last: '' });
+  });
+
+  it('сотрудник с именем и фамилией: приветствие по имени, профиль меняет каждое поле', async () => {
+    const created = await as(c.dir).post('/api/role-tree/users', {
+      username: 'timur', email: 'timur@test.ru', password: 'timur-pass-1', role_node_id: c.nodes.mgrNode,
+      first_name: 'Тимур', last_name: 'Тимуров',
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).toMatchObject({ display_name: 'Тимур Тимуров', first_name: 'Тимур', last_name: 'Тимуров' });
+    const timur = await login(app, 'timur', 'timur-pass-1');
+    expect((await as(timur).get('/api/home')).body).toMatchObject({ name: 'Тимур Тимуров', first_name: 'Тимур' });
+    const p = await as(timur).patch('/api/auth/profile', { last_name: 'Тимуровский' });
+    expect(p.body).toMatchObject({ display_name: 'Тимур Тимуровский', first_name: 'Тимур', last_name: 'Тимуровский' });
+    expect((await as(timur).patch('/api/auth/profile', { first_name: '  ' })).status).toBe(400);
+    // Старое приложение присылает одно поле — фамилию первой тоже понимаем.
+    const old = await as(timur).patch('/api/auth/profile', { display_name: 'Тимуров Тимур' });
+    expect(old.body).toMatchObject({ display_name: 'Тимуров Тимур', first_name: 'Тимур', last_name: 'Тимуров' });
+    expect((await as(timur).get('/api/home')).body.first_name).toBe('Тимур');
+  });
+
+  it('миграция разбирает уже сохранённые имена', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const u = await as(c.dir).post('/api/role-tree/users', {
+      username: 'fio', email: 'fio@test.ru', password: 'fio-pass-12', role_node_id: c.nodes.mgrNode, display_name: 'x',
+    });
+    const cases: [string, string, string][] = [
+      ['Тимуров Тимур Тимурович', 'Тимур Тимурович', 'Тимуров'],
+      ['Тимуров Тимур', 'Тимур', 'Тимуров'],
+      ['Анна Смирнова', 'Анна', 'Смирнова'],
+      ['Мария', 'Мария', ''],
+    ];
+    const sql = fs.readFileSync(path.join(__dirname, '../src/db/migrations/0021_user_names.sql'), 'utf8');
+    for (const [full, first, last] of cases) {
+      await pool.query('UPDATE users SET display_name = $1, first_name = NULL, last_name = NULL WHERE id = $2', [full, u.body.id]);
+      await pool.query(sql);
+      const row = (await pool.query('SELECT display_name, first_name, last_name FROM users WHERE id = $1', [u.body.id])).rows[0];
+      expect(row).toEqual({ display_name: full, first_name: first, last_name: last });
+    }
+  });
+});
+
 describe('безопасность сессий', () => {
   it('смена пароля завершает другие сессии и выдаёт новый токен', async () => {
     const u = await as(c.dir).post('/api/role-tree/users', {

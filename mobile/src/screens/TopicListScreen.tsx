@@ -25,6 +25,7 @@ import { C, hashColor, initials, messagePreview, plural } from '../components/ch
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
+import { firstNameOf } from '../utils/names';
 /**
  * Группа с темами (как форумы в Telegram): сверху группа, ниже «Общий»
  * чат и темы с последним сообщением. Тему может создать любой участник;
@@ -142,7 +143,7 @@ export default function TopicListScreen({ navigation }: any) {
           <Text style={styles.preview} numberOfLines={1}>
             {lm ? (
               <>
-                {lm.sender_name || lm.sender_display_name ? <Text style={{ color: C.text }}>{(lm.sender_display_name || lm.sender_name).split(' ')[0]}: </Text> : null}
+                {lm.sender_name || lm.sender_display_name ? <Text style={{ color: C.text }}>{firstNameOf(lm.sender_display_name || lm.sender_name)}: </Text> : null}
                 {messagePreview(lm)}
               </>
             ) : item.id === null ? (

@@ -132,6 +132,8 @@ export interface HomeTask {
 export interface HomeData {
   greeting: string;
   name: string;
+  /** Как обратиться: имя без фамилии. */
+  first_name?: string;
   phrase: { id: number; text: string };
   month: string;
   stats: SalesStats | null;

@@ -10,6 +10,7 @@ import { Spinner } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
 import { NOTE_COLOR, UNREAD_KEY, type NoteVersionRequest } from './api';
 import s from './inbox.module.css';
+import { firstNameOf } from '../../lib/names';
 
 const when = (iso?: string | null) =>
   iso ? `${new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : '';
@@ -20,7 +21,7 @@ const ago = (iso: string) => {
   const h = Math.floor(min / 60);
   return h < 24 ? `${h} ч назад` : when(iso);
 };
-const firstName = (name?: string | null) => (name || 'Коллега').split(' ')[0];
+const firstName = (name?: string | null) => firstNameOf(name) || 'Коллега';
 
 /**
  * «Поделиться новой версией?» — автор видит, кто просит, что у коллеги

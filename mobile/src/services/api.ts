@@ -685,6 +685,8 @@ export const api = {
     email: string;
     password: string;
     display_name?: string;
+    first_name?: string;
+    last_name?: string;
     role_node_id: number;
     /** Функции сверх должности или отключённые. */
     permissions?: Partial<Record<PermissionKey, boolean>>;

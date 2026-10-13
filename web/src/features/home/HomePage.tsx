@@ -16,6 +16,7 @@ import type { KpiTarget, KpiTotals, SalesStats } from '../kpi/types';
 import { priorityOf, statusMeta } from '../tasks/status';
 import s from './HomePage.module.css';
 import ShellActions from '../inbox/ShellActions';
+import { firstNameOf } from '../../lib/names';
 
 interface HomeTask {
   id: number;
@@ -30,6 +31,8 @@ interface HomeTask {
 export interface HomeData {
   greeting: string;
   name: string;
+  /** Как обратиться: имя без фамилии. */
+  first_name?: string;
   phrase: { id: number; text: string };
   month: string;
   stats: SalesStats | null;
@@ -40,7 +43,6 @@ export interface HomeData {
 const PHRASE_KEY = 'offix.home.phrase';
 
 /** Имя для приветствия: «Роман Иванов» → «Роман». */
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /** «Понедельник, 12 октября». */
 const today = () => {
@@ -87,7 +89,7 @@ export default function HomePage() {
               <ShellActions />
             </span>
             <h1>
-              {data.greeting}, {firstName(data.name)}!
+              {data.greeting}, {data.first_name || firstNameOf(data.name)}!
             </h1>
             <p className={s.phrase}>
               <Quote size={18} aria-hidden />

@@ -19,7 +19,8 @@ export default function CreateUserRoleScreen({ navigation }: any) {
   const [showForm, setShowForm] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [permissions, setPermissions] = useState<Partial<Record<PermissionKey, boolean>>>({});
   const [saving, setSaving] = useState(false);
@@ -43,15 +44,16 @@ export default function CreateUserRoleScreen({ navigation }: any) {
     setSelectedNode(node);
     setUsername('');
     setEmail('');
-    setDisplayName('');
+    setFirstName('');
+    setLastName('');
     setPassword('');
     setPermissions({});
     setShowForm(true);
   };
 
   const handleCreate = async () => {
-    if (!username.trim() || !email.trim() || !password) {
-      Alert.alert('Ошибка', 'Заполните логин, email и пароль');
+    if (!firstName.trim() || !username.trim() || !email.trim() || !password) {
+      Alert.alert('Ошибка', 'Заполните имя, логин, email и пароль');
       return;
     }
     setSaving(true);
@@ -60,7 +62,8 @@ export default function CreateUserRoleScreen({ navigation }: any) {
         username: username.trim(),
         email: email.trim(),
         password,
-        display_name: displayName.trim() || username.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         role_node_id: selectedNode.id,
         ...(Object.keys(permissions).length ? { permissions } : {}),
       });
@@ -140,14 +143,32 @@ export default function CreateUserRoleScreen({ navigation }: any) {
               autoFocus
             />
 
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Отображаемое имя</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.border }]}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Иван Иванов"
-              placeholderTextColor={colors.textMuted}
-            />
+            <View style={styles.nameRow}>
+              <View style={styles.nameCol}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>Имя *</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.border }]}
+                  value={firstName}
+                  onChangeText={setFirstName}
+                  placeholder="Иван"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
+                />
+              </View>
+              <View style={styles.nameCol}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>Фамилия</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.border }]}
+                  value={lastName}
+                  onChangeText={setLastName}
+                  placeholder="Петров"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
+                />
+              </View>
+            </View>
 
             <Text style={[styles.label, { color: colors.textSecondary }]}>Email *</Text>
             <TextInput
@@ -243,6 +264,8 @@ const styles = themed(() => ({
     borderRadius: 20,
     marginBottom: 16,
   },
+  nameRow: { flexDirection: 'row', gap: 10 },
+  nameCol: { flex: 1 },
   label: {
     fontSize: 13,
     fontWeight: '600',

@@ -44,6 +44,7 @@ import { upload } from '../services/http';
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
 import { UserPermissions } from '../components/PermissionToggles';
+import { nameParts } from '../utils/names';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -67,6 +68,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   // Редактирование
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editLast, setEditLast] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -142,7 +144,9 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   };
 
   const openEditModal = () => {
-    setEditName(profile?.display_name || '');
+    const parts = nameParts(profile);
+    setEditName(parts.first);
+    setEditLast(parts.last);
     setEditEmail(profile?.email || '');
     setShowEditModal(true);
   };
@@ -167,8 +171,9 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          display_name: editName.trim(),
-          email: editEmail.trim(),
+          first_name: editName.trim(),
+          last_name: editLast.trim(),
+          ...(editEmail.trim() ? { email: editEmail.trim() } : {}),
         }),
       });
       if (res.ok) {
@@ -510,14 +515,27 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
               </View>
 
               <View style={styles.modalBody}>
-                <Text style={styles.modalLabel}>Отображаемое имя</Text>
+                <Text style={styles.modalLabel}>Имя</Text>
                 <TextInput
                   style={styles.modalInput}
                   value={editName}
                   onChangeText={setEditName}
-                  placeholder="Ваше имя"
+                  placeholder="Иван"
                   placeholderTextColor={T.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
                   autoFocus
+                />
+
+                <Text style={styles.modalLabel}>Фамилия</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editLast}
+                  onChangeText={setEditLast}
+                  placeholder="Петров"
+                  placeholderTextColor={T.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
                 />
 
                 <Text style={styles.modalLabel}>Email</Text>

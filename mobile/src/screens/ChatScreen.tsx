@@ -89,6 +89,7 @@ import { seekVoice, setVoiceStartHandler, stopVoice, toggleVoice } from '../comp
 import { copyText, saveMessagesToDevice } from '../components/chat/saveToDevice';
 import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
+import { firstNameOf } from '../utils/names';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
   'params'
@@ -1477,7 +1478,7 @@ export default function ChatScreen({ navigation }: any) {
     else navigation.navigate('ChatInfo', { chatId });
   };
 
-  const typingNames = Object.values(typing).map((t) => t.name.split(' ')[0]);
+  const typingNames = Object.values(typing).map((t) => firstNameOf(t.name));
   const subtitle = (() => {
     if (typingNames.length) {
       if (!isGroup) return 'печатает…';

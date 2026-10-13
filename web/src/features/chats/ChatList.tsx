@@ -25,6 +25,7 @@ import s from './ChatList.module.css';
 import ShellActions from '../inbox/ShellActions';
 import { HighlightedText, hitTime, searchableText, useGlobalMessageSearch } from './SearchHits';
 import { useContactNames } from '../contacts/names';
+import { firstNameOf } from '../../lib/names';
 
 type Filter = 'all' | 'private' | 'groups' | 'unread';
 
@@ -351,7 +352,7 @@ function ChatRow({
   else {
     text = messagePreview(lm);
     const lmName = contactNameOf(lm.sender_id) || lm.sender_name;
-    prefix = lm.sender_id === meId ? 'Вы: ' : chat.type === 'group' && lmName ? `${lmName.split(' ')[0]}: ` : '';
+    prefix = lm.sender_id === meId ? 'Вы: ' : chat.type === 'group' && lmName ? `${firstNameOf(lmName)}: ` : '';
   }
   return (
     <div

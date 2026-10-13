@@ -29,6 +29,7 @@ import {
   X,
   RefreshCw,
   List as ListIcon,
+  ListTodo,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError, downloadFile, openFile } from '../../lib/http';
@@ -46,7 +47,7 @@ import { DateTimeDialog, SCHEDULE_PRESETS } from '../../ui/DateTimeDialog';
 import { useFeedback } from '../../ui/feedback';
 import { chatKeys, isMuted, useChatDetail, useTopics } from './queries';
 import { MUTE_OPTIONS, markChatRead, setChatMute } from './chatActions';
-import { buildFeed, isVisualMedia, isVoiceLike, messagePreview, rowMain, rowMessages, saveName, type Row } from './model';
+import { buildFeed, isVisualMedia, isVoiceLike, messagePreview, rowMain, rowMessages, saveName, type Row, taskPrefill } from './model';
 import { useChatMessages } from './useChatMessages';
 import { clearActiveChat, setActiveChat } from './activeChat';
 import MessageBubble, { ServiceLine } from './MessageBubble';
@@ -772,6 +773,9 @@ export default function ChatView() {
     if (!main.poll_id) {
       list.push({ key: 'forward', label: 'Переслать', icon: <Forward size={19} />, onSelect: () => setForward({ ids: all.map((m) => m.id), mode: 'forward' }) });
       list.push({ key: 'replyElsewhere', label: 'Ответить в другом чате', icon: <CornerUpRight size={19} />, onSelect: () => setForward({ ids: [main.id], mode: 'reply' }) });
+      if (main.text || main.file_name) {
+        list.push({ key: 'task', label: 'Создать задачу', icon: <ListTodo size={19} />, onSelect: () => navigate('/tasks/new', { state: { prefill: taskPrefill(main, chat?.name) } }) });
+      }
     }
     if (rights?.can_pin_messages !== false) {
       list.push({

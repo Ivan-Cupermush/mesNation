@@ -15,13 +15,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, ChatMessage, SourceChunk } from '../../services/api';
 import {
   Bot, User, Send, ThumbsUp, ThumbsDown, BookOpen,
-  ChevronDown, ChevronUp, Sparkles, UserRound
+  ChevronDown, ChevronUp, Sparkles, UserRound,
+  FileStack,
+  History,
 } from 'lucide-react-native';
+import SessionsSheet from '../../components/knowledge/SessionsSheet';
 
 import { T, themed } from '../../theme/runtime';
 import HeaderBell from '../../components/HeaderBell';
 export default function KnowledgeScreen({ navigation }: any) {
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -244,6 +248,22 @@ export default function KnowledgeScreen({ navigation }: any) {
               <Text style={styles.bigSubtitle}>AI-ассистент компании</Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={[styles.profileBtn, { marginRight: 10 }]}
+            onPress={() => setSessionsOpen(true)}
+            activeOpacity={0.7}
+            accessibilityLabel="Диалоги"
+          >
+            <History size={20} color={T.accent} strokeWidth={2} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.profileBtn, { marginRight: 10 }]}
+            onPress={() => navigation.navigate('KnowledgeDocuments')}
+            activeOpacity={0.7}
+            accessibilityLabel="Документы базы знаний"
+          >
+            <FileStack size={20} color={T.accent} strokeWidth={2} />
+          </TouchableOpacity>
           <HeaderBell style={[styles.profileBtn, { marginRight: 10 }]} />
           <TouchableOpacity
             style={styles.profileBtn}
@@ -334,6 +354,27 @@ export default function KnowledgeScreen({ navigation }: any) {
           </View>
         </View>
       </KeyboardAvoidingView>
+      {sessionsOpen ? (
+        <SessionsSheet
+          currentId={currentSessionId}
+          onClose={() => setSessionsOpen(false)}
+          onPick={(x) => {
+            setSessionsOpen(false);
+            setCurrentSessionId(x.id);
+          }}
+          onNew={() => {
+            setSessionsOpen(false);
+            setCurrentSessionId(null);
+            setMessages([]);
+          }}
+          onDeleted={(id) => {
+            if (id === currentSessionId) {
+              setCurrentSessionId(null);
+              setMessages([]);
+            }
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

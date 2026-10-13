@@ -52,7 +52,9 @@ import {
   Keyboard as KeyboardIcon,
   CheckCircle2,
   CornerUpRight,
+  ListTodo,
 } from 'lucide-react-native';
+import { openCreateTask } from '../navigation/ref';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
 import { api } from '../services/api';
@@ -73,7 +75,7 @@ import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
 import { WallpaperView } from '../components/chat/ChatWallpaper';
 import { useChatWallpaper } from '../theme/wallpapers';
-import { C, REACTIONS, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
+import { C, REACTIONS, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural, taskPrefill } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
@@ -1097,6 +1099,14 @@ export default function ChatScreen({ navigation }: any) {
               onPress: () => request(`/api/polls/${main.poll_id}/close`, { method: 'POST' }).catch((e) => Alert.alert('Ошибка', e?.message || '')),
             },
           ]),
+      });
+    }
+    if (main.text || main.file_name) {
+      list.push({
+        key: 'task',
+        label: 'Создать задачу',
+        icon: <ListTodo size={20} color={C.text} />,
+        onPress: () => openCreateTask(taskPrefill(main, chatName)),
       });
     }
     list.push({ key: 'select', label: 'Выбрать', icon: <CheckCircle2 size={20} color={C.text} />, onPress: () => startSelection(row) });

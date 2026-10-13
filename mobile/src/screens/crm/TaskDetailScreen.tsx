@@ -52,12 +52,18 @@ import {
   Wrench,
   Check,
   ListChecks,
+  Send,
+  Link2,
 } from 'lucide-react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import ShareToChatModal, { sentToLabel } from '../../components/ShareToChatModal';
+import { showToast } from '../../components/ui/toast';
+import { SERVER_URL } from '../../config';
 import TaskFilesBar, { FileThumb } from '../../components/tasks/TaskFilesBar';
 import { clearTaskNotification } from '../../notifications/display';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
-import { signedFileUrl } from '../../services/http';
+import { request, signedFileUrl } from '../../services/http';
 import DateTimePickerModal from '../../components/DateTimePickerModal';
 import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
 
@@ -102,6 +108,7 @@ export default function TaskDetailScreen({ navigation }: any) {
   const [commentTarget, setCommentTarget] = useState<{ to: string; action: string; required: boolean } | null>(null);
   const [peopleModal, setPeopleModal] = useState<null | 'assignees' | 'watchers'>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [sendToChat, setSendToChat] = useState(false);
   const [roleCommentField, setRoleCommentField] = useState<null | 'executor_comment' | 'watcher_comment'>(null);
   const [roleCommentText, setRoleCommentText] = useState('');
   const [newCheckpointTitle, setNewCheckpointTitle] = useState('');
@@ -544,13 +551,10 @@ export default function TaskDetailScreen({ navigation }: any) {
         <View style={styles.headerCenter}>
           <Text style={styles.headerLabel}>ДЕТАЛИ ЗАДАЧИ</Text>
         </View>
-        {isCreator && task.status_new !== 'archived' ? (
-          <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
-            <MoreHorizontal size={22} color={T.textPrimary} strokeWidth={2} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+        {/* ⋯ — у всех участников: отправить в чат, ссылка; у создателя ещё правка и архив. */}
+        <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
+          <MoreHorizontal size={22} color={T.textPrimary} strokeWidth={2} />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -1383,18 +1387,70 @@ export default function TaskDetailScreen({ navigation }: any) {
         <TouchableOpacity activeOpacity={1} onPress={() => setShowMenu(false)} style={assigneeStyles.overlay}>
           <View style={assigneeStyles.sheet} onStartShouldSetResponder={() => true}>
             <View style={assigneeStyles.handle} />
-            <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
-              <Pencil size={20} color={T.accent} strokeWidth={2} />
-              <Text style={assigneeStyles.name}>Редактировать задачу</Text>
+            <TouchableOpacity
+              style={assigneeStyles.row}
+              onPress={() => {
+                setShowMenu(false);
+                setSendToChat(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Send size={20} color={T.accent} strokeWidth={2} />
+              <Text style={assigneeStyles.name}>Отправить в чат</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
-              <Trash2 size={20} color={T.danger} strokeWidth={2} />
-              <Text style={[assigneeStyles.name, { color: T.danger }]}>Удалить (в архив)</Text>
+            <TouchableOpacity
+              style={assigneeStyles.row}
+              onPress={() => {
+                setShowMenu(false);
+                Clipboard.setString(`${SERVER_URL}/tasks/${task.id}`);
+                showToast('Ссылка скопирована');
+              }}
+              activeOpacity={0.7}
+            >
+              <Link2 size={20} color={T.accent} strokeWidth={2} />
+              <Text style={assigneeStyles.name}>Скопировать ссылку</Text>
             </TouchableOpacity>
+            {isCreator && task.status_new !== 'archived' ? (
+              <>
+                <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
+                  <Pencil size={20} color={T.accent} strokeWidth={2} />
+                  <Text style={assigneeStyles.name}>Редактировать задачу</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
+                  <Trash2 size={20} color={T.danger} strokeWidth={2} />
+                  <Text style={[assigneeStyles.name, { color: T.danger }]}>Удалить (в архив)</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
             <SafeBottom />
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <ShareToChatModal
+        visible={sendToChat}
+        title="Отправить задачу в чат"
+        onClose={() => setSendToChat(false)}
+        commentPlaceholder="Комментарий (необязательно)"
+        preview={
+          <View style={styles.sharePreview}>
+            <Text style={styles.sharePreviewTitle} numberOfLines={2}>
+              📋 {task.title}
+            </Text>
+            <Text style={styles.sharePreviewHint}>Участники чата откроют задачу по ссылке, если у них есть доступ</Text>
+          </View>
+        }
+        onSend={(chatId, comment, topicId) =>
+          request(`/api/chats/${chatId}/messages`, {
+            method: 'POST',
+            body: { text: [comment, `📋 Задача «${task.title}»`, `${SERVER_URL}/tasks/${task.id}`].filter(Boolean).join('\n'), topic_id: topicId ?? undefined },
+          }).then(() => undefined)
+        }
+        onDone={(n) => {
+          setSendToChat(false);
+          showToast(sentToLabel(n));
+        }}
+      />
 
       <DateTimePickerModal
         visible={showCheckpointPicker}
@@ -1925,6 +1981,24 @@ const styles = themed(() => ({
   },
   fileDeleteBtn: {
     padding: 8,
+  },
+  sharePreview: {
+    alignSelf: 'stretch',
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: T.card,
+    borderWidth: 1,
+    borderColor: T.border,
+    gap: 4,
+  },
+  sharePreviewTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: T.textPrimary,
+  },
+  sharePreviewHint: {
+    fontSize: 12.5,
+    color: T.textMuted,
   },
   fileCardChecked: {
     backgroundColor: T.accentMuted,

@@ -91,3 +91,11 @@ export function openQrLogin(token: string) {
 export function openShareTarget(share: unknown) {
   navigateWhenReady(() => navigationRef.navigate('ShareTarget', { share }));
 }
+
+/** Новая задача с готовым названием и описанием (например, из сообщения чата). */
+export function openCreateTask(prefill?: { title?: string; description?: string }) {
+  navigateWhenReady(() => {
+    toMain();
+    navigationRef.navigate('TasksTab', { screen: 'CreateTask', initial: false, params: prefill ? { prefill } : undefined });
+  });
+}

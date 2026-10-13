@@ -898,6 +898,9 @@ export const api = {
   ): Promise<KnowledgeDocument> =>
     upload<KnowledgeDocument>('/api/knowledge/documents', 'file', file, { tags: JSON.stringify(tags), description }),
 
+  reprocessKnowledgeDocument: (id: number): Promise<KnowledgeDocument> =>
+    request<KnowledgeDocument>(`/api/knowledge/documents/${id}/reprocess`, { method: 'POST' }),
+
   getKnowledgeStats: (): Promise<KnowledgeStats> =>
     request<KnowledgeStats>('/api/knowledge/stats'),
 

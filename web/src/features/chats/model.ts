@@ -176,3 +176,17 @@ export function linkify(text: string): (string | { url: string })[] {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }
+
+/** «Создать задачу» из сообщения: название — первая строка, в описании — откуда задача. */
+export function taskPrefill(m: Partial<Message>, chatName?: string | null): { title: string; description: string } {
+  const text = (m.text || '').trim();
+  const first = text.split('\n')[0].trim();
+  const title = (first || m.file_name || 'Задача из чата').slice(0, 100);
+  const who = (m as any).sender_display_name || (m as any).sender_name || '';
+  const when = m.created_at ? new Date(m.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+  const source = [`Из чата «${chatName || 'чат'}»`, who, when].filter(Boolean).join(', ');
+  const body = [text && text !== first ? text : text.length > 100 ? text : '', m.file_name ? `Файл в сообщении: ${m.file_name}` : '', source]
+    .filter(Boolean)
+    .join('\n\n');
+  return { title, description: body };
+}

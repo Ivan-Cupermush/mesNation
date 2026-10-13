@@ -56,6 +56,7 @@ import KpiImportScreen from './src/screens/crm/KpiImportScreen';
 import KpiRuleScreen from './src/screens/crm/KpiRuleScreen';
 import KpiClientsScreen from './src/screens/crm/KpiClientsScreen';
 import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
+import KnowledgeDocumentsScreen from './src/screens/knowledge/KnowledgeDocumentsScreen';
 
 // ===== Экраны управления деревом прав =====
 import RoleTreeEditorScreen from './src/screens/crm/RoleTreeEditorScreen';
@@ -110,7 +111,7 @@ type KpiStackParamList = {
   KpiClients: undefined;
 };
 
-type KnowledgeStackParamList = { KnowledgeHome: undefined };
+type KnowledgeStackParamList = { KnowledgeHome: undefined; KnowledgeDocuments: undefined };
 type AuthStackParamList = { Auth: undefined };
 
 type HomeStackParamList = { HomeMain: undefined };
@@ -254,6 +255,7 @@ function KnowledgeStackNavigator() {
   return (
     <KnowledgeStack.Navigator screenOptions={headerStyle}>
       <KnowledgeStack.Screen name="KnowledgeHome" component={KnowledgeScreen} options={{ headerShown: false }} />
+      <KnowledgeStack.Screen name="KnowledgeDocuments" component={KnowledgeDocumentsScreen} options={{ headerShown: false }} />
     </KnowledgeStack.Navigator>
   );
 }

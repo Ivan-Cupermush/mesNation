@@ -57,8 +57,10 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   // Если передан taskId — экран работает как редактор существующей задачи.
   const editTaskId: number | undefined = route?.params?.taskId;
   const isEdit = !!editTaskId;
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  // «Создать задачу» из сообщения чата: название и описание уже заполнены.
+  const prefillFrom: { title?: string; description?: string } | undefined = route?.params?.prefill;
+  const [title, setTitle] = useState(prefillFrom?.title || '');
+  const [description, setDescription] = useState(prefillFrom?.description || '');
   const [importance, setImportance] = useState<'green' | 'yellow' | 'red'>('yellow');
   const [executorDeadline, setExecutorDeadline] = useState<Date | null>(null);
   const [reviewerDeadline, setReviewerDeadline] = useState<Date | null>(null);

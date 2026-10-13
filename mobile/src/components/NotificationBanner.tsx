@@ -97,6 +97,13 @@ export default function NotificationBanner() {
               {banner.data.text}
             </Text>
           </View>
+          {/* Превью фото, видео или кружочка — справа, как в Telegram. */}
+          {banner.data.image ? (
+            <Image
+              source={{ uri: banner.data.image.startsWith('http') ? banner.data.image : `${SERVER_URL}${banner.data.image}` }}
+              style={[styles.thumb, banner.data.mediaKind === 'video_note' && styles.thumbRound]}
+            />
+          ) : null}
         </TouchableOpacity>
       ) : banner.kind === 'note' ? (
         <NoteRequestCard banner={banner} onOpen={open} onLater={hide} />
@@ -234,6 +241,8 @@ const styles = themed(() => ({
     elevation: 14,
   },
   avatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  thumb: { width: 44, height: 44, borderRadius: 10, marginLeft: 8, backgroundColor: T.inputBg },
+  thumbRound: { borderRadius: 22 },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   body: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

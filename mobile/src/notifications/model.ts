@@ -19,6 +19,10 @@ export interface MessagePush {
   senderAvatar: string;
   text: string;
   sentAt: number;
+  /** Превью фото/видео/кружочка (публичная миниатюра) — для развёрнутого уведомления. */
+  image: string;
+  /** photo, video, voice, video_note, file, album или пусто. */
+  mediaKind: string;
 }
 
 export type TaskKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned';
@@ -80,6 +84,8 @@ export function parsePush(data: Record<string, any> | undefined | null): PushPay
       senderAvatar: data.sender_avatar || '',
       text: data.text || 'Сообщение',
       sentAt: data.sent_at ? new Date(data.sent_at).getTime() || Date.now() : Date.now(),
+      image: data.image || '',
+      mediaKind: data.media_kind || '',
     };
   }
   if (data.type === 'task' && data.task_id) {

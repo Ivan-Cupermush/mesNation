@@ -67,7 +67,7 @@ jest.mock('@notifee/react-native', () => {
     default: api,
     EventType: { PRESS: 1, ACTION_PRESS: 2 },
     AndroidImportance: { HIGH: 4 },
-    AndroidStyle: { BIGTEXT: 0, MESSAGING: 2 },
+    AndroidStyle: { BIGPICTURE: 0, BIGTEXT: 1, MESSAGING: 3 },
     AndroidCategory: { MESSAGE: 'msg', REMINDER: 'reminder' },
     AndroidVisibility: { PRIVATE: 0 },
     AndroidGroupAlertBehavior: { CHILDREN: 2 },

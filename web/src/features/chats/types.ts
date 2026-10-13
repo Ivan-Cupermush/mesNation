@@ -33,6 +33,8 @@ export interface LastMessage {
   contact_name?: string | null;
   poll_question: string | null;
   sender_name: string | null;
+  /** Длительность голосового/видео, сек — для текста уведомления. */
+  media_duration?: number | string | null;
 }
 
 export interface Chat {

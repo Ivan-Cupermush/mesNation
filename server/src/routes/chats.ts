@@ -130,7 +130,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               WHERE cm2.chat_id = c.id), '[]') AS members,
             (SELECT row_to_json(lm) FROM (
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
-                      m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id,
+                      m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id, m.media_duration,
                       (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
                       (SELECT ns.title FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_title,
                       m.contact_user_id,

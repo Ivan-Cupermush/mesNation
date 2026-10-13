@@ -69,6 +69,27 @@ export function messagePreview(m: (Partial<Message> & Partial<LastMessage>) | nu
   return m.text || '';
 }
 
+/**
+ * Текст системного уведомления — те же правила, что у push в приложении
+ * (server/src/services/push.ts): значок типа, длительность, подпись.
+ */
+export function notificationText(m: (Partial<Message> & Partial<LastMessage>) | null | undefined): string {
+  if (!m) return 'Новое сообщение';
+  const t = Math.round(Number(m.media_duration) || 0);
+  const d = t ? `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : '';
+  const caption = (m.text || '').trim();
+  const withCaption = (label: string) => (caption ? `${label}, ${caption}` : label);
+  if (m.media_kind === 'voice') return withCaption(d ? `🎤 Голосовое сообщение (${d})` : '🎤 Голосовое сообщение');
+  if (m.media_kind === 'video_note') return d ? `📹 Видеосообщение (${d})` : '📹 Видеосообщение';
+  if (m.media_kind === 'video') return withCaption(d ? `🎬 Видео (${d})` : '🎬 Видео');
+  if (m.poll_id || m.content_type === 'poll') return `📊 Опрос: ${m.poll?.question || m.poll_question || ''}`.trim();
+  if (m.contact_user_id || m.content_type === 'contact') return withCaption(`👤 Контакт: ${m.contact?.display_name || m.contact?.username || m.contact_name || ''}`.trim());
+  if (m.note_share_id || m.content_type === 'note') return withCaption(`📝 Заметка «${m.note_share?.title || m.note_title || 'Без названия'}»`);
+  if (m.media_kind === 'photo' || (!m.media_kind && m.thumb_url)) return withCaption('🖼 Фото');
+  if (m.file_url) return withCaption(`📎 ${m.file_name || 'Файл'}`);
+  return caption || 'Новое сообщение';
+}
+
 export function buildFeed(messages: Message[], meId: number, unreadAnchor: number | null): FeedItem[] {
   // 1) альбомы
   const rows: (Row | { type: 'service'; key: string; msg: Message })[] = [];

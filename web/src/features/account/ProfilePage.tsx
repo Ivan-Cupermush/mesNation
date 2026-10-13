@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, Bell, Building2, Camera, Crown, FileSpreadsheet, KeyRound, LogOut, Mail, MonitorSmartphone, Network, Palette, Pencil, Shield, UserRound, Users } from 'lucide-react';
+import { AtSign, Bell, Building2, Camera, Crown, FileSpreadsheet, KeyRound, LogOut, Mail, MonitorSmartphone, Network, Palette, Pencil, QrCode, ScanLine, Shield, UserRound, Users } from 'lucide-react';
+import { openQr, openScanner } from '../qr/qrStore';
 import { useAuth, useMe } from '../auth/AuthProvider';
 import { isManager } from '../auth/roles';
 import { api, uploadFile } from '../../lib/http';
@@ -92,9 +93,14 @@ export default function ProfilePage() {
         title="Профиль"
         back={true}
         actions={
-          <IconButton label="Изменить имя и почту" onClick={startEdit}>
-            <Pencil size={19} />
-          </IconButton>
+          <>
+            <IconButton label="Мой QR-код" onClick={() => openQr()}>
+              <QrCode size={19} />
+            </IconButton>
+            <IconButton label="Изменить имя и почту" onClick={startEdit}>
+              <Pencil size={19} />
+            </IconButton>
+          </>
         }
       />
       <PageBody narrow>
@@ -143,6 +149,11 @@ export default function ProfilePage() {
             <SettingsRow icon={<FileSpreadsheet size={18} />} tone="info" title="Импорт из Excel" hint="Загрузка KPI и отчётов продаж" onClick={() => navigate('/import')} />
           </SettingsSection>
         )}
+
+        <SettingsSection title="QR-код">
+          <SettingsRow icon={<QrCode size={18} />} title="Мой QR-код" hint="Покажите коллеге — откроется ваш профиль" onClick={() => openQr()} />
+          <SettingsRow icon={<ScanLine size={18} />} tone="info" title="Сканировать QR-код" hint="Профиль коллеги или вход на другом устройстве" onClick={openScanner} />
+        </SettingsSection>
 
         <SettingsSection title="Приложение">
           <SettingsRow icon={<Palette size={18} />} title="Внешний вид" hint="Тема, цвет, размер текста" onClick={() => navigate('/settings/appearance')} />

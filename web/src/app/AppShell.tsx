@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQrState } from '../features/qr/qrStore';
 import { BookOpen, ChartColumn, House, ListTodo, MessageCircle, NotebookPen, Settings, WifiOff } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useUnreadChatsCount } from '../features/chats/queries';
@@ -13,6 +14,9 @@ import { BrandMark } from '../ui/BrandMark';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { displayName } from '../lib/format';
 import s from './AppShell.module.css';
+
+// Окна QR (код, сканер с jsQR) грузятся, только когда их открыли.
+const QrHost = lazy(() => import('../features/qr/QrHost'));
 
 const NAV = [
   { to: '/', label: 'Главная', icon: House },
@@ -40,6 +44,7 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const unread = useUnreadChatsCount();
+  const qr = useQrState();
   useChatNotifications(user?.id ?? 0);
   // Задачи обновляются в реальном времени на всех экранах (и для уведомлений).
   useTaskNotifications();
@@ -115,6 +120,11 @@ export default function AppShell() {
           </NavLink>
         ))}
       </nav>
+      {qr && (
+        <Suspense fallback={null}>
+          <QrHost />
+        </Suspense>
+      )}
     </div>
   );
 }

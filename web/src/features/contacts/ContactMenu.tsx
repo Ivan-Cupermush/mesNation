@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, MessageCircle, Share2, UserPen, UserPlus, Users } from 'lucide-react';
+import { Check, MessageCircle, QrCode, Share2, UserPen, UserPlus, Users } from 'lucide-react';
+import { openQr } from '../qr/qrStore';
 import { api } from '../../lib/http';
 import { fuzzyMatch } from '../../lib/fuzzy';
 import { plural } from '../../lib/format';
@@ -19,8 +20,8 @@ import s from './contacts.module.css';
 
 /**
  * Меню ⋯ в профиле сотрудника и в информации о личном чате — как в Telegram:
- * поделиться контактом, изменить контакт (своё имя, видно только мне),
- * добавить в группу.
+ * поделиться контактом, QR-код контакта, изменить контакт (своё имя,
+ * видно только мне), добавить в группу.
  */
 export default function ContactMenu({
   anchor,
@@ -42,6 +43,7 @@ export default function ContactMenu({
   const items: MenuItem[] = [
     ...(onWrite ? [{ key: 'write', label: 'Написать', icon: <MessageCircle size={18} />, onSelect: onWrite }] : []),
     { key: 'share', label: 'Поделиться контактом', icon: <Share2 size={18} />, onSelect: () => setShare(true) },
+    { key: 'qr', label: 'QR-код контакта', icon: <QrCode size={18} />, onSelect: () => openQr(user.id) },
     { key: 'edit', label: 'Изменить контакт', icon: <UserPen size={18} />, onSelect: () => setEdit(true) },
     { key: 'group', label: 'Добавить в группу', icon: <UserPlus size={18} />, onSelect: () => setGroups(true) },
   ];

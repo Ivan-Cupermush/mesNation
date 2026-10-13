@@ -1,4 +1,6 @@
 import { memo, useRef, type MouseEvent, type ReactNode, type TouchEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { internalPath, parseOffixLink } from '../qr/qrCore';
 import { AlertCircle, Check, CheckCheck, Clock, Download, FileText, Play } from 'lucide-react';
 import { fileBadge, formatDuration, formatSize, formatTime, hashColor } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
@@ -284,12 +286,32 @@ function Linkified({ text, query }: { text: string; query?: string }) {
         typeof p === 'string' ? (
           <Highlighted key={i} text={p} query={query} />
         ) : (
-          <a key={i} href={p.url} target="_blank" rel="noopener noreferrer nofollow" onClick={(e) => e.stopPropagation()}>
-            {p.url}
-          </a>
+          <MessageLink key={i} url={p.url} />
         ),
       )}
     </>
+  );
+}
+
+/** Ссылка в сообщении: профиль, чат или задача Offix открываются здесь же, остальное — в новой вкладке. */
+function MessageLink({ url }: { url: string }) {
+  const navigate = useNavigate();
+  const inside = internalPath(parseOffixLink(url));
+  return (
+    <a
+      href={inside || url}
+      target={inside ? undefined : '_blank'}
+      rel={inside ? undefined : 'noopener noreferrer nofollow'}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (inside && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          navigate(inside);
+        }
+      }}
+    >
+      {url}
+    </a>
   );
 }
 

@@ -305,7 +305,8 @@ const styles = themed(() => ({
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 26,
-    paddingTop: 56,
+    // Отступ под аватаром — «тихая зона» над кодом, чтобы сканер его не путал.
+    paddingTop: 68,
     paddingBottom: 20,
     paddingHorizontal: 18,
   },

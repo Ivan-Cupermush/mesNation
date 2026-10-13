@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AtSign, BarChart3, ChevronLeft, ChevronRight, Copy, KeyRound, Mail, MessageCircle, MoreVertical, UserCheck, UserPen, UserX, Users } from 'lucide-react';
+import { AtSign, BarChart3, ChevronLeft, ChevronRight, Copy, KeyRound, Mail, MessageCircle, MoreVertical, UserCheck, UserPen, UserX, Users, QrCode } from 'lucide-react';
+import { openQr } from '../qr/qrStore';
 import { useMe } from '../auth/AuthProvider';
 import { api } from '../../lib/http';
 import { displayName, lastSeenLabel, plural } from '../../lib/format';
@@ -135,6 +136,9 @@ export default function UserProfile() {
           <ChevronLeft size={26} />
         </IconButton>
         <div className={s.headerTitle}>Профиль</div>
+        <IconButton label="QR-код" onClick={() => openQr(user.id)}>
+          <QrCode size={20} />
+        </IconButton>
         {!isMe && (
           <IconButton label="Ещё" onClick={(e) => setMenu(anchorFrom(e.currentTarget))}>
             <MoreVertical size={21} />

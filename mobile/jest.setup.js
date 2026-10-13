@@ -108,3 +108,10 @@ jest.mock('react-native-nitro-sound', () => {
   });
   return { createSound: sound, AudioSourceAndroidType: {}, OutputFormatAndroidType: {}, AudioEncoderAndroidType: {} };
 });
+// QR: снимок постера, сканер кодов, загрузка картинки для сканера.
+jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn(async () => '/tmp/qr.png') }));
+jest.mock('react-native-vision-camera-barcode-scanner', () => ({
+  useBarcodeScannerOutput: jest.fn(() => ({})),
+  createBarcodeScanner: jest.fn(() => ({ scanCodesInImageAsync: jest.fn(async () => []), dispose: jest.fn() })),
+}));
+jest.mock('react-native-nitro-image', () => ({ loadImage: jest.fn(async () => ({ dispose: jest.fn() })) }));

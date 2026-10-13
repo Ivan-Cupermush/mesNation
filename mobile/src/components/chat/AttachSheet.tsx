@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
-  Modal,
   Pressable,
   FlatList,
   Image,
@@ -15,8 +14,8 @@ import {
   Animated,
   useWindowDimensions,
   KeyboardAvoidingView,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraRoll, PhotoIdentifier } from '@react-native-camera-roll/camera-roll';
 import { launchCamera } from 'react-native-image-picker';
@@ -42,6 +41,7 @@ import { C, fileBadge, formatDuration, formatSize, plural, requestCameraPermissi
 
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
+import { showError } from '../ui/toast';
 
 /**
  * «Скрепка» как в Telegram.
@@ -186,7 +186,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
 
   const toggle = (uri: string) => {
     if (!selected.includes(uri) && selected.length >= MAX_SELECTED) {
-      Alert.alert('Слишком много', `За раз можно отправить до ${MAX_SELECTED} фото и видео`);
+      showError(`За раз можно отправить до ${MAX_SELECTED} фото и видео`, 'Слишком много');
       return;
     }
     setSelected((prev) => (prev.includes(uri) ? prev.filter((u) => u !== uri) : [...prev, uri]));
@@ -219,7 +219,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
       let ok: PickedFile[] = res
         .filter((f) => f.uri && (f.size || 0) <= MAX_FILE_BYTES)
         .map((f) => ({ uri: f.uri, name: f.name || 'Файл', type: f.type, size: f.size }));
-      if (tooBig.length) Alert.alert('Слишком большой файл', `Файлы больше 200 МБ не отправляются: ${tooBig.map((f) => f.name).join(', ')}`);
+      if (tooBig.length) showError(`Файлы больше 200 МБ не отправляются: ${tooBig.map((f) => f.name).join(', ')}`, 'Слишком большой файл');
       ok = await keepCopies(ok);
       setFiles((prev) => {
         const seen = new Set(prev.map((f) => f.uri));
@@ -227,7 +227,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
       });
     } catch (err: any) {
       if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
-      Alert.alert('Не удалось выбрать файл', err?.message || '');
+      showError(err?.message || '', 'Не удалось выбрать файл');
     }
   };
 

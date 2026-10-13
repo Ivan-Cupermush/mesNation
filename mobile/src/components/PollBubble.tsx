@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator, Animated, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Animated, Alert, Image } from 'react-native';
+import Modal from './ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check, X, Lightbulb, ChevronLeft } from 'lucide-react-native';
 import { request } from '../services/http';
@@ -7,6 +8,7 @@ import { SERVER_URL } from '../config';
 import { C, hashColor, initials, plural } from './chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
+import { showError } from './ui/toast';
 /**
  * Опрос в ленте — как в Telegram:
  * до голосования — кружки (или квадраты при нескольких ответах),
@@ -118,7 +120,7 @@ export default function PollBubble({ poll, myVotes: initialVotes, isMine }: Prop
         Alert.alert(right ? 'Верно!' : 'Неверно', d.poll.explanation);
       }
     } catch (e: any) {
-      Alert.alert('Не удалось проголосовать', e?.message || '');
+      showError(e?.message || '', 'Не удалось проголосовать');
     } finally {
       setVoting(false);
     }

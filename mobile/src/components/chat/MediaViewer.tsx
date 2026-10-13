@@ -2,16 +2,15 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  Modal,
   FlatList,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
   useWindowDimensions,
   Animated,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import * as RNFS from 'react-native-fs';
@@ -24,6 +23,7 @@ import VideoPlayer from './VideoPlayer';
 import { formatTime, requestSavePermission } from './chatUtils';
 
 import { themed } from '../../theme/runtime';
+import { showError, showToast } from '../ui/toast';
 /**
  * Полноэкранный просмотр фото и видео чата (как в Telegram): листание
  * влево-вправо, зум, свайп вниз — закрыть, сохранить в галерею, переслать,
@@ -113,9 +113,9 @@ export default function MediaViewer({ visible, items, initialIndex, onClose, onF
       if (result.statusCode && result.statusCode >= 400) throw new Error('Файл недоступен');
       await CameraRoll.saveAsset(`file://${path}`, { type: current.media_kind === 'video' ? 'video' : 'photo', album: 'Offix' });
       RNFS.unlink(path).catch(() => undefined);
-      Alert.alert('Сохранено', current.media_kind === 'video' ? 'Видео сохранено в галерею' : 'Фото сохранено в галерею');
+      showToast(current.media_kind === 'video' ? 'Видео сохранено в галерею' : 'Фото сохранено в галерею');
     } catch (e: any) {
-      Alert.alert('Не удалось сохранить', e?.message || '');
+      showError(e?.message || '', 'Не удалось сохранить');
     } finally {
       setSaving(false);
     }

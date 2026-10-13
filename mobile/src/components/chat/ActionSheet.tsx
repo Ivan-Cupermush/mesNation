@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Pressable, ScrollView } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from './chatUtils';
 

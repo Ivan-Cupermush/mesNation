@@ -11,6 +11,20 @@ import { getToken } from './http';
 
 let socket: Socket | null = null;
 const joinedChats = new Map<string, number>(); // chatId -> сколько экранов его держат
+const connectionListeners = new Set<(connected: boolean) => void>();
+
+/** Есть ли сейчас связь с сервером (для полосы «Нет связи»). */
+export function isSocketConnected(): boolean {
+  return !!socket?.connected;
+}
+
+/** Подписка на «связь есть / пропала». Возвращает отписку. */
+export function onConnectionChange(l: (connected: boolean) => void): () => void {
+  connectionListeners.add(l);
+  return () => connectionListeners.delete(l);
+}
+
+const emitConnection = (connected: boolean) => connectionListeners.forEach((l) => l(connected));
 
 export async function connectSocket(): Promise<Socket | null> {
   if (socket) return socket;
@@ -25,7 +39,10 @@ export async function connectSocket(): Promise<Socket | null> {
   });
   socket.on('connect', () => {
     for (const chatId of joinedChats.keys()) socket?.emit('join_chat', chatId);
+    emitConnection(true);
   });
+  socket.on('disconnect', () => emitConnection(false));
+  socket.on('connect_error', () => emitConnection(false));
   return socket;
 }
 
@@ -34,6 +51,8 @@ export function disconnectSocket() {
   socket?.removeAllListeners();
   socket?.disconnect();
   socket = null;
+  // Вышли из аккаунта — это не обрыв связи.
+  emitConnection(true);
 }
 
 export function getSocket(): Socket | null {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, KeyboardAvoidingView,
-  Alert, ActivityIndicator, StatusBar
+  ActivityIndicator, StatusBar
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Input } from '../components/ui/Input';
@@ -13,6 +13,7 @@ import BrandMark from '../components/ui/BrandMark';
 import { User, Lock, WifiOff, Building2 } from 'lucide-react-native';
 
 import { themed } from '../theme/runtime';
+import { showError } from '../components/ui/toast';
 type Screen = 'loading' | 'offline' | 'welcome' | 'login' | 'setup';
 
 export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token: string, user: any) => void }) {
@@ -47,7 +48,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
 
   const handleLogin = async () => {
     if (!username.trim() || !password) {
-      Alert.alert('Ошибка', 'Введите логин и пароль');
+      showError('Введите логин и пароль', 'Ошибка');
       return;
     }
 
@@ -61,7 +62,7 @@ export default function AuthScreen({ onLoginSuccess }: { onLoginSuccess: (token:
       await setToken(data.token);
       onLoginSuccess(data.token, data.user);
     } catch (e: any) {
-      Alert.alert('Не удалось войти', e?.message || 'Попробуйте ещё раз');
+      showError(e?.message || 'Попробуйте ещё раз', 'Не удалось войти');
     } finally {
       setLoading(false);
     }

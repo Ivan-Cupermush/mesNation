@@ -2,8 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal, ScrollView, Platform, Image, KeyboardAvoidingView } from 'react-native';
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  TextInput,
+  ScrollView,
+  Platform,
+  Image,
+  KeyboardAvoidingView,
+} from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { useTheme } from '../../theme/ThemeContext';
 import { api } from '../../services/api';
 import { publicFileUrl } from '../../services/http';
@@ -13,6 +25,7 @@ import { ChevronLeft, Move, X, Lock, Search } from 'lucide-react-native';
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
+import { showError } from '../../components/ui/toast';
 // ✅ ТЕ ЖЕ списки что были — совместимость со старыми ролями в БД
 const COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
 const ICONS = [
@@ -78,7 +91,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       const data = await api.getRoleTree();
       setNodes(Array.isArray(data) ? data : []);
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      showError(e.message, 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -110,7 +123,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   const handleSaveNew = async () => {
     if (!newName.trim()) {
-      Alert.alert('Ошибка', 'Введите название');
+      showError('Введите название', 'Ошибка');
       return;
     }
     setSaving(true);
@@ -124,7 +137,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       setShowAddModal(false);
       loadTree();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      showError(e.message, 'Ошибка');
     } finally {
       setSaving(false);
     }
@@ -138,7 +151,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       setNodeUsers(await api.getRoleUsers(node.id));
     } catch (e: any) {
       setNodeUsers([]);
-      Alert.alert('Не удалось загрузить сотрудников роли', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить сотрудников роли');
     } finally {
       setLoadingUsers(false);
     }
@@ -164,7 +177,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
 
   const handleSaveEdit = async () => {
     if (!editName.trim()) {
-      Alert.alert('Ошибка', 'Введите название');
+      showError('Введите название', 'Ошибка');
       return;
     }
     setSaving(true);
@@ -177,7 +190,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
       setShowEditModal(false);
       loadTree();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      showError(e.message, 'Ошибка');
     } finally {
       setSaving(false);
     }
@@ -187,14 +200,11 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const handleDelete = () => {
     if (!editingNode) return;
     if (editingNode.is_root || editingNode.parent_id === null) {
-      Alert.alert('Нельзя удалить', 'Корень дерева (директор) удалить нельзя');
+      showError('Корень дерева (директор) удалить нельзя', 'Нельзя удалить');
       return;
     }
     if (editingNode.users_count && editingNode.users_count > 0) {
-      Alert.alert(
-        'Нельзя удалить',
-        `К роли "${editingNode.name}" привязано пользователей: ${editingNode.users_count}. Сначала переназначьте их на другую роль.`
-      );
+      showError(`К роли "${editingNode.name}" привязано пользователей: ${editingNode.users_count}. Сначала переназначьте их на другую роль.`, 'Нельзя удалить');
       return;
     }
     Alert.alert(
@@ -227,7 +237,7 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const startMoveUser = (user: any) => {
     // 🔒 Позицию директора нельзя переназначить
     if (editingNode?.is_root) {
-      Alert.alert('Нельзя', 'Позицию директора нельзя переназначить');
+      showError('Позицию директора нельзя переназначить', 'Нельзя');
       return;
     }
     setShowEditModal(false);
@@ -259,11 +269,11 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
   const handleRoleMoveTarget = (target: any) => {
     if (!moveRole) return;
     if (target.id === moveRole.parent_id) {
-      Alert.alert('Уже здесь', `«${moveRole.name}» уже подчиняется «${target.name}»`);
+      showError(`«${moveRole.name}» уже подчиняется «${target.name}»`, 'Уже здесь');
       return;
     }
     if (subtreeIds(moveRole.id).has(target.id)) {
-      Alert.alert('Нельзя', 'Роль нельзя перенести внутрь её собственной ветки');
+      showError('Роль нельзя перенести внутрь её собственной ветки', 'Нельзя');
       return;
     }
     Alert.alert('Перенести роль?', `«${moveRole.name}» со всей веткой будет подчиняться «${target.name}»`, [
@@ -291,11 +301,11 @@ export default function RoleTreeEditorScreen({ navigation }: any) {
     if (!moveUser) return;
     // 🔒 Директор как цель тоже недоступен
     if (node.is_root) {
-      Alert.alert('Нельзя', 'Позицию директора нельзя переназначить');
+      showError('Позицию директора нельзя переназначить', 'Нельзя');
       return;
     }
     if (editingNode && node.id === editingNode.id) {
-      Alert.alert('Та же роль', `${moveUser.display_name || moveUser.username} уже в этой роли`);
+      showError(`${moveUser.display_name || moveUser.username} уже в этой роли`, 'Та же роль');
       return;
     }
     const userName = moveUser.display_name || moveUser.username;

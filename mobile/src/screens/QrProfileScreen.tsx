@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, useWindowDimensions, StatusBar, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, useWindowDimensions, StatusBar, ScrollView, } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
@@ -19,7 +19,7 @@ import UserAvatar from '../components/ui/UserAvatar';
 import ShareToChatModal, { sentToLabel } from '../components/ShareToChatModal';
 import { ContactCard, SharedContact } from '../components/contacts/ContactCard';
 import { requestSavePermission } from '../components/chat/chatUtils';
-import { showToast } from '../components/ui/toast';
+import { showToast, showError } from '../components/ui/toast';
 import { openQrScanner } from '../navigation/ref';
 
 /**
@@ -93,7 +93,7 @@ export default function QrProfileScreen({ navigation }: any) {
         title: mine ? 'Поделиться моим QR-кодом' : 'Поделиться QR-кодом',
       });
     } catch (e: any) {
-      Alert.alert('Не удалось поделиться', e?.message || '');
+      showError(e?.message || '', 'Не удалось поделиться');
     } finally {
       setBusy(null);
     }
@@ -108,7 +108,7 @@ export default function QrProfileScreen({ navigation }: any) {
       await CameraRoll.saveAsset(uri.startsWith('file://') ? uri : `file://${uri}`, { type: 'photo', album: 'Offix' });
       showToast('QR-код сохранён в галерею');
     } catch (e: any) {
-      Alert.alert('Не удалось сохранить', e?.message || '');
+      showError(e?.message || '', 'Не удалось сохранить');
     } finally {
       setBusy(null);
     }

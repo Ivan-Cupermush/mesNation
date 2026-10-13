@@ -1,8 +1,17 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, StatusBar, TouchableOpacity,
-  Alert, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, ScrollView } from 'react-native';
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+  KeyboardAvoidingView,
+  ScrollView,
+} from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { useTheme } from '../../theme/ThemeContext';
 import { api, PermissionKey } from '../../services/api';
 import TreeGraphView from '../../components/TreeGraphView';
@@ -10,6 +19,7 @@ import { PermissionPicker } from '../../components/PermissionToggles';
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
+import { showError, showSuccess } from '../../components/ui/toast';
 export default function CreateUserRoleScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -32,7 +42,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
       const data = await api.getRoleTree();
       setNodes(data);
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      showError(e.message, 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -53,7 +63,7 @@ export default function CreateUserRoleScreen({ navigation }: any) {
 
   const handleCreate = async () => {
     if (!firstName.trim() || !username.trim() || !email.trim() || !password) {
-      Alert.alert('Ошибка', 'Заполните имя, логин, email и пароль');
+      showError('Заполните имя, логин, email и пароль', 'Ошибка');
       return;
     }
     setSaving(true);
@@ -67,11 +77,11 @@ export default function CreateUserRoleScreen({ navigation }: any) {
         role_node_id: selectedNode.id,
         ...(Object.keys(permissions).length ? { permissions } : {}),
       });
-      Alert.alert('Сотрудник добавлен', `«${username}» — роль «${selectedNode.name}»`);
+      showSuccess(`«${username}» — роль «${selectedNode.name}»`, 'Сотрудник добавлен');
       setShowForm(false);
       navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message);
+      showError(e.message, 'Ошибка');
     } finally {
       setSaving(false);
     }

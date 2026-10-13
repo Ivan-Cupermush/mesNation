@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, Switch, Alert, ActivityIndicator, StatusBar, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, TextInput, Switch, ActivityIndicator, StatusBar, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Plus, Trash2, X } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
 import {
   errorText, FactRule, kpiApi, KpiTarget, kpiTitle, moneyShort, parseNumber, PayoutRule, ReportGroup,
 } from '../../services/kpi';
+import { showError } from '../../components/ui/toast';
 
 type FactType = FactRule['type'];
 type PayType = PayoutRule['type'];
@@ -117,7 +118,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
   const save = async () => {
     const r = build();
     if (typeof r === 'string') {
-      Alert.alert('Проверьте правило', r);
+      showError(r, 'Проверьте правило');
       return;
     }
     setSaving(true);
@@ -125,7 +126,7 @@ export default function KpiRuleScreen({ navigation, route }: any) {
       await kpiApi.saveRules(t.id, { ...(fromFile ? {} : { fact_rule: r.fact }), payout_rule: r.payout, bonus_amount: r.bonus });
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Ошибка', errorText(e, 'Не удалось сохранить правило'));
+      showError(errorText(e, 'Не удалось сохранить правило'), 'Ошибка');
     } finally {
       setSaving(false);
     }

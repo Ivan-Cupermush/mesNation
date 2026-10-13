@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, Platform,
-  ActivityIndicator, Alert, TextInput, Modal, Image
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  ActivityIndicator,
+  Alert,
+  TextInput,
+  Image,
 } from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import {
@@ -16,6 +24,7 @@ import {
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
+import { showError, showToast } from '../components/ui/toast';
 type TopicInfoRouteProp = RouteProp<{ params: { chatId: string; topicId: number } }, 'params'>;
 
 
@@ -70,7 +79,7 @@ export default function TopicInfoScreen({ navigation }: any) {
       if (chatsRes.ok) setChat(await chatsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
     } catch {
-      Alert.alert('Ошибка', 'Не удалось загрузить топик');
+      showError('Не удалось загрузить топик', 'Ошибка');
     }
     setLoading(false);
   };
@@ -102,7 +111,7 @@ export default function TopicInfoScreen({ navigation }: any) {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) { Alert.alert('Ошибка', 'Название не может быть пустым'); return; }
+    if (!title.trim()) { showError('Название не может быть пустым', 'Ошибка'); return; }
     setSaving(true);
     try {
       const tok = await getToken();
@@ -112,15 +121,15 @@ export default function TopicInfoScreen({ navigation }: any) {
         body: JSON.stringify({ title: title.trim(), icon, icon_color: color, icon_opacity: opacity }),
       });
       if (res.ok) {
-        Alert.alert('Готово', 'Топик обновлён');
+        showToast('Топик обновлён');
         setEditing(false);
         load();
       } else {
         const d = await res.json();
-        Alert.alert('Ошибка', d.error || 'Не удалось сохранить');
+        showError(d.error || 'Не удалось сохранить', 'Ошибка');
       }
     } catch {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      showError('Сервер недоступен', 'Ошибка');
     } finally {
       setSaving(false);
     }
@@ -189,8 +198,8 @@ export default function TopicInfoScreen({ navigation }: any) {
           body: JSON.stringify({ message_id: msgId, target_chat_id: toChatId, text: '' }),
         });
       }
-      Alert.alert('Готово', `Переслано: ${selectedIds.length}`);
-    } catch { Alert.alert('Ошибка', 'Не удалось переслать'); }
+      showToast(`Переслано: ${selectedIds.length}`);
+    } catch { showError('Не удалось переслать', 'Ошибка'); }
     setShowForwardModal(false);
     setSelectedIds([]);
   };

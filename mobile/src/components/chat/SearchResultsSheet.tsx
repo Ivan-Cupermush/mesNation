@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, FlatList } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';

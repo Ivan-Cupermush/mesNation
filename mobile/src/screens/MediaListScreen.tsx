@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { stopVoice, toggleVoice } from '../components/chat/voice/voicePlayer';
 import { useVoiceFor } from '../components/chat/voice/useVoice';
 import { PlayGlyph } from '../components/chat/voice/VoiceBubble';
-import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, useWindowDimensions, Linking, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, useWindowDimensions, Linking, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, FileText, Link2, BarChart3, Play } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
@@ -11,6 +11,7 @@ import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import { C, formatDuration, formatSize } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
+import { showError } from '../components/ui/toast';
 /**
  * Общие материалы чата: фото и видео (сетка, открываются во встроенном
  * просмотрщике), файлы, ссылки и опросы. Подгружаются постранично.
@@ -47,7 +48,7 @@ export default function MediaListScreen({ route, navigation }: any) {
         setItems((prev) => (before ? [...prev, ...data] : data));
         setHasMore(data.length >= 60);
       } catch (e: any) {
-        Alert.alert('Ошибка', e?.message || 'Не удалось загрузить');
+        showError(e?.message || 'Не удалось загрузить', 'Ошибка');
       } finally {
         setLoading(false);
       }
@@ -73,7 +74,7 @@ export default function MediaListScreen({ route, navigation }: any) {
     try {
       await Linking.openURL(await signedFileUrl(item.file_url));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 

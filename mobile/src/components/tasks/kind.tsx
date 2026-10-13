@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, Modal, Animated, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, Pressable } from 'react-native';
+import Modal from '../ui/AppModal';
 import { ChevronRight, HandHeart, ListTodo } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Platform,
-  ActivityIndicator, Alert, TextInput
+  ActivityIndicator, TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,6 +9,7 @@ import { ChevronLeft, UserPlus, Check, Search } from 'lucide-react-native';
 import { getToken, SERVER_URL } from '../utils';
 
 import { T, themed } from '../theme/runtime';
+import { showError } from '../components/ui/toast';
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
 const hashColor = (s: string) => {
   const sum = (s || '?').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -38,7 +39,7 @@ export default function AddMembersScreen({ route, navigation }: any) {
       const memberIds = chat?.members?.map((m: any) => m.id) || [];
       setUsers(usersData.filter((u: any) => !memberIds.includes(u.id)));
     } catch {
-      Alert.alert('Ошибка', 'Не удалось загрузить пользователей');
+      showError('Не удалось загрузить пользователей', 'Ошибка');
     }
     setLoading(false);
   }, [chatId]);
@@ -58,10 +59,10 @@ export default function AddMembersScreen({ route, navigation }: any) {
         setUsers((prev) => prev.filter((u) => u.id !== userId));
       } else {
         const err = await res.json();
-        Alert.alert('Ошибка', err.error || 'Не удалось добавить');
+        showError(err.error || 'Не удалось добавить', 'Ошибка');
       }
     } catch {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      showError('Сервер недоступен', 'Ошибка');
     }
     setAddingId(null);
   };

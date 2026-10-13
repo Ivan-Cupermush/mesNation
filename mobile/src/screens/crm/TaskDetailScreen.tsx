@@ -7,15 +7,15 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
-  Modal,
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   Linking,
   StatusBar,
-  BackHandler
+  BackHandler,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import {
@@ -57,7 +57,7 @@ import {
 } from 'lucide-react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import ShareToChatModal, { sentToLabel } from '../../components/ShareToChatModal';
-import { showToast } from '../../components/ui/toast';
+import { showToast, showError } from '../../components/ui/toast';
 import { SERVER_URL } from '../../config';
 import TaskFilesBar, { FileThumb } from '../../components/tasks/TaskFilesBar';
 import { clearTaskNotification } from '../../notifications/display';
@@ -136,7 +136,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setComments(commentsData);
       setCurrentUser(user);
     } catch (e: any) {
-      Alert.alert('Ошибка загрузки', e.message || 'Не удалось загрузить задачу');
+      showError(e.message || 'Не удалось загрузить задачу', 'Ошибка загрузки');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -172,7 +172,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       showToast(one ? `${one.display_name || one.username} получит ваше «спасибо» 🙏` : 'Спасибо отправлено 🙏');
       loadData();
     } catch (e: any) {
-      Alert.alert('Не получилось', e?.message || 'Не удалось отправить благодарность');
+      showError(e?.message || 'Не удалось отправить благодарность', 'Не получилось');
     } finally {
       setTransitioning(false);
     }
@@ -184,7 +184,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       await api.transitionTask(taskId, toStatus, comment);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
+      showError(e.message || 'Не удалось изменить статус', 'Ошибка');
     } finally {
       setTransitioning(false);
     }
@@ -193,7 +193,7 @@ export default function TaskDetailScreen({ navigation }: any) {
   const submitReject = async () => {
     const target = commentTarget || { to: 'rejected', action: 'Отклонить', required: true };
     if (target.required && !rejectComment.trim()) {
-      Alert.alert('Комментарий', target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий');
+      showError(target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий', 'Комментарий');
       return;
     }
     setTransitioning(true);
@@ -204,7 +204,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setCommentTarget(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
+      showError(e.message || 'Не удалось изменить статус', 'Ошибка');
     } finally {
       setTransitioning(false);
     }
@@ -309,14 +309,14 @@ export default function TaskDetailScreen({ navigation }: any) {
       setRoleCommentField(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось сохранить');
+      showError(e.message || 'Не удалось сохранить', 'Ошибка');
     }
   };
 
   // ===== Контрольные точки =====
   const addCheckpoint = async () => {
     if (!newCheckpointTitle.trim() || !newCheckpointDate) {
-      Alert.alert('Контрольная точка', 'Укажите название и дату');
+      showError('Укажите название и дату', 'Контрольная точка');
       return;
     }
     try {
@@ -325,7 +325,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setNewCheckpointDate(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось добавить');
+      showError(e.message || 'Не удалось добавить', 'Ошибка');
     }
   };
 
@@ -334,7 +334,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       await api.updateCheckpoint(taskId, cpId, { status });
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить');
+      showError(e.message || 'Не удалось изменить', 'Ошибка');
     }
   };
 
@@ -365,7 +365,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       Keyboard.dismiss();
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось отправить комментарий');
+      showError(e.message || 'Не удалось отправить комментарий', 'Ошибка');
     } finally {
       setSendingComment(false);
     }
@@ -384,7 +384,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setEditingText('');
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось обновить комментарий');
+      showError(e.message || 'Не удалось обновить комментарий', 'Ошибка');
     }
   };
 
@@ -441,13 +441,13 @@ export default function TaskDetailScreen({ navigation }: any) {
           }
         }
         loadData();
-        if (failed.length) Alert.alert('Не всё загрузилось', failed.join('\n'));
+        if (failed.length) showError(failed.join('\n'), 'Не всё загрузилось');
       } finally {
         setUploadingFile(false);
       }
     } catch (e: any) {
       if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
-        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+        showError('Не удалось выбрать файл', 'Ошибка');
       }
     }
   };
@@ -457,7 +457,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       // Файлы задач доступны только участникам: открываем по подписанной ссылке.
       await Linking.openURL(await signedFileUrl(fileUrl));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 

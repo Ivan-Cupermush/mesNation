@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +22,7 @@ import SessionsSheet from '../../components/knowledge/SessionsSheet';
 
 import { T, themed } from '../../theme/runtime';
 import HeaderBell from '../../components/HeaderBell';
+import { showError } from '../../components/ui/toast';
 export default function KnowledgeScreen({ navigation }: any) {
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -97,7 +97,7 @@ export default function KnowledgeScreen({ navigation }: any) {
         response.assistant_message,
       ]);
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось получить ответ');
+      showError(e.message || 'Не удалось получить ответ', 'Ошибка');
       setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
     } finally {
       setIsSending(false);
@@ -124,7 +124,7 @@ export default function KnowledgeScreen({ navigation }: any) {
         prev.map(m => (m.id === messageId ? { ...m, feedback } : m))
       );
     } catch {
-      Alert.alert('Ошибка', 'Не удалось сохранить отзыв');
+      showError('Не удалось сохранить отзыв', 'Ошибка');
     }
   };
 

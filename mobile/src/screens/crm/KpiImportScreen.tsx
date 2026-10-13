@@ -15,6 +15,7 @@ import {
 } from '../../services/kpi';
 import { UploadFile } from '../../services/http';
 import { api, can, CurrentUser, PermissionKey } from '../../services/api';
+import { showError, showToast } from '../../components/ui/toast';
 
 type Mode = 'report' | 'kpi' | 'sheets';
 
@@ -40,7 +41,7 @@ async function pickSheet(): Promise<UploadFile | null> {
     });
     return f ? { uri: f.uri, name: f.name || 'file.xlsx', type: f.type || 'application/octet-stream' } : null;
   } catch (e: any) {
-    if (e?.code !== 'DOCUMENT_PICKER_CANCELED' && e?.code !== 'OPERATION_CANCELED') Alert.alert('Файл', errorText(e, 'Не удалось выбрать файл'));
+    if (e?.code !== 'DOCUMENT_PICKER_CANCELED' && e?.code !== 'OPERATION_CANCELED') showError(errorText(e, 'Не удалось выбрать файл'), 'Файл');
     return null;
   }
 }
@@ -152,7 +153,7 @@ function ReportImport({ navigation }: { navigation: any }) {
     try {
       setResult(await kpiApi.importReport(file));
     } catch (e) {
-      Alert.alert('Отчёт не загружен', errorText(e, 'Не удалось обработать отчёт'));
+      showError(errorText(e, 'Не удалось обработать отчёт'), 'Отчёт не загружен');
     } finally {
       setBusy(false);
     }
@@ -161,14 +162,14 @@ function ReportImport({ navigation }: { navigation: any }) {
   const assign = async (name: string, user: { id: number; name: string }) => {
     try {
       const r = await kpiApi.assignManager(name, user.id);
-      Alert.alert('Готово', `«${name}» — это ${user.name}. Пересчитано показателей: ${r.targets}`);
+      showToast(`«${name}» — это ${user.name}. Пересчитано показателей: ${r.targets}`);
       setResult((prev) => prev && {
         ...prev,
         results: prev.results.map((x) => (x.manager === name ? { ...x, user: user.name, userId: user.id, status: 'ok', error: undefined, updated: true, targetsUpdated: r.targets } : x)),
       });
       loadLists();
     } catch (e) {
-      Alert.alert('Ошибка', errorText(e, 'Не удалось сопоставить'));
+      showError(errorText(e, 'Не удалось сопоставить'), 'Ошибка');
     }
   };
 
@@ -317,7 +318,7 @@ function KpiFileImport({ navigation, presetUser }: { navigation: any; presetUser
         setPerson({ id: presetUser, name: found ? found.display_name || found.username : 'Сотрудник' });
       } else setPerson(p.suggestedUser);
     } catch (e) {
-      Alert.alert('Файл KPI', errorText(e, 'Не удалось прочитать файл KPI'));
+      showError(errorText(e, 'Не удалось прочитать файл KPI'), 'Файл KPI');
     } finally {
       setBusy(false);
     }
@@ -330,7 +331,7 @@ function KpiFileImport({ navigation, presetUser }: { navigation: any; presetUser
       const r = await kpiApi.importKpiFile(file, person.id, month);
       setDone({ imported: r.imported, month: r.month, person });
     } catch (e) {
-      Alert.alert('KPI не загружен', errorText(e, 'Не удалось загрузить KPI'));
+      showError(errorText(e, 'Не удалось загрузить KPI'), 'KPI не загружен');
     } finally {
       setBusy(false);
     }
@@ -420,7 +421,7 @@ function SheetsImport() {
     try {
       setRows((await kpiApi.importKpiSheets(f)).results);
     } catch (e) {
-      Alert.alert('Файл не загружен', errorText(e, 'Не удалось обработать файл'));
+      showError(errorText(e, 'Не удалось обработать файл'), 'Файл не загружен');
     } finally {
       setBusy(false);
     }

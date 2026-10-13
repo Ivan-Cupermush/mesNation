@@ -10,10 +10,10 @@ import {
   Alert,
   ActivityIndicator,
   StatusBar,
-  Modal,
   Pressable,
-  Linking
+  Linking,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -28,6 +28,7 @@ import {
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
+import { showError, showSuccess } from '../../components/ui/toast';
 // Форматируем дату в локальное YYYY-MM-DD
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
@@ -99,7 +100,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
       applyLoaded(await api.getNote(noteId));
     } catch (e: any) {
       leavingRef.current = true;
-      Alert.alert('Ошибка', e?.status === 404 ? 'Заметка не найдена' : 'Не удалось загрузить заметку');
+      showError(e?.status === 404 ? 'Заметка не найдена' : 'Не удалось загрузить заметку', 'Ошибка');
       navigation.goBack();
     } finally {
       setLoading(false);
@@ -120,7 +121,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
   /** Сохраняет заметку (создаёт, если её ещё нет) и догружает выбранные файлы. */
   const persist = async (): Promise<Note | null> => {
     if (!title.trim() && !content.trim()) {
-      Alert.alert('Пустая заметка', 'Добавьте заголовок или текст перед сохранением');
+      showError('Добавьте заголовок или текст перед сохранением', 'Пустая заметка');
       return null;
     }
     setSaving(true);
@@ -147,13 +148,13 @@ export default function NoteEditorScreen({ route, navigation }: any) {
           }
         }
         setPendingFiles([]);
-        if (failed.length) Alert.alert('Не все файлы загружены', failed.join('\n'));
+        if (failed.length) showError(failed.join('\n'), 'Не все файлы загружены');
       }
       const merged = { ...saved, files: [...(saved.files || files), ...uploaded] };
       applyLoaded(merged);
       return merged;
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось сохранить заметку');
+      showError(e?.message || 'Не удалось сохранить заметку', 'Ошибка');
       return null;
     } finally {
       setSaving(false);
@@ -222,7 +223,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
       picked = await pick({ type: [types.allFiles], allowMultiSelection: true });
     } catch (e: any) {
       if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
-        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+        showError('Не удалось выбрать файл', 'Ошибка');
       }
       return;
     }
@@ -245,14 +246,14 @@ export default function NoteEditorScreen({ route, navigation }: any) {
       }
     }
     setUploading(false);
-    if (failed.length) Alert.alert('Не все файлы загружены', failed.join('\n'));
+    if (failed.length) showError(failed.join('\n'), 'Не все файлы загружены');
   };
 
   const openFile = async (f: NoteFile) => {
     try {
       await Linking.openURL(await signedFileUrl(f.file_url));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 
@@ -289,7 +290,7 @@ export default function NoteEditorScreen({ route, navigation }: any) {
     try {
       await fn();
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось выполнить действие');
+      showError(e?.message || 'Не удалось выполнить действие', 'Ошибка');
     } finally {
       setBusyAction(null);
     }
@@ -299,11 +300,11 @@ export default function NoteEditorScreen({ route, navigation }: any) {
     setMenuOpen(false);
     const text = [title.trim(), content.trim()].filter(Boolean).join('\n\n');
     if (!text) {
-      Alert.alert('Нечего копировать', 'Заметка пустая');
+      showError('Заметка пустая', 'Нечего копировать');
       return;
     }
     Clipboard.setString(text);
-    Alert.alert('Скопировано', 'Текст заметки в буфере обмена');
+    showSuccess('Текст заметки в буфере обмена', 'Скопировано');
   };
 
   const duplicate = () =>

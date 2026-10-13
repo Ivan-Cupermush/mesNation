@@ -9,6 +9,7 @@ import { openNote, openTask } from '../navigation/ref';
 import UserAvatar from '../components/ui/UserAvatar';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { showError } from '../components/ui/toast';
 
 /**
  * Колокольчик: новые задачи и запросы заметок. Новые подсвечены, пока
@@ -68,7 +69,7 @@ export default function NotificationsScreen({ navigation }: any) {
       }
     } catch (e: any) {
       setItems((prev) => prev ?? []);
-      Alert.alert('Не удалось загрузить уведомления', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить уведомления');
     } finally {
       setRefreshing(false);
     }

@@ -1,8 +1,16 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, ScrollView,
-  Platform, TextInput, Modal, ActivityIndicator, RefreshControl
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  TextInput,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {

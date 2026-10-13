@@ -21,6 +21,8 @@ import { getPendingShare, onIncomingShare } from './src/native/share';
 import { resetShareTargets, syncShareTargets } from './src/services/shareTargets';
 import { showToast } from './src/components/ui/toast';
 import NotificationBanner from './src/components/NotificationBanner';
+import ToastHost from './src/components/ui/ToastHost';
+import AppErrorBoundary from './src/components/ui/AppErrorBoundary';
 import type { CurrentUser } from './src/services/api';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
 import TaskDetailScreen from './src/screens/crm/TaskDetailScreen';
@@ -604,6 +606,7 @@ function RootNavigator() {
         )}
       </NavigationContainer>
       {isLoggedIn ? <NotificationBanner /> : null}
+      <ToastHost connection={!!isLoggedIn} />
     </>
   );
 }
@@ -613,7 +616,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <RootNavigator />
+        <AppErrorBoundary>
+          <RootNavigator />
+        </AppErrorBoundary>
       </ThemeProvider>
     </SafeAreaProvider>
   );

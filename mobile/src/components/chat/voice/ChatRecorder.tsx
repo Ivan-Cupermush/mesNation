@@ -12,6 +12,7 @@ import { stopVoice, toggleVoice } from './voicePlayer';
 import { useVoiceFor } from './useVoice';
 import Waveform from './Waveform';
 import { PlayGlyph } from './VoiceBubble';
+import { showError } from '../../ui/toast';
 
 /**
  * Запись голосовых и кружочков — механика Telegram:
@@ -159,7 +160,7 @@ export function useChatRecorder({
         if (S.current.phase === 'idle') cancelAudio();
       } catch (e: any) {
         setPhase('idle');
-        Alert.alert('Не удалось начать запись', e?.message || '');
+        showError(e?.message || '', 'Не удалось начать запись');
       }
     }
     // Кружочек: запись начнёт оверлей с камерой, когда камера будет готова.

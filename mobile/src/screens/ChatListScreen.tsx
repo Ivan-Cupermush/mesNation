@@ -31,6 +31,7 @@ import { C, hashColor, initials, messagePreview } from '../components/chat/chatU
 import { T, themed } from '../theme/runtime';
 import HeaderBell from '../components/HeaderBell';
 import { firstNameOf } from '../utils/names';
+import { showError } from '../components/ui/toast';
 /**
  * Список чатов как в Telegram: закреплённые сверху, счётчики непрочитанных,
  * галочки прочтения своего последнего сообщения, «в сети» у собеседников,
@@ -221,7 +222,7 @@ export default function ChatListScreen({ navigation }: any) {
       setQuery('');
       navigation.navigate('Chat', { chatId: String(chat.id), chatName: chat.name });
     } catch (e: any) {
-      Alert.alert('Не удалось открыть чат', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть чат');
     }
   };
 
@@ -231,7 +232,7 @@ export default function ChatListScreen({ navigation }: any) {
       await request(`/api/chats/${chat.id}/membership`, { method: 'PATCH', body: { pinned: !chat.pinned_at } });
       loadChats();
     } catch (e: any) {
-      Alert.alert('Не удалось', e?.message || '');
+      showError(e?.message || '', 'Не удалось');
     }
   };
 
@@ -242,7 +243,7 @@ export default function ChatListScreen({ navigation }: any) {
       await setChatMute(chat.id, ms);
       loadChats();
     } catch (e: any) {
-      Alert.alert('Не удалось', e?.message || '');
+      showError(e?.message || '', 'Не удалось');
     }
   };
 

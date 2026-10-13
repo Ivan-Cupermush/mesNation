@@ -7,11 +7,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
-  Modal,
   Alert,
   ActivityIndicator,
-  FlatList
+  FlatList,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePickerModal from '../../components/DateTimePickerModal';
 import {
@@ -32,7 +32,7 @@ import {
 } from 'lucide-react-native';
 import AssigneeSheet from '../../components/tasks/AssigneeSheet';
 import type { TaskKind } from '../../components/tasks/kind';
-import { showToast } from '../../components/ui/toast';
+import { showToast, showError } from '../../components/ui/toast';
 import { withAlpha } from '../../theme/palettes';
 import { api } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -138,7 +138,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       setMeId(me.id);
       setMyRole(me.role_name || null);
     } catch (e: any) {
-      Alert.alert('Не удалось загрузить сотрудников', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить сотрудников');
     }
   };
 
@@ -155,7 +155,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       setSelectedAssignees((task.assignees || []) as User[]);
       setSelectedWatchers((task.watchers || []) as User[]);
     } catch (e: any) {
-      Alert.alert('Не удалось загрузить задачу', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить задачу');
       navigation.goBack();
     } finally {
       setPrefilling(false);
@@ -171,7 +171,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       ]);
     } catch (e: any) {
       if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
-        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+        showError('Не удалось выбрать файл', 'Ошибка');
       }
     }
   };
@@ -215,10 +215,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       return;
     }
     if (!request && executorDeadline && reviewerDeadline && reviewerDeadline > executorDeadline) {
-      Alert.alert(
-        'Проверьте сроки',
-        'Дедлайн проверки должен быть не позже дедлайна выполнения: к общему сроку задача уже проверена и закрыта.',
-      );
+      showError('Дедлайн проверки должен быть не позже дедлайна выполнения: к общему сроку задача уже проверена и закрыта.', 'Проверьте сроки');
       return;
     }
 
@@ -279,7 +276,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         navigation.replace('TaskDetail', { taskId: task.id });
       }
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || (request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу'));
+      showError(e.message || (request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу'), 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -750,7 +747,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <TouchableOpacity
             style={[styles.addBtn, { marginTop: 10 }]}
             activeOpacity={0.7}
-            onPress={() => (newCpTitle.trim() ? setShowCpPicker(true) : Alert.alert('Контрольная точка', 'Сначала введите название'))}
+            onPress={() => (newCpTitle.trim() ? setShowCpPicker(true) : showError('Сначала введите название', 'Контрольная точка'))}
           >
             <Plus size={18} color={T.accent} strokeWidth={2.5} />
             <Text style={styles.addBtnText}>Выбрать дату и добавить</Text>

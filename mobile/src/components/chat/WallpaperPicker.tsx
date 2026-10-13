@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, LayoutChangeEvent } from 'react-native';
+import { View, Text, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { Check, ImagePlus, Ban } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
 import { GRADIENTS, PATTERNS, Wallpaper, persistImage } from '../../theme/wallpapers';
 import { WallpaperView } from './ChatWallpaper';
+import { showError } from '../ui/toast';
 
 /**
  * Сетка выбора фона, как в Telegram: каждая плитка — маленький чат на этом
@@ -36,7 +37,7 @@ export default function WallpaperPicker({ value, onChange }: { value: Wallpaper;
     try {
       onChange({ type: 'image', uri: await persistImage(a.uri) });
     } catch (e: any) {
-      Alert.alert('Не удалось установить фон', e?.message || '');
+      showError(e?.message || '', 'Не удалось установить фон');
     }
   };
 

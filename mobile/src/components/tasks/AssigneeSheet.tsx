@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, SectionList, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, SectionList, TextInput, ActivityIndicator } from 'react-native';
+import Modal from '../ui/AppModal';
 import { Check, HandHeart, Search, X } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';

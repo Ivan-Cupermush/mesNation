@@ -24,6 +24,7 @@ import UserAvatar from '../components/ui/UserAvatar';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
 import { firstNameOf } from '../utils/names';
+import { showError } from '../components/ui/toast';
 
 /**
  * «Поделиться новой версией?» — экран, который открывается из колокольчика,
@@ -61,7 +62,7 @@ export default function NoteRequestScreen({ navigation, route }: any) {
       setR(await api.getNoteRequest(requestId));
       Animated.timing(appear, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     } catch (e: any) {
-      Alert.alert('Запрос не найден', e?.message || 'Возможно, его уже удалили');
+      showError(e?.message || 'Возможно, его уже удалили', 'Запрос не найден');
       navigation.goBack();
     }
   }, [requestId, appear, navigation]);
@@ -81,7 +82,7 @@ export default function NoteRequestScreen({ navigation, route }: any) {
       setJustDone(true);
       refreshUnread();
     } catch (e: any) {
-      Alert.alert('Не удалось поделиться', e?.message || '');
+      showError(e?.message || '', 'Не удалось поделиться');
     } finally {
       setBusy(null);
     }

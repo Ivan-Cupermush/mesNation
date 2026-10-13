@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQrState } from '../features/qr/qrStore';
-import { BookOpen, ChartColumn, House, ListTodo, MessageCircle, NotebookPen, Settings, WifiOff } from 'lucide-react';
+import { BookOpen, ChartColumn, ListTodo, MessageCircle, NotebookPen, Settings, WifiOff } from 'lucide-react';
+import { dismissWelcome } from '../features/home/welcome';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useUnreadChatsCount } from '../features/chats/queries';
 import { useChatNotifications } from '../features/chats/notifications';
@@ -18,8 +19,8 @@ import s from './AppShell.module.css';
 // Окна QR (код, сканер с jsQR) грузятся, только когда их открыли.
 const QrHost = lazy(() => import('../features/qr/QrHost'));
 
+// Приветственной странице пункта нет: она встречает при входе и исчезает (features/home/welcome.ts).
 const NAV = [
-  { to: '/', label: 'Главная', icon: House },
   { to: '/tasks', label: 'Задачи', icon: ListTodo },
   { to: '/notes', label: 'Заметки', icon: NotebookPen },
   { to: '/stats', label: 'Статистика', icon: ChartColumn },
@@ -60,6 +61,11 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
+    // Перешли в любой раздел — приветствие больше не показываем.
+    if (location.pathname !== '/') dismissWelcome();
+  }, [location.pathname]);
+
+  useEffect(() => {
     document.title = unread > 0 ? `(${unread}) Offix` : 'Offix';
   }, [unread]);
 
@@ -75,7 +81,7 @@ export default function AppShell() {
         </div>
         <nav className={s.nav}>
           {items.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => [s.navItem, isActive && s.active].filter(Boolean).join(' ')} title={label}>
+            <NavLink key={to} to={to} className={({ isActive }) => [s.navItem, isActive && s.active].filter(Boolean).join(' ')} title={label}>
               <span className={s.navIcon}>
                 <Icon size={22} strokeWidth={2} />
                 {to === '/chats' && unread > 0 && <span className={s.badge}>{unread > 99 ? '99+' : unread}</span>}
@@ -111,7 +117,7 @@ export default function AppShell() {
 
       <nav className={s.tabbar} aria-label="Разделы">
         {items.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => [s.tab, isActive && s.tabActive].filter(Boolean).join(' ')}>
+          <NavLink key={to} to={to} className={({ isActive }) => [s.tab, isActive && s.tabActive].filter(Boolean).join(' ')}>
             <span className={s.navIcon}>
               <Icon size={23} strokeWidth={2} />
               {to === '/chats' && unread > 0 && <span className={s.badge}>{unread > 99 ? '99+' : unread}</span>}

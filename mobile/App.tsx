@@ -46,7 +46,7 @@ import TasksScreen from './src/screens/crm/TasksScreen';
 import NotesScreen from './src/screens/crm/NotesScreen';
 import NoteEditorScreen from './src/screens/crm/NoteEditorScreen';
 import KpiScreen from './src/screens/crm/KpiScreen';
-import HomeScreen from './src/screens/HomeScreen';
+import WelcomeScreen from './src/screens/WelcomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import EmployeeStatsScreen from './src/screens/crm/EmployeeStatsScreen';
 import ImportExcelScreen from './src/screens/crm/ImportExcelScreen';
@@ -114,7 +114,6 @@ type KpiStackParamList = {
 type KnowledgeStackParamList = { KnowledgeHome: undefined; KnowledgeDocuments: undefined };
 type AuthStackParamList = { Auth: undefined };
 
-type HomeStackParamList = { HomeMain: undefined };
 
 type RootStackParamList = {
   Main: undefined;
@@ -127,7 +126,7 @@ type RootStackParamList = {
 };
 
 type MainTabsParamList = {
-  HomeTab: undefined;
+  WelcomeTab: undefined;
   SettingsTab: undefined;
   TasksTab: undefined;
   NotesTab: undefined;
@@ -141,7 +140,6 @@ const TasksStack = createNativeStackNavigator<TasksStackParamList>();
 const NotesStack = createNativeStackNavigator<NotesStackParamList>();
 const KpiStack = createNativeStackNavigator<KpiStackParamList>();
 const KnowledgeStack = createNativeStackNavigator<KnowledgeStackParamList>();
-const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const SettingsStack = createNativeStackNavigator<any>();
 const Tab = createBottomTabNavigator<MainTabsParamList>();
@@ -261,24 +259,15 @@ function KnowledgeStackNavigator() {
 }
 
 // ========== Home Stack (стартовый экран) ==========
-function HomeStackNavigator() {
-  const headerStyle = useHeaderStyle();
-  return (
-    <HomeStack.Navigator screenOptions={headerStyle}>
-      <HomeStack.Screen name="HomeMain" component={HomeScreen} options={{ headerShown: false }} />
-    </HomeStack.Navigator>
-  );
-}
-
 // Корневые экраны вкладок — на них панель вкладок видна.
-const ROOT_SCREENS = new Set(['HomeMain', 'ChatList', 'TasksHome', 'NotesHome', 'KpiHome', 'KnowledgeHome', 'SettingsHome']);
+const ROOT_SCREENS = new Set(['ChatList', 'TasksHome', 'NotesHome', 'KpiHome', 'KnowledgeHome', 'SettingsHome']);
 function isRootScreen(route: any) {
   const name = getFocusedRouteNameFromRoute(route);
   return !name || ROOT_SCREENS.has(name);
 }
 
 // ========== Иконка вкладки ==========
-import { House, ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
+import { ListTodo, NotebookPen, ChartColumn, MessageCircle, BookOpen, Settings } from 'lucide-react-native';
 
 function TabIcon({ icon: Icon, focused }: { icon: any; focused: boolean }) {
   const { colors } = useTheme();
@@ -311,9 +300,17 @@ function SettingsStackNavigator({ onLogout }: { onLogout: () => void }) {
   );
 }
 
+/** Приветствие снова встречает утром: новый день и приложение было свёрнуто дольше часа. */
+const WELCOME_AGAIN_AFTER_MS = 60 * 60 * 1000;
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
 function MainTabs({ onLogout }: { onLogout: () => void }) {
   const { colors } = useTheme();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  // Приветственная страница — не вкладка: встречает при входе и исчезает,
+  // как только человек перешёл в любой раздел (вернуться в неё нельзя).
+  const [welcome, setWelcome] = useState(true);
+  const welcomeDay = useRef(dayKey());
 
   useEffect(() => {
     api.getCurrentUser()
@@ -321,8 +318,44 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
       .catch(console.error);
   }, []);
 
+  useEffect(() => {
+    let hiddenAt = 0;
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st !== 'active') {
+        if (!hiddenAt) hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (away >= WELCOME_AGAIN_AFTER_MS && dayKey() !== welcomeDay.current) {
+        welcomeDay.current = dayKey();
+        setWelcome(true);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  const wasWelcome = useRef(welcome);
+  useEffect(() => {
+    // Вернули приветствие (новый день) — открываем его поверх текущего раздела.
+    // При входе оно и так первое: переход по уведомлению не перебиваем.
+    const back = welcome && !wasWelcome.current;
+    wasWelcome.current = welcome;
+    if (back && navigationRef.isReady()) {
+      const t = setTimeout(() => navigationRef.navigate('WelcomeTab'), 0);
+      return () => clearTimeout(t);
+    }
+  }, [welcome]);
+
   return (
     <Tab.Navigator
+      screenListeners={{
+        state: (e: any) => {
+          const st = e.data?.state;
+          const focused = st?.routes?.[st.index]?.name;
+          if (focused && focused !== 'WelcomeTab') setWelcome(false);
+        },
+      }}
       screenOptions={({ route }) => ({
         headerShown: false,
         // Внутри разделов (чат, карточка задачи, редактор заметки…) панель
@@ -337,19 +370,19 @@ function MainTabs({ onLogout }: { onLogout: () => void }) {
         // на Xiaomi) считает сама библиотека по safe-area. Раньше жёсткие
         // height: 64 + paddingBottom: insets.bottom «сплющивали» или
         // поднимали панель на телефонах с режимом edge-to-edge.
-        // У директора 7 вкладок — подписи чуть мельче, чтобы «Статистика» помещалась на узких экранах.
+        // У директора 6 вкладок — подписи чуть мельче, чтобы «Статистика» помещалась на узких экранах.
         tabBarLabelStyle: { fontSize: currentUser?.is_director ? 10 : 11, fontWeight: '600' },
         tabBarHideOnKeyboard: true,
       })}
     >
-      <Tab.Screen
-        name="HomeTab"
-        component={HomeStackNavigator}
-        options={{
-          title: 'Главная',
-          tabBarIcon: ({ focused }) => <TabIcon icon={House} focused={focused} />,
-        }}
-      />
+      {welcome && (
+        <Tab.Screen
+          name="WelcomeTab"
+          component={WelcomeScreen}
+          // Кнопки в панели нет — у сотрудника пять вкладок, у директора шесть.
+          options={{ title: 'Добро пожаловать', tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
+        />
+      )}
       <Tab.Screen
         name="TasksTab"
         component={TasksStackNavigator}

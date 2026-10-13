@@ -1272,6 +1272,30 @@ describe('стартовая страница', () => {
     expect((await as(c.mgr2).get('/api/home?tz_offset=abc')).status).toBe(400);
   });
 
+  it('у директора продажи и KPI — суммарно по компании', async () => {
+    const { sumStats } = await import('../src/routes/home');
+    const base = { elapsed: 15, days: 31, workElapsed: 13, workDays: 26, reports: 1 };
+    const sum = sumStats([
+      { ...base, revenue: 1000.5, akb: 3, perDay: 100, quantity: 10, asOf: '2026-05-15', uploadedAt: '2026-05-15T10:00:00.000Z' },
+      { ...base, revenue: 2000.25, akb: 4, perDay: 150.5, quantity: 5, asOf: '2026-05-16', elapsed: 16, uploadedAt: '2026-05-16T09:00:00.000Z' },
+    ]);
+    expect(sum).toMatchObject({ revenue: 3000.75, akb: 7, perDay: 250.5, quantity: 15, asOf: '2026-05-16', elapsed: 16, reports: 2, people: 2 });
+    expect(sumStats([])).toBeNull();
+    // KPI сотрудника попадает в «Обратите внимание» директора — с именем.
+    const kpi = await as(c.dir).post('/api/kpi/sales/targets/assign', {
+      user_id: c.mgr1.id, product_name: 'Выручка компании', metric_type: 'amount', target_value: 100000, current_value: 10000,
+    });
+    expect(kpi.status, JSON.stringify(kpi.body)).toBeLessThan(300);
+    const dir = await as(c.dir).get('/api/home');
+    expect(dir.status, JSON.stringify(dir.body)).toBe(200);
+    expect(dir.body.scope).toBe('company');
+    expect(dir.body.kpi.people).toBeGreaterThanOrEqual(1);
+    expect(dir.body.kpi.focus.some((t: any) => t.user_name === 'MGR1')).toBe(true);
+    const mine = await as(c.mgr2).get('/api/home');
+    expect(mine.body.scope).toBe('me');
+    expect(mine.body.kpi.focus.some((t: any) => t.user_name === 'MGR1')).toBe(false);
+  });
+
   it('напутствие каждый раз другое', async () => {
     const { pickPhrase, PHRASES } = await import('../src/routes/home');
     expect(PHRASES.length).toBeGreaterThan(20);

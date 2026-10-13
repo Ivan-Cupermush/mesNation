@@ -3,14 +3,16 @@ import { z } from 'zod';
 import pool from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { CURRENT_DEADLINE_SQL, OVERDUE_SQL } from '../services/taskDeadlines';
-import { enrichTargets, reportStats, totalsOf } from '../services/kpi/store';
+import { enrichTargets, reportStats, totalsOf, type SalesStats } from '../services/kpi/store';
+import { getUserNode } from '../services/access';
 import { monthEnd } from '../services/kpi/text';
 import { splitFullName } from '../lib/names';
 
 /**
- * Стартовая страница: приветствие, напутствие (каждый раз новое), продажи за
- * месяц (те же 4 квадратика, что в статистике), KPI, на которые стоит обратить
- * внимание, и задачи на сегодня и в работе.
+ * Приветственная страница: приветствие, напутствие (каждый раз новое), продажи
+ * за месяц (те же 4 квадратика, что в статистике), KPI, на которые стоит
+ * обратить внимание, и задачи на сегодня и в работе. У директора продажи и KPI —
+ * суммарно по всей компании.
  */
 const router = Router();
 
@@ -55,6 +57,26 @@ const homeQuery = z.object({
   prev: z.coerce.number().int().min(0).optional(),
 });
 
+/**
+ * Продажи компании: сумма по сотрудникам. Средняя продажа в день — сумма
+ * средних (у каждого свой последний отчёт), дата — самый свежий отчёт.
+ */
+export function sumStats(list: SalesStats[]): (SalesStats & { people: number }) | null {
+  if (!list.length) return null;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const latest = list.reduce((a, b) => (b.asOf > a.asOf ? b : a));
+  return {
+    ...latest,
+    revenue: r2(list.reduce((s, x) => s + x.revenue, 0)),
+    akb: list.reduce((s, x) => s + x.akb, 0),
+    perDay: r2(list.reduce((s, x) => s + x.perDay, 0)),
+    quantity: r2(list.reduce((s, x) => s + x.quantity, 0)),
+    reports: list.reduce((s, x) => s + x.reports, 0),
+    uploadedAt: list.reduce((a, x) => (x.uploadedAt > a ? x.uploadedAt : a), latest.uploadedAt),
+    people: list.length,
+  };
+}
+
 function greetingFor(hour: number): string {
   if (hour >= 5 && hour < 12) return 'Доброе утро';
   if (hour >= 12 && hour < 17) return 'Добрый день';
@@ -82,14 +104,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   // Конец сегодняшнего дня по времени пользователя, в UTC.
   const dayEnd = new Date(Date.UTC(y, m, local.getUTCDate() + 1) + offset * 60_000);
 
+  // Директор видит продажи и KPI всей компании, остальные — свои.
+  const company = (await getUserNode(me)).isRoot;
+  const people: number[] = company
+    ? (await pool.query('SELECT id FROM users WHERE is_active ORDER BY id')).rows.map((r) => r.id)
+    : [me];
+
   const [user, targets, tasks] = await Promise.all([
     pool.query("SELECT id, COALESCE(NULLIF(display_name, ''), username) AS name, first_name FROM users WHERE id = $1", [me]),
     pool.query(
-      `SELECT * FROM sales_targets
-       WHERE user_id = $1 AND NOT is_personal_monthly_target AND period_start >= $2::date AND period_start <= $3::date
-         AND kpi_kind IS DISTINCT FROM 'fuel'
-       ORDER BY (source = 'kpi_file') DESC, sort_order, created_at`,
-      [me, month, monthEnd(month)],
+      `SELECT st.*, COALESCE(NULLIF(u.display_name, ''), u.username) AS user_name
+       FROM sales_targets st JOIN users u ON u.id = st.user_id
+       WHERE st.user_id = ANY($1::int[]) AND NOT st.is_personal_monthly_target
+         AND st.period_start >= $2::date AND st.period_start <= $3::date
+         AND st.kpi_kind IS DISTINCT FROM 'fuel'
+       ORDER BY (st.source = 'kpi_file') DESC, st.sort_order, st.created_at`,
+      [people, month, monthEnd(month)],
     ),
     // Мои задачи (я исполнитель): срок сегодня или уже прошёл, и всё, что в работе.
     pool.query(
@@ -106,12 +136,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   ]);
 
   const enriched = await enrichTargets(targets.rows);
-  const stats = (await reportStats([me], month)).get(me) ?? null;
+  const byUser = await reportStats(people, month);
+  const stats = company ? sumStats([...byUser.values()]) : (byUser.get(me) ?? null);
   // На что обратить внимание: показатели, план по которым ещё не выполнен, — с наименьшим процентом.
   const focus = enriched
     .filter((t) => t.payout_rule.type !== 'fixed' && Number(t.target_value) > 0 && t.calc.percent < 100)
     .sort((a, b) => a.calc.percent - b.calc.percent)
-    .slice(0, 3);
+    .slice(0, company ? 5 : 3);
   const phrase = pickPhrase(q.prev);
   const todayEnd = dayEnd.getTime();
 
@@ -122,8 +153,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     first_name: user.rows[0]?.first_name || splitFullName(user.rows[0]?.name).first || user.rows[0]?.name || '',
     phrase: { id: phrase, text: PHRASES[phrase] },
     month: month.slice(0, 7),
+    // company — суммарно по всем сотрудникам (у директора).
+    scope: company ? 'company' : 'me',
     stats,
     kpi: {
+      people: new Set(enriched.map((t) => t.user_id)).size,
       count: enriched.length,
       totals: enriched.length ? totalsOf(enriched) : null,
       focus,

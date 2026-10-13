@@ -9,6 +9,7 @@ import { connectSocket, disconnectSocket } from './src/services/socket';
 import { navigationRef, flushPendingNavigation } from './src/navigation/ref';
 import { startNotifications, stopNotifications } from './src/notifications';
 import { startInbox } from './src/notifications/inbox';
+import { loadContactNames, resetContactNames } from './src/services/contacts';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import NoteRequestScreen from './src/screens/NoteRequestScreen';
 import NotificationBanner from './src/components/NotificationBanner';
@@ -439,7 +440,12 @@ function RootNavigator() {
     if (isLoggedIn) {
       connectSocket();
       startNotifications().catch(() => undefined);
-      return startInbox();
+      loadContactNames();
+      const stopInbox = startInbox();
+      return () => {
+        stopInbox();
+        resetContactNames();
+      };
     }
   }, [isLoggedIn]);
 

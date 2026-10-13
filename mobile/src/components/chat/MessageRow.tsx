@@ -4,6 +4,7 @@ import { Check, CheckCheck, Clock, AlertCircle, FileText, CornerUpLeft, Download
 import { SERVER_URL } from '../../config';
 import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
+import ContactBubble from '../contacts/ContactCard';
 import { highlightParts } from '../ui/HighlightText';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
@@ -130,6 +131,7 @@ function MessageRow(props: Props) {
   const sub = mine ? C.textOutMuted : C.textMuted;
   const isPoll = !!main.poll;
   const isNote = !!main.note_share;
+  const isContact = !!main.contact;
   const isVoice = main.media_kind === 'voice' && !!main.file_url;
   const isVideoNote = main.media_kind === 'video_note' && !!main.file_url;
   const unlistened = isUnlistened(main, currentUserId);
@@ -247,7 +249,7 @@ function MessageRow(props: Props) {
             mediaOnly ? styles.mediaOnly : [styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, corners, { maxWidth: maxBubble }],
             (isVisual && !mediaOnly) && { width: mediaW + 6, padding: 3 },
             isPoll && styles.pollBubble,
-            isNote && styles.noteBubble,
+            (isNote || isContact) && styles.noteBubble,
           ]}
         >
           {showName && isGroup && !mine && (
@@ -326,6 +328,8 @@ function MessageRow(props: Props) {
               onOpenNote={props.onOpenNote}
             />
           )}
+
+          {isContact && <ContactBubble contact={main.contact} mine={mine} currentUserId={currentUserId} />}
 
           {caption && !isPoll ? (
             <Text

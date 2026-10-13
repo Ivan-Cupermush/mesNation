@@ -64,6 +64,7 @@ import NotePickerModal from '../components/chat/NotePickerModal';
 import { requestNoteVersion } from '../components/NoteShareBubble';
 import SearchResultsSheet from '../components/chat/SearchResultsSheet';
 import EmojiPanel from '../components/chat/EmojiPanel';
+import { contactName, useContactNames } from '../services/contacts';
 import { deleteLastSymbol } from '../components/chat/emojiData';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
@@ -120,7 +121,8 @@ export default function ChatScreen({ navigation }: any) {
   const { sendByEnter } = useTheme();
 
   const [chat, setChat] = useState<any>(null);
-  const chatName = chat?.name || route.params.chatName || 'Чат';
+  const peerAlias = chat?.type === 'private' ? contactName(chat?.peer?.id) : undefined;
+  const chatName = peerAlias || chat?.name || route.params.chatName || 'Чат';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -502,9 +504,18 @@ export default function ChatScreen({ navigation }: any) {
     return map;
   }, [chat]);
 
+  // Своё имя контакта (видно только мне) — вместо настоящего, как в Telegram.
+  const contactsVersion = useContactNames();
   const senderNameOf = useCallback(
-    (m: any): string => m.sender_display_name || m.sender_name || membersById[m.sender_id]?.display_name || membersById[m.sender_id]?.username || 'Участник',
-    [membersById],
+    (m: any): string =>
+      contactName(m.sender_id) ||
+      m.sender_display_name ||
+      m.sender_name ||
+      membersById[m.sender_id]?.display_name ||
+      membersById[m.sender_id]?.username ||
+      'Участник',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [membersById, contactsVersion],
   );
 
   const items: ListItem[] = useMemo(() => {

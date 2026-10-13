@@ -39,11 +39,15 @@ import {
   Wallpaper as WallpaperIcon,
   Bell,
   BellOff,
+  MoreVertical,
 } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request, upload } from '../services/http';
 import { subscribe } from '../services/socket';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
+import ContactMenu from '../components/contacts/ContactMenu';
+import { contactName, useContactNames } from '../services/contacts';
+import { showToast } from '../components/ui/toast';
 import { MUTE_OPTIONS, isMuted, muteLabel, setChatMute } from '../notifications/mute';
 import { C, hashColor, initials, lastSeenLabel, plural } from '../components/chat/chatUtils';
 
@@ -104,6 +108,8 @@ export default function ChatInfoScreen({ navigation }: any) {
   const [online, setOnline] = useState<Record<number, { online: boolean; last_seen_at?: string }>>({});
 
   const [renameOpen, setRenameOpen] = useState(false);
+  const [contactMenu, setContactMenu] = useState(false);
+  useContactNames();
   const [newName, setNewName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [memberMenu, setMemberMenu] = useState<any>(null);
@@ -162,9 +168,11 @@ export default function ChatInfoScreen({ navigation }: any) {
   const rights = chat.my_rights || {};
   const isGroup = chat.type === 'group';
   const members: any[] = chat.members || [];
-  const name = chat.name || 'Чат';
-  const onlineCount = members.filter((m) => online[m.id]?.online).length;
   const peer = chat.peer;
+  const realPeerName = peer ? peer.display_name || peer.username : '';
+  // Своё имя контакта (видно только мне), как в Telegram.
+  const name = (!isGroup && peer ? contactName(peer.id) || realPeerName : chat.name) || 'Чат';
+  const onlineCount = members.filter((m) => online[m.id]?.online).length;
 
   // ===== Действия =====
   const rename = async () => {
@@ -361,6 +369,10 @@ export default function ChatInfoScreen({ navigation }: any) {
           >
             <Pencil size={20} color={C.accent} />
           </TouchableOpacity>
+        ) : !isGroup && peer ? (
+          <TouchableOpacity onPress={() => setContactMenu(true)} style={styles.iconBtn} accessibilityLabel="Ещё">
+            <MoreVertical size={22} color={C.text} />
+          </TouchableOpacity>
         ) : (
           <View style={styles.iconBtn} />
         )}
@@ -380,6 +392,7 @@ export default function ChatInfoScreen({ navigation }: any) {
           <Text style={styles.heroName} numberOfLines={2}>
             {name}
           </Text>
+          {!isGroup && peer && contactName(peer.id) ? <Text style={styles.heroReal}>в профиле: {realPeerName}</Text> : null}
           <Text style={[styles.heroSub, !isGroup && online[peer?.id]?.online && { color: C.accent }]}>
             {isGroup
               ? `${chat.is_supergroup ? 'Группа с темами' : 'Группа'} · ${members.length} ${plural(members.length, ['участник', 'участника', 'участников'])}${onlineCount > 1 ? `, ${onlineCount} в сети` : ''}`
@@ -490,7 +503,7 @@ export default function ChatInfoScreen({ navigation }: any) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.memberName} numberOfLines={1}>
-                        {m.display_name || m.username}
+                        {contactName(m.id) || m.display_name || m.username}
                         {m.id === meId ? ' (вы)' : ''}
                       </Text>
                       <Text style={[styles.memberSub, pres?.online && { color: C.accent }]} numberOfLines={1}>
@@ -662,6 +675,14 @@ export default function ChatInfoScreen({ navigation }: any) {
           <SafeBottom />
         </View>
       </Modal>
+      {!isGroup && peer && (
+        <ContactMenu
+          visible={contactMenu}
+          onClose={() => setContactMenu(false)}
+          user={{ id: peer.id, username: peer.username, display_name: peer.display_name, avatar_url: peer.avatar_url }}
+          onDone={showToast}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -689,6 +710,7 @@ const styles = themed(() => ({
   },
   heroName: { fontSize: 22, fontWeight: '800', color: C.text, marginTop: 12, textAlign: 'center' },
   heroSub: { fontSize: 14, color: C.textMuted, marginTop: 4, textAlign: 'center' },
+  heroReal: { fontSize: 13, color: C.textMuted, marginTop: 2, textAlign: 'center' },
   heroAction: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 16, height: 40, borderRadius: 12, backgroundColor: C.accentSoft },
   heroActionText: { color: C.accent, fontWeight: '700', fontSize: 15 },
   card: { backgroundColor: T.card, marginHorizontal: 12, marginBottom: 12, borderRadius: 16, overflow: 'hidden' },

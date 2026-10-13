@@ -151,6 +151,10 @@ export const messagePreview = (m: any): string => {
   if (!m) return '';
   if (m.content_type === 'service') return m.text || '';
   if (m.poll_id || m.content_type === 'poll') return `📊 ${m.poll?.question || 'Опрос'}`;
+  if (m.contact_user_id || m.content_type === 'contact') {
+    const who = m.contact?.display_name || m.contact?.username || m.contact_name || 'Контакт';
+    return `👤 ${m.text || `Контакт: ${who}`}`;
+  }
   if (m.note_share_id || m.content_type === 'note') {
     if (m.text && m.text.startsWith('📝')) return m.text; // старый формат
     return `📝 ${m.text || m.note_share?.title || m.note_title || 'Заметка'}`;

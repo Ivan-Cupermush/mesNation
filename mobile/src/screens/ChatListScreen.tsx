@@ -22,6 +22,7 @@ import { request } from '../services/http';
 import { subscribe } from '../services/socket';
 import { fuzzyMatch, snippetAround } from '../utils/fuzzySearch';
 import HighlightText from '../components/ui/HighlightText';
+import { contactName, useContactNames } from '../services/contacts';
 import { searchableText } from '../components/chat/SearchResultsSheet';
 import { withAlpha } from '../theme/palettes';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
@@ -69,6 +70,7 @@ export default function ChatListScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  useContactNames();
   const [filter, setFilter] = useState<Filter>('all');
   const [online, setOnline] = useState<Set<number>>(new Set());
   const [users, setUsers] = useState<any[]>([]);
@@ -305,7 +307,8 @@ export default function ChatListScreen({ navigation }: any) {
     if (!lm) return { prefix: '', text: item.type === 'group' ? 'Группа создана' : 'Нет сообщений' };
     if (lm.content_type === 'service') return { prefix: '', text: lm.text };
     const preview = messagePreview({ ...lm, poll: lm.poll_question ? { question: lm.poll_question } : undefined });
-    const prefix = lm.sender_id === meId ? 'Вы: ' : item.type === 'group' && lm.sender_name ? `${lm.sender_name.split(' ')[0]}: ` : '';
+    const lmName = contactName(lm.sender_id) || lm.sender_name;
+    const prefix = lm.sender_id === meId ? 'Вы: ' : item.type === 'group' && lmName ? `${lmName.split(' ')[0]}: ` : '';
     return { prefix, text: preview };
   };
 
@@ -396,7 +399,7 @@ export default function ChatListScreen({ navigation }: any) {
           </View>
         )}
         {msgHits.map((m) => {
-          const who = m.sender_id === meId ? 'Вы' : m.sender_display_name || m.sender_name || '';
+          const who = m.sender_id === meId ? 'Вы' : contactName(m.sender_id) || m.sender_display_name || m.sender_name || '';
           const where = m.topic_title ? `${m.chat_name} › ${m.topic_title}` : m.chat_name;
           return (
             <TouchableOpacity key={m.id} style={styles.row} onPress={() => openHit(m)} activeOpacity={0.6}>

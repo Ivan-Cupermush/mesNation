@@ -756,14 +756,21 @@ describe('безопасность сессий', () => {
 });
 
 describe('мессенджер как в Telegram', () => {
-  it('участник группы не может исключать и переименовывать, админ — может', async () => {
+  it('участник группы не может исключать и включать темы, админ — может', async () => {
     const g = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Права', user_ids: [c.mgr2.id, c.bk.id] });
     const gid = g.body.id;
     expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(403);
-    expect((await as(c.mgr2).patch(`/api/chats/${gid}`, { name: 'Хаос' })).status).toBe(403);
+    // Обычная группа, как в Telegram: название и фото меняет любой участник, темы — нет.
+    expect((await as(c.mgr2).patch(`/api/chats/${gid}`, { name: 'Права и обязанности' })).status).toBe(200);
+    expect((await as(c.mgr2).patch(`/api/chats/${gid}`, { is_supergroup: true })).status).toBe(403);
     expect((await as(c.mgr2).post(`/api/chats/${gid}/members`, { user_ids: [c.acc.id] })).status).toBe(200);
     const info = await as(c.mgr2).get(`/api/chats/${gid}`);
-    expect(info.body.my_rights).toMatchObject({ can_add_users: true, can_ban_users: false, can_change_info: false });
+    expect(info.body.my_rights).toMatchObject({ can_add_users: true, can_ban_users: false, can_change_info: true, can_manage_topics: false });
+    expect((await as(c.mgr1).get(`/api/chats/${gid}`)).body.my_rights).toMatchObject({ can_change_info: true, can_manage_topics: true });
+    // В группе с темами название, фото и темы — только у владельца и админов.
+    const forum = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Форум прав', user_ids: [c.mgr2.id], is_supergroup: true });
+    expect((await as(c.mgr2).patch(`/api/chats/${forum.body.id}`, { name: 'Хаос' })).status).toBe(403);
+    expect((await as(c.mgr2).get(`/api/chats/${forum.body.id}`)).body.my_rights).toMatchObject({ can_change_info: false });
     expect((await as(c.mgr1).post(`/api/chats/${gid}/admins`, { user_id: c.mgr2.id })).status).toBeLessThan(300);
     expect((await as(c.mgr2).delete(`/api/chats/${gid}/members/${c.bk.id}`)).status).toBe(200);
     const texts = ((await as(c.mgr1).get(`/api/messages/${gid}`)).body as any[])

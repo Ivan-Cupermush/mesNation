@@ -157,10 +157,12 @@ export type ChatPermission = 'change_info' | 'delete_messages' | 'ban_users' | '
 
 /**
  * Права в групповом чате. Создатель может всё. Администратор — то, что ему выдали.
- * Обычный участник (так было договорено с заказчиком) может всё, кроме назначения
- * администраторов. Не участник не может ничего.
+ * Обычный участник — как в Telegram по умолчанию: приглашать людей и закреплять
+ * сообщения, а в обычной группе (без тем) ещё менять название и фото.
+ * Не участник не может ничего.
  */
 const MEMBER_PERMISSIONS: ChatPermission[] = ['add_users', 'pin_messages'];
+const BASIC_GROUP_MEMBER_PERMISSIONS: ChatPermission[] = [...MEMBER_PERMISSIONS, 'change_info'];
 
 export async function getChatRights(chatId: number, userId: number) {
   const { rows } = await pool.query(
@@ -180,11 +182,13 @@ export async function getChatRights(chatId: number, userId: number) {
     if (!isMember) return false;
     if (isCreator) return true;
     if (isAdmin) return (r.permissions as string[]).includes(perm);
-    // Обычный участник (как в Telegram по умолчанию): приглашать людей и
-    // закреплять сообщения. Исключать, удалять чужие сообщения, менять
-    // название/фото/темы и назначать админов — только владелец и админы.
-    return MEMBER_PERMISSIONS.includes(perm);
+    // Исключать, удалять чужие сообщения и назначать админов — только
+    // владелец и админы. Название и фото обычной группы меняет любой участник,
+    // в группе с темами — только владелец и админы.
+    return (r.type === 'group' && !r.is_supergroup ? BASIC_GROUP_MEMBER_PERMISSIONS : MEMBER_PERMISSIONS).includes(perm);
   };
+  /** Включать и выключать темы — только владелец и админы с правом на изменение группы. */
+  const canManageTopics = isMember && (isCreator || (isAdmin && (r.permissions as string[]).includes('change_info')));
   return {
     isMember,
     isCreator,
@@ -194,6 +198,7 @@ export async function getChatRights(chatId: number, userId: number) {
     isSupergroup: !!r.is_supergroup,
     createdBy: r.created_by as number,
     can,
+    canManageTopics,
   };
 }
 

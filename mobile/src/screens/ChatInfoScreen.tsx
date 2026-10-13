@@ -458,7 +458,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         </View>
 
         {/* ===== ТЕМЫ ===== */}
-        {isGroup && rights.can_change_info && (
+        {isGroup && (rights.can_manage_topics ?? rights.can_change_info) && (
           <View style={styles.card}>
             <View style={styles.row}>
               <View style={[styles.rowIcon, { backgroundColor: C.accentSoft }]}>

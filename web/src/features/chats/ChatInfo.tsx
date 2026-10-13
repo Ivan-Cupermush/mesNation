@@ -361,7 +361,7 @@ function GroupOrPrivateInfo() {
             )}
           </section>
 
-          {isGroup && rights.can_change_info && (
+          {isGroup && (rights.can_manage_topics ?? rights.can_change_info) && (
             <section className={s.card}>
               <label className={s.row}>
                 <span className={[s.rowIcon, s.toneAccent].join(' ')}>

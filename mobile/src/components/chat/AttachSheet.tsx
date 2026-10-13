@@ -10,6 +10,7 @@ import {
   StyleSheet,
   TextInput,
   ActivityIndicator,
+  Platform,
   Linking,
   Animated,
   useWindowDimensions,
@@ -19,7 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraRoll, PhotoIdentifier } from '@react-native-camera-roll/camera-roll';
 import { launchCamera } from 'react-native-image-picker';
-import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
+import { pick, keepLocalCopy, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import {
   Camera,
   Image as ImageIcon,
@@ -122,6 +123,7 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
   const [hasMore, setHasMore] = useState(true);
   const [selected, setSelected] = useState<string[]>([]); // uri в порядке выбора
   const [files, setFiles] = useState<PickedFile[]>([]);
+  const [preparing, setPreparing] = useState(false);
   const [caption, setCaption] = useState('');
   const [compress, setCompress] = useState(true);
   const [group, setGroup] = useState(true);
@@ -214,10 +216,11 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
     try {
       const res = await pick({ type: [types.allFiles], allowMultiSelection: true });
       const tooBig = res.filter((f) => (f.size || 0) > MAX_FILE_BYTES);
-      const ok = res
+      let ok: PickedFile[] = res
         .filter((f) => f.uri && (f.size || 0) <= MAX_FILE_BYTES)
         .map((f) => ({ uri: f.uri, name: f.name || 'Файл', type: f.type, size: f.size }));
       if (tooBig.length) Alert.alert('Слишком большой файл', `Файлы больше 200 МБ не отправляются: ${tooBig.map((f) => f.name).join(', ')}`);
+      ok = await keepCopies(ok);
       setFiles((prev) => {
         const seen = new Set(prev.map((f) => f.uri));
         return [...prev, ...ok.filter((f) => !seen.has(f.uri))];
@@ -225,6 +228,32 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
     } catch (err: any) {
       if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
       Alert.alert('Не удалось выбрать файл', err?.message || '');
+    }
+  };
+
+  /**
+   * Своя копия выбранного файла (Android): доступ к content:// от проводника
+   * или «Google Фото» действует, пока жив экран выбора, — без копии загрузка
+   * и повтор неотправленного после перезапуска падали.
+   */
+  const keepCopies = async (list: PickedFile[]): Promise<PickedFile[]> => {
+    const remote = list.filter((f) => f.uri.startsWith('content://'));
+    if (Platform.OS !== 'android' || !remote.length) return list;
+    setPreparing(true);
+    try {
+      const copies = await keepLocalCopy({
+        files: remote.map((f) => ({ uri: f.uri, fileName: f.name || 'file' })) as [{ uri: string; fileName: string }],
+        destination: 'cachesDirectory',
+      });
+      const local = new Map<string, string>();
+      copies.forEach((c) => {
+        if (c.status === 'success') local.set(c.sourceUri, c.localUri);
+      });
+      return list.map((f) => (local.has(f.uri) ? { ...f, uri: local.get(f.uri)! } : f));
+    } catch {
+      return list;
+    } finally {
+      setPreparing(false);
     }
   };
 
@@ -475,6 +504,14 @@ export default function AttachSheet({ visible, onClose, onSendMedia, onSendFiles
                   </TouchableOpacity>
                 </View>
               }
+              ListHeaderComponent={
+                preparing ? (
+                  <View style={styles.preparing}>
+                    <ActivityIndicator size="small" color={C.accent} />
+                    <Text style={styles.preparingText}>Готовим файлы…</Text>
+                  </View>
+                ) : null
+              }
               ListFooterComponent={
                 files.length ? (
                   <TouchableOpacity style={styles.addMore} onPress={pickDocuments} activeOpacity={0.7}>
@@ -722,6 +759,8 @@ const styles = themed(() => ({
   fileMeta: { fontSize: 12, color: T.textSecondary, marginTop: 2 },
   fileRemove: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: T.inputBg },
   addMore: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 14 },
+  preparing: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
+  preparingText: { fontSize: 14, color: T.textSecondary },
   addMoreText: { color: C.accent, fontSize: 15, fontWeight: '600' },
   asFileHint: {
     alignSelf: 'center',

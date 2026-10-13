@@ -38,6 +38,8 @@ export default function QrProfileScreen({ navigation }: any) {
   const userId: number | undefined = route.params?.userId;
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const [screen, setScreen] = useState({ w: width, h: height });
+  const [posterH, setPosterH] = useState(0);
   const { paletteId } = useTheme();
   const [user, setUser] = useState<Person | null>(null);
   const [meId, setMeId] = useState<number | null>(null);
@@ -125,9 +127,14 @@ export default function QrProfileScreen({ navigation }: any) {
   const t = theme || QR_THEMES[0];
 
   return (
-    <View style={[styles.root, { backgroundColor: t.bg[0] }]}>
+    <View
+      style={[styles.root, { backgroundColor: t.bg[0] }]}
+      onLayout={(e) => setScreen({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+    >
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <Svg style={styles.fill} width={width} height={height + insets.top + insets.bottom}>
+      {/* Фон рисуем по реальному размеру экрана (на Android с жестами окно меньше экрана —
+          фон по размеру окна обрезался снизу). */}
+      <Svg style={styles.fill} width={screen.w} height={screen.h}>
         <Defs>
           <LinearGradient id="screenBg" x1="0" y1="0" x2="0.4" y2="1">
             <Stop offset="0" stopColor={t.bg[0]} />
@@ -138,9 +145,9 @@ export default function QrProfileScreen({ navigation }: any) {
             <Stop offset="1" stopColor={t.bg[2]} stopOpacity={0} />
           </RadialGradient>
         </Defs>
-        <Rect x={0} y={0} width="100%" height="100%" fill="url(#screenBg)" />
-        <Circle cx={width * 0.85} cy={height * 0.12} r={width * 0.55} fill="url(#glow)" />
-        <Circle cx={width * 0.1} cy={height * 0.78} r={width * 0.6} fill="url(#glow)" />
+        <Rect x={0} y={0} width={screen.w} height={screen.h} fill="url(#screenBg)" />
+        <Circle cx={screen.w * 0.85} cy={screen.h * 0.12} r={screen.w * 0.55} fill="url(#glow)" />
+        <Circle cx={screen.w * 0.1} cy={screen.h * 0.78} r={screen.w * 0.6} fill="url(#glow)" />
       </Svg>
 
       {/* ===== Шапка ===== */}
@@ -169,15 +176,20 @@ export default function QrProfileScreen({ navigation }: any) {
         ) : (
           <>
             {/* ===== Постер: то, что уходит картинкой в «Поделиться» и галерею ===== */}
-            <View ref={poster} collapsable={false} style={[styles.poster, { width: posterW }]}>
-              <Svg style={styles.fill} width="100%" height="100%">
+            <View
+              ref={poster}
+              collapsable={false}
+              style={[styles.poster, { width: posterW }]}
+              onLayout={(e) => setPosterH(e.nativeEvent.layout.height)}
+            >
+              <Svg style={styles.fill} width={posterW} height={posterH || posterW * 1.4}>
                 <Defs>
                   <LinearGradient id="posterBg" x1="0" y1="0" x2="1" y2="1">
                     <Stop offset="0" stopColor={t.bg[1]} />
                     <Stop offset="1" stopColor={t.bg[2]} />
                   </LinearGradient>
                 </Defs>
-                <Rect x={0} y={0} width="100%" height="100%" fill="url(#posterBg)" />
+                <Rect x={0} y={0} width={posterW} height={posterH || posterW * 1.4} fill="url(#posterBg)" />
                 <Circle cx={posterW * 0.92} cy={40} r={70} fill="#FFFFFF" opacity={0.08} />
                 <Circle cx={posterW * 0.05} cy={posterW * 1.1} r={110} fill="#FFFFFF" opacity={0.07} />
               </Svg>

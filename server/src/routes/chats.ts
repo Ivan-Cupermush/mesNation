@@ -168,6 +168,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     is_creator: rights.isCreator,
     is_admin: rights.isAdmin,
     can_change_info: rights.can('change_info'),
+    can_manage_topics: rights.canManageTopics,
     can_add_users: rights.can('add_users'),
     can_ban_users: rights.can('ban_users'),
     can_delete_messages: rights.can('delete_messages'),
@@ -311,6 +312,9 @@ router.patch('/:id', validate(patchSchema), async (req: AuthRequest, res: Respon
   const { name, is_supergroup, keep_topic_id, merge } = req.body as z.infer<typeof patchSchema>;
   if (rights.type !== 'group' && (name !== undefined || is_supergroup !== undefined)) {
     throw badRequest('Личный чат нельзя переименовать или сделать супергруппой');
+  }
+  if (is_supergroup !== undefined && is_supergroup !== rights.isSupergroup && !rights.canManageTopics) {
+    throw forbidden('Темы включает и выключает владелец группы или администратор');
   }
 
   await withTransaction(async (client) => {

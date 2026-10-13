@@ -1,3 +1,5 @@
+import type { SharedContact } from '../contacts/ContactCard';
+
 /** Мессенджер: форма данных из server/src/routes/chats.ts и services/messages.ts. */
 
 export type ChatRole = 'creator' | 'admin' | 'member';
@@ -27,6 +29,8 @@ export interface LastMessage {
   note_share_id?: number | null;
   /** Название пересланной заметки (подпись — в text). */
   note_title?: string | null;
+  contact_user_id?: number | null;
+  contact_name?: string | null;
   poll_question: string | null;
   sender_name: string | null;
 }
@@ -145,6 +149,9 @@ export interface Message {
   reactions?: Reaction[] | null;
   note_share_id: number | null;
   note_share: NoteShareInfo | null;
+  contact_user_id?: number | null;
+  /** «Поделиться контактом»: карточка сотрудника. */
+  contact?: SharedContact | null;
   poll_question: string | null;
   sender_display_name: string | null;
   sender_name: string | null;

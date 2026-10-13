@@ -24,6 +24,7 @@ import type { Employee } from '../../lib/types';
 import s from './ChatList.module.css';
 import ShellActions from '../inbox/ShellActions';
 import { HighlightedText, hitTime, searchableText, useGlobalMessageSearch } from './SearchHits';
+import { useContactNames } from '../contacts/names';
 
 type Filter = 'all' | 'private' | 'groups' | 'unread';
 
@@ -47,6 +48,7 @@ export default function ChatList() {
   const [menu, setMenu] = useState<{ chat: Chat; anchor: MenuAnchor; mute?: boolean } | null>(null);
   const searching = query.trim().length > 0;
   const hits = useGlobalMessageSearch(query);
+  const { nameOf: contactNameOf } = useContactNames();
   const { data: users } = useUsers(searching);
 
   const peerIds = useMemo(() => (chats || []).filter((c) => c.type === 'private' && c.peer).map((c) => c.peer!.id), [chats]);
@@ -277,7 +279,7 @@ export default function ChatList() {
               {hits.loading && <Spinner size={14} />}
             </div>
             {hits.hits.map((m) => {
-              const who = m.sender_id === meId ? 'Вы' : m.sender_display_name || m.sender_name || '';
+              const who = m.sender_id === meId ? 'Вы' : contactNameOf(m.sender_id) || m.sender_display_name || m.sender_name || '';
               const where = m.topic_title ? `${m.chat_name} › ${m.topic_title}` : m.chat_name;
               const prefix = m.chat_type !== 'private' || who === 'Вы' ? `${who}: ` : '';
               return (
@@ -336,6 +338,7 @@ function ChatRow({
   onOpen: () => void;
   onMenu: (anchor: MenuAnchor) => void;
 }) {
+  const { nameOf: contactNameOf } = useContactNames();
   const lm = chat.last_message;
   const unread = chat.unread_count || 0;
   const muted = isMuted(chat.muted_until);
@@ -347,7 +350,8 @@ function ChatRow({
   else if (lm.content_type === 'service') text = lm.text || '';
   else {
     text = messagePreview(lm);
-    prefix = lm.sender_id === meId ? 'Вы: ' : chat.type === 'group' && lm.sender_name ? `${lm.sender_name.split(' ')[0]}: ` : '';
+    const lmName = contactNameOf(lm.sender_id) || lm.sender_name;
+    prefix = lm.sender_id === meId ? 'Вы: ' : chat.type === 'group' && lmName ? `${lmName.split(' ')[0]}: ` : '';
   }
   return (
     <div

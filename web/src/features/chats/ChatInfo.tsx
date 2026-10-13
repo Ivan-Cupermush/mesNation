@@ -23,6 +23,7 @@ import {
   UserMinus,
   UserPlus,
   UserRound,
+  MoreVertical,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, uploadFile } from '../../lib/http';
@@ -44,6 +45,8 @@ import { TopicIcon } from './topicIcons';
 import TopicEditor from './TopicEditor';
 import type { AdminPermission, Chat, ChatMember, Topic } from './types';
 import s from './ChatInfo.module.css';
+import ContactMenu from '../contacts/ContactMenu';
+import { useContactNames } from '../contacts/names';
 
 const PERMS: { key: AdminPermission; label: string }[] = [
   { key: 'change_info', label: 'Изменение названия, фото и тем' },
@@ -102,6 +105,8 @@ function GroupOrPrivateInfo() {
   const [topicsOff, setTopicsOff] = useState(false);
   const [uploading, setUploading] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
+  const [contactMenu, setContactMenu] = useState<MenuAnchor | null>(null);
+  const { nameOf: contactNameOf } = useContactNames();
 
   if (isLoading) return <PageLoader />;
   if (error || !chat) {
@@ -109,8 +114,10 @@ function GroupOrPrivateInfo() {
   }
 
   const rights = chat.my_rights;
-  const name = chat.name || 'Чат';
   const peer = chat.peer;
+  const realPeerName = peer ? displayName(peer) : '';
+  // Своё имя контакта (видно только мне), как в Telegram.
+  const name = (!isGroup && peer ? contactNameOf(peer.id) || realPeerName : chat.name) || 'Чат';
   const onlineCount = members.filter((m) => presence.get(m.id)?.online).length;
   const muted = isMuted(chat.muted_until);
   const refresh = () => {
@@ -263,7 +270,19 @@ function GroupOrPrivateInfo() {
             <Pencil size={19} />
           </IconButton>
         )}
+        {!isGroup && peer && (
+          <IconButton label="Ещё" onClick={(e) => setContactMenu(anchorFrom(e.currentTarget))}>
+            <MoreVertical size={21} />
+          </IconButton>
+        )}
       </header>
+      {!isGroup && peer && (
+        <ContactMenu
+          anchor={contactMenu}
+          onClose={() => setContactMenu(null)}
+          user={{ id: peer.id, username: peer.username, display_name: peer.display_name ?? null, avatar_url: peer.avatar_url ?? null }}
+        />
+      )}
 
       <div className={s.scroll}>
         <div className={s.inner}>
@@ -288,6 +307,7 @@ function GroupOrPrivateInfo() {
               />
             </div>
             <h1 className={s.heroName}>{name}</h1>
+            {!isGroup && peer && contactNameOf(peer.id) && <div className={s.heroSub}>в профиле: {realPeerName}</div>}
             <div className={[s.heroSub, !isGroup && peerPresence?.online && s.accent].filter(Boolean).join(' ')}>
               {isGroup
                 ? `${chat.is_supergroup ? 'Группа с темами' : 'Группа'} · ${members.length} ${plural(members.length, ['участник', 'участника', 'участников'])}${onlineCount > 1 ? `, ${onlineCount} в сети` : ''}`

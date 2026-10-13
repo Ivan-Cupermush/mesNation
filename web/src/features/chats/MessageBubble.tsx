@@ -13,6 +13,7 @@ import VideoNoteBubble from './voice/VideoNoteBubble';
 import type { Message, Reaction } from './types';
 import type { MenuAnchor } from '../../ui/menuAnchor';
 import s from './MessageBubble.module.css';
+import ContactBubble from '../contacts/ContactCard';
 
 interface Props {
   row: Row;
@@ -245,6 +246,8 @@ function MessageBubble(props: Props) {
           <NoteShareBubble share={main.note_share} meId={meId} mine={mine} onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)} onOpenNote={props.onOpenNote} />
         )}
 
+        {main.contact && <ContactBubble contact={main.contact} mine={mine} meId={meId} />}
+
         {caption && (
           <div className={[s.text, isVisual && s.captionInMedia].filter(Boolean).join(' ')}>
             <Linkified text={caption} query={props.searchQuery} />
@@ -254,6 +257,8 @@ function MessageBubble(props: Props) {
             </span>
           </div>
         )}
+        {/* Заметка или контакт без подписи — место под время, чтобы оно не ложилось на карточку. */}
+        {(isNote || !!main.contact) && !caption && !reactionsRow && <div className={s.cardMetaRoom} />}
         {reactionsRow && <div className={[s.reactionsWrap, isVisual && s.reactionsInMedia, mediaOnly && s.reactionsUnderMedia].filter(Boolean).join(' ')}>{reactionsRow}</div>}
         {!(isVisual && !caption && !reactions) && (
           <span className={[s.metaAbs, isVisual && s.metaAbsMedia].filter(Boolean).join(' ')}>{meta(mediaOnly)}</span>

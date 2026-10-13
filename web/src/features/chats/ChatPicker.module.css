@@ -100,3 +100,9 @@
 .comment textarea:focus {
   border-color: var(--c-accent);
 }
+
+.preview {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 18px 0;
+}

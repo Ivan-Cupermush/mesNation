@@ -66,6 +66,7 @@ import { seekVoice, setVoiceHandlers, toggleVoice } from './voice/voicePlayer';
 import type { Recording } from './voice/useRecorder';
 import type { Message, Reaction, ScheduledMessage } from './types';
 import s from './ChatView.module.css';
+import { useContactNames } from '../contacts/names';
 
 type Typing = Record<number, { name: string; at: number }>;
 
@@ -298,9 +299,18 @@ export default function ChatView() {
 
   // ===== Лента =====
   const membersById = useMemo(() => new Map((chat?.members || []).map((m) => [m.id, m])), [chat]);
+  // Своё имя контакта (видно только мне) — вместо настоящего, как в Telegram.
+  const { nameOf: contactNameOf } = useContactNames();
   const senderNameOf = useCallback(
-    (m: Message) => m.sender_display_name || m.sender_name || membersById.get(m.sender_id)?.display_name || membersById.get(m.sender_id)?.username || 'Участник',
-    [membersById],
+    (m: Message) =>
+      contactNameOf(m.sender_id) ||
+      m.sender_display_name ||
+      m.sender_name ||
+      membersById.get(m.sender_id)?.display_name ||
+      membersById.get(m.sender_id)?.username ||
+      'Участник',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [membersById, contactNameOf],
   );
   const items = useMemo(() => buildFeed(messages, me.id, unreadAnchor), [messages, me.id, unreadAnchor]);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);

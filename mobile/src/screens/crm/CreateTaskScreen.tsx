@@ -26,8 +26,14 @@ import {
   Paperclip,
   Plus,
   X,
-  ChevronRight
+  ChevronRight,
+  HandHeart,
+  ListTodo
 } from 'lucide-react-native';
+import AssigneeSheet from '../../components/tasks/AssigneeSheet';
+import type { TaskKind } from '../../components/tasks/kind';
+import { showToast } from '../../components/ui/toast';
+import { withAlpha } from '../../theme/palettes';
 import { api } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 
@@ -38,6 +44,11 @@ interface User {
   username: string;
   display_name: string;
   avatar_url?: string | null;
+  role_name?: string;
+  relation?: 'self' | 'subordinate' | 'colleague';
+  same_role?: boolean;
+  can_task?: boolean;
+  can_request?: boolean;
 }
 
 interface DraftCheckpoint {
@@ -59,6 +70,10 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   const isEdit = !!editTaskId;
   // «Создать задачу» из сообщения чата: название и описание уже заполнены.
   const prefillFrom: { title?: string; description?: string } | undefined = route?.params?.prefill;
+  // Задача или просьба: выбрали по «+»; у сохранённой — её тип (подставится при загрузке).
+  const [kind, setKindState] = useState<TaskKind>(route?.params?.kind === 'request' ? 'request' : 'task');
+  const request = kind === 'request';
+  const [myRole, setMyRole] = useState<string | null>(null);
   const [title, setTitle] = useState(prefillFrom?.title || '');
   const [description, setDescription] = useState(prefillFrom?.description || '');
   const [importance, setImportance] = useState<'green' | 'yellow' | 'red'>('yellow');
@@ -87,6 +102,8 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   const snapshot = JSON.stringify([title, description, importance, executorDeadline, reviewerDeadline, selectedAssignees.map((u) => u.id), selectedWatchers.map((u) => u.id), checkpoints.length, files.length]);
   const snapshotRef = React.useRef(snapshot);
   snapshotRef.current = snapshot;
+  const kindRef = React.useRef(kind);
+  kindRef.current = kind;
   useEffect(() => {
     if (!prefilling) initialRef.current = snapshotRef.current;
   }, [prefilling]);
@@ -95,7 +112,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       navigation.addListener('beforeRemove', (e: any) => {
         if (savedRef.current || prefilling || snapshotRef.current === initialRef.current) return;
         e.preventDefault();
-        Alert.alert(isEdit ? 'Отменить изменения?' : 'Отменить создание задачи?', 'Введённые данные не сохранятся.', [
+        Alert.alert(isEdit ? 'Отменить изменения?' : kindRef.current === 'request' ? 'Не отправлять просьбу?' : 'Отменить создание задачи?', 'Введённые данные не сохранятся.', [
           { text: 'Остаться', style: 'cancel' },
           { text: 'Выйти', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
         ]);
@@ -119,6 +136,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       // Наблюдателем можно назначить любого активного сотрудника.
       setWatcherCandidates(all.map((u) => ({ id: u.id, username: u.username, display_name: u.display_name || u.username, avatar_url: u.avatar_url })));
       setMeId(me.id);
+      setMyRole(me.role_name || null);
     } catch (e: any) {
       Alert.alert('Не удалось загрузить сотрудников', e?.message || '');
     }
@@ -127,9 +145,10 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   const prefill = async (id: number) => {
     try {
       const task = await api.getTask(id);
+      setKindState(task.kind === 'request' ? 'request' : 'task');
       setTitle(task.title);
       setDescription(task.description || '');
-      setImportance(task.importance);
+      setImportance(task.importance || 'yellow');
       const ex = task.executor_deadline || task.hard_deadline;
       setExecutorDeadline(ex ? new Date(ex) : null);
       setReviewerDeadline(task.reviewer_deadline ? new Date(task.reviewer_deadline) : null);
@@ -173,16 +192,29 @@ export default function CreateTaskScreen({ navigation, route }: any) {
     });
   };
 
+  /** Сменить тип при создании: задачу коллегам поставить нельзя — их убираем. */
+  const setKind = (next: TaskKind) => {
+    if (next === kind || isEdit) return;
+    if (next === 'task') {
+      const removed = selectedAssignees.filter((u) => availableUsers.find((a) => a.id === u.id)?.can_task === false);
+      if (removed.length) {
+        setSelectedAssignees((prev) => prev.filter((u) => !removed.some((r) => r.id === u.id)));
+        showToast(`Коллегам задачу поставить нельзя — убрали: ${removed.map((u) => u.display_name || u.username).join(', ')}`);
+      }
+    }
+    setKindState(next);
+  };
+
   const handleCreate = async () => {
     if (!title.trim()) {
-      Alert.alert('Ошибка', 'Введите название задачи');
+      Alert.alert(request ? 'О чём просите?' : 'Ошибка', request ? 'Напишите, о чём просите коллегу' : 'Введите название задачи');
       return;
     }
     if (selectedAssignees.length === 0) {
-      Alert.alert('Ошибка', 'Выберите хотя бы одного исполнителя');
+      Alert.alert(request ? 'Кого попросить?' : 'Ошибка', request ? 'Выберите, кого попросить' : 'Выберите хотя бы одного исполнителя');
       return;
     }
-    if (executorDeadline && reviewerDeadline && reviewerDeadline > executorDeadline) {
+    if (!request && executorDeadline && reviewerDeadline && reviewerDeadline > executorDeadline) {
       Alert.alert(
         'Проверьте сроки',
         'Дедлайн проверки должен быть не позже дедлайна выполнения: к общему сроку задача уже проверена и закрыта.',
@@ -196,25 +228,34 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         await api.updateTask(editTaskId!, {
           title: title.trim(),
           description: description.trim() || null,
-          importance,
           executor_deadline: executorDeadline ? executorDeadline.toISOString() : null,
-          reviewer_deadline: reviewerDeadline ? reviewerDeadline.toISOString() : null,
           assignee_ids: selectedAssignees.map((u) => u.id),
-          watcher_ids: selectedWatchers.map((u) => u.id),
+          ...(request
+            ? {}
+            : {
+                importance,
+                reviewer_deadline: reviewerDeadline ? reviewerDeadline.toISOString() : null,
+                watcher_ids: selectedWatchers.map((u) => u.id),
+              }),
         });
         savedRef.current = true;
         navigation.goBack();
         return;
       }
       const task = await api.createTask({
+        kind,
         title: title.trim(),
         description: description.trim() || undefined,
-        importance,
         assignee_ids: selectedAssignees.map((u) => u.id),
-        watcher_ids: selectedWatchers.length ? selectedWatchers.map((u) => u.id) : undefined,
         executor_deadline: executorDeadline?.toISOString(),
-        reviewer_deadline: reviewerDeadline?.toISOString(),
         checkpoints: checkpoints.map((c) => ({ title: c.title, deadline: c.deadline.toISOString() })),
+        ...(request
+          ? {}
+          : {
+              importance,
+              watcher_ids: selectedWatchers.length ? selectedWatchers.map((u) => u.id) : undefined,
+              reviewer_deadline: reviewerDeadline?.toISOString(),
+            }),
       });
       savedRef.current = true;
       // Файлы загружаем после создания задачи; ошибка одного файла не теряет задачу.
@@ -227,14 +268,18 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         }
       }
       if (failed.length) {
-        Alert.alert('Задача создана', `Не удалось прикрепить: ${failed.join(', ')}. Добавьте их в карточке задачи.`, [
+        Alert.alert(request ? 'Просьба отправлена' : 'Задача создана', `Не удалось прикрепить: ${failed.join(', ')}. Добавьте их в карточке.`, [
           { text: 'OK', onPress: () => navigation.replace('TaskDetail', { taskId: task.id }) },
         ]);
       } else {
+        if (request) {
+          const one = selectedAssignees.length === 1 && selectedAssignees[0].id !== meId ? selectedAssignees[0] : null;
+          showToast(one ? `Просьба отправлена — ${one.display_name || one.username} получит уведомление` : 'Просьба отправлена');
+        }
         navigation.replace('TaskDetail', { taskId: task.id });
       }
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось сохранить задачу');
+      Alert.alert('Ошибка', e.message || (request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу'));
     } finally {
       setLoading(false);
     }
@@ -332,15 +377,17 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
+          <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : request ? 'НОВАЯ ПРОСЬБА' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
         </View>
         <TouchableOpacity
           onPress={handleCreate}
           disabled={loading || !title.trim()}
           style={[
             styles.headerCreateBtn,
+            request && { backgroundColor: T.violet },
             (loading || !title.trim()) && styles.headerCreateBtnDisabled,
           ]}
+          accessibilityLabel={isEdit ? 'Сохранить' : request ? 'Попросить' : 'Создать задачу'}
         >
           {loading ? (
             <ActivityIndicator color={T.onAccent} size="small" />
@@ -361,6 +408,33 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* ===== Задача или просьба ===== */}
+        {!isEdit && (
+          <View style={styles.kindSwitch}>
+            {(['task', 'request'] as const).map((k) => {
+              const on = kind === k;
+              const color = on ? (k === 'request' ? T.violet : T.accent) : T.textSecondary;
+              return (
+                <TouchableOpacity key={k} onPress={() => setKind(k)} activeOpacity={0.8} style={[styles.kindTab, on && styles.kindTabOn]}>
+                  {k === 'request' ? <HandHeart size={17} color={color} strokeWidth={2.2} /> : <ListTodo size={17} color={color} strokeWidth={2.2} />}
+                  <Text style={[styles.kindTabText, { color }]}>{k === 'request' ? 'Просьба' : 'Задача'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+        {request && (
+          <View style={styles.requestIntro}>
+            <View style={styles.requestIntroIcon}>
+              <HandHeart size={20} color={T.violet} strokeWidth={2.2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.requestIntroTitle}>Попросите коллегу помочь</Text>
+              <Text style={styles.requestIntroText}>Без важности и проверки: коллега сделает и отметит «Готово», а вы сможете сказать спасибо.</Text>
+            </View>
+          </View>
+        )}
+
         {/* ===== КАРТОЧКА 1: Основная информация ===== */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -370,10 +444,10 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             <Text style={styles.cardTitle}>Основная информация</Text>
           </View>
 
-          <Text style={styles.fieldLabel}>Название</Text>
+          <Text style={styles.fieldLabel}>{request ? 'О чём просите' : 'Название'}</Text>
           <TextInput
             style={styles.textInput}
-            placeholder="Например: Подготовить квартальный отчёт"
+            placeholder={request ? 'Например: подменить меня на звонке в 15:00' : 'Например: Подготовить квартальный отчёт'}
             placeholderTextColor={T.textMuted}
             value={title}
             onChangeText={setTitle}
@@ -384,7 +458,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <Text style={styles.fieldLabel}>Описание</Text>
           <TextInput
             style={[styles.textInput, styles.textArea]}
-            placeholder="Детали задачи, ожидаемый результат..."
+            placeholder={request ? 'Подробности, чтобы коллеге было проще помочь…' : 'Детали задачи, ожидаемый результат...'}
             placeholderTextColor={T.textMuted}
             value={description}
             onChangeText={setDescription}
@@ -394,7 +468,8 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           />
         </View>
 
-        {/* ===== КАРТОЧКА 2: Приоритет ===== */}
+        {/* ===== КАРТОЧКА 2: Приоритет (у просьбы нет) ===== */}
+        {!request && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.cardIconWrap}>
@@ -440,6 +515,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             })}
           </View>
         </View>
+        )}
 
         {/* ===== КАРТОЧКА 3: Дедлайны ===== */}
         <View style={styles.card}>
@@ -450,8 +526,10 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             <Text style={styles.cardTitle}>Сроки</Text>
           </View>
 
-          <Text style={styles.fieldLabel}>Дедлайн выполнения</Text>
-          <Text style={styles.fieldHintTop}>Общий срок задачи — к нему она должна быть полностью завершена</Text>
+          <Text style={styles.fieldLabel}>{request ? 'Когда нужно' : 'Дедлайн выполнения'}</Text>
+          <Text style={styles.fieldHintTop}>
+            {request ? 'Необязательно — без срока коллега поможет, когда сможет' : 'Общий срок задачи — к нему она должна быть полностью завершена'}
+          </Text>
           <TouchableOpacity
             onPress={() => setShowExecutorDatePicker(true)}
             style={styles.dateRow}
@@ -476,6 +554,8 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             )}
           </TouchableOpacity>
 
+          {!request && (
+          <>
           <View style={styles.divider} />
 
           <Text style={styles.fieldLabel}>Дедлайн проверки</Text>
@@ -523,6 +603,8 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               </View>
             </View>
           )}
+          </>
+          )}
         </View>
 
         {/* ===== КАРТОЧКА 4: Участники ===== */}
@@ -531,7 +613,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             <View style={styles.cardIconWrap}>
               <Users size={18} color={T.accent} strokeWidth={2} />
             </View>
-            <Text style={styles.cardTitle}>Участники</Text>
+            <Text style={styles.cardTitle}>{request ? 'Кого попросить' : 'Участники'}</Text>
           </View>
 
           <TouchableOpacity
@@ -540,7 +622,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             activeOpacity={0.7}
           >
             <Text style={styles.participantsLabel}>
-              Исполнители <Text style={styles.required}>*</Text>
+              {request ? 'Коллеги' : 'Исполнители'} <Text style={styles.required}>*</Text>
             </Text>
             <View style={styles.participantsRight}>
               {selectedAssignees.length > 0 ? (
@@ -577,6 +659,14 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             </View>
           </TouchableOpacity>
 
+          {request ? (
+            <Text style={styles.fieldHint}>
+              {selectedAssignees.length === 1 && selectedAssignees[0].id === meId
+                ? 'Просьба себе — как напоминание: отметите «Готово», когда сделаете.'
+                : 'Коллега получит уведомление и отметит «Готово», когда поможет.'}
+            </Text>
+          ) : (
+          <>
           <View style={styles.divider} />
 
           <TouchableOpacity
@@ -599,6 +689,8 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               <ChevronRight size={18} color={T.textMuted} strokeWidth={2} />
             </View>
           </TouchableOpacity>
+          </>
+          )}
         </View>
 
         {/* ===== КАРТОЧКА 5: Файлы ===== */}
@@ -663,7 +755,9 @@ export default function CreateTaskScreen({ navigation, route }: any) {
             <Plus size={18} color={T.accent} strokeWidth={2.5} />
             <Text style={styles.addBtnText}>Выбрать дату и добавить</Text>
           </TouchableOpacity>
-          <Text style={styles.fieldHint}>Промежуточные сроки: наблюдатель отмечает, выполнены ли они</Text>
+          <Text style={styles.fieldHint}>
+            {request ? 'Этапы со своими сроками — их отмечаете вы и тот, кого попросили' : 'Промежуточные сроки: наблюдатель отмечает, выполнены ли они'}
+          </Text>
         </View>
         )}
 
@@ -673,14 +767,17 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       )}
 
       {/* ===== МОДАЛКИ ===== */}
-      {renderUsersModal(
-        showAssigneesModal,
-        () => setShowAssigneesModal(false),
-        selectedAssignees,
-        setSelectedAssignees,
-        'Исполнители',
-        availableUsers,
-      )}
+      <AssigneeSheet
+        visible={showAssigneesModal}
+        onClose={() => setShowAssigneesModal(false)}
+        users={availableUsers as any}
+        kind={kind}
+        meId={meId}
+        myRole={myRole}
+        selected={selectedAssignees.map((u) => u.id)}
+        onToggle={(u) => toggleUser(u as User, selectedAssignees, setSelectedAssignees)}
+        onSwitchToRequest={isEdit ? undefined : () => setKind('request')}
+      />
       {renderUsersModal(
         showWatchersModal,
         () => setShowWatchersModal(false),
@@ -709,7 +806,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         visible={showExecutorDatePicker}
         initialDate={executorDeadline}
         minDate={new Date()}
-        title="Дедлайн выполнения"
+        title={request ? 'Когда нужно' : 'Дедлайн выполнения'}
         onClose={() => setShowExecutorDatePicker(false)}
         onSave={(d: Date) => { setExecutorDeadline(d); setShowExecutorDatePicker(false); }}
       />
@@ -728,6 +825,14 @@ export default function CreateTaskScreen({ navigation, route }: any) {
 }
 
 const styles = themed(() => ({
+  kindSwitch: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: 16, backgroundColor: T.inputBg, marginBottom: 12 },
+  kindTab: { flex: 1, height: 42, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  kindTabOn: { backgroundColor: T.card, shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  kindTabText: { fontSize: 15, fontWeight: '800' },
+  requestIntro: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 20, marginBottom: 12, backgroundColor: T.violetSoft, borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.22) },
+  requestIntroIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: T.card, alignItems: 'center', justifyContent: 'center' },
+  requestIntroTitle: { fontSize: 15, fontWeight: '800', color: T.textPrimary },
+  requestIntroText: { fontSize: 13, lineHeight: 18, color: T.textSecondary, marginTop: 2 },
   fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   fileName: { flex: 1, fontSize: 14, color: T.textPrimary },
   container: {

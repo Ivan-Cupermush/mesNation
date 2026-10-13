@@ -39,12 +39,15 @@ const PRIORITY_THICKNESS = {
 };
 
 const getTaskColor = (task: Task): string => {
+  // Просьба — фиолетовая полоса (важности у неё нет).
+  if (task.kind === 'request') return '#7C5CFA';
   if (task.importance === 'red') return PRIORITY_COLORS.high;
   if (task.importance === 'yellow') return PRIORITY_COLORS.medium;
   return PRIORITY_COLORS.low;
 };
 
 const getTaskThickness = (task: Task): number => {
+  if (task.kind === 'request') return PRIORITY_THICKNESS.medium;
   const key = task.importance === 'red' ? 'high' : task.importance === 'yellow' ? 'medium' : 'low';
   return PRIORITY_THICKNESS[key];
 };
@@ -130,7 +133,7 @@ const getTaskPositionInWeek = (task: Task, week: WeekRow): { left: number; width
 const sortTasks = (tasks: Task[]): Task[] => {
   const priorityOrder = { red: 0, yellow: 1, green: 2 };
   return [...tasks].sort((a, b) => {
-    const priorityDiff = (priorityOrder[a.importance] || 2) - (priorityOrder[b.importance] || 2);
+    const priorityDiff = (priorityOrder[a.importance ?? 'yellow'] ?? 2) - (priorityOrder[b.importance ?? 'yellow'] ?? 2);
     if (priorityDiff !== 0) return priorityDiff;
     
     const deadlineA = a.executor_deadline || a.hard_deadline;

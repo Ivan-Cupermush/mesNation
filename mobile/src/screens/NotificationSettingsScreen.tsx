@@ -85,6 +85,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         await showTaskNotification({
           type: 'task',
           kind: 'assigned',
+          isRequest: false,
           taskId: 0,
           title: 'Подготовить коммерческое предложение',
           description: 'Для клиента «Север», с расчётом скидки',

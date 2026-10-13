@@ -193,11 +193,13 @@ function startSocketFallback(): () => void {
       try {
         const t = await request<any>(`/api/tasks/${e.task_id}`);
         if (!t?.is_assignee || t.is_creator) return;
+        const isReq = t.kind === 'request';
         const push: TaskPush = {
           type: 'task',
-          kind: 'assigned',
+          kind: isReq ? 'request' : 'assigned',
+          isRequest: isReq,
           taskId: t.id,
-          title: t.title || 'Задача',
+          title: t.title || (isReq ? 'Просьба' : 'Задача'),
           description: t.description || '',
           importance: t.importance || 'yellow',
           deadline: t.executor_deadline || t.hard_deadline || '',

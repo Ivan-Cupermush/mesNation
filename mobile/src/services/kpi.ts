@@ -123,6 +123,7 @@ export interface KpiPerson {
 /** Стартовая страница (GET /api/home). */
 export interface HomeTask {
   id: number;
+  kind?: 'task' | 'request';
   title: string;
   status: string;
   importance: string;

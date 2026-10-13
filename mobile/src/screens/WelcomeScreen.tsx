@@ -7,6 +7,7 @@ import {
   AlertCircle,
   CalendarClock,
   ChevronRight,
+  HandHeart,
   ListTodo,
   Moon,
   Quote,
@@ -286,7 +287,11 @@ export default function WelcomeScreen({ navigation }: any) {
                         {t.deadline ? (t.is_overdue ? ' · просрочена' : t.due_today ? ` · сегодня до ${time(t.deadline)}` : '') : ''}
                       </Text>
                     </View>
-                    <View style={[styles.dot, { backgroundColor: importanceColor(t.importance) }]} />
+                    {t.kind === 'request' ? (
+                      <HandHeart size={15} color={T.violet} />
+                    ) : (
+                      <View style={[styles.dot, { backgroundColor: importanceColor(t.importance) }]} />
+                    )}
                     <ChevronRight size={16} color={T.textMuted} />
                   </TouchableOpacity>
                 );

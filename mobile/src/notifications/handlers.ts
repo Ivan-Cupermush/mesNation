@@ -106,7 +106,20 @@ export async function handleNotificationEvent({ type, detail }: Event): Promise<
     if (data.type === 'task') {
       const taskId = Number(data.task_id);
       if (action === 'default') return openFromData(data);
-      const to = action === 'task_take' ? 'in_progress' : action === 'task_accept' ? 'done' : action === 'task_reject' ? 'rejected' : null;
+      if (action === 'task_thanks') {
+        // «Спасибо» за выполненную просьбу — прямо из шторки.
+        await request(`/api/tasks/${taskId}/thanks`, { method: 'POST' });
+        await clearTaskNotification(taskId);
+        return;
+      }
+      const to =
+        action === 'task_take'
+          ? 'in_progress'
+          : action === 'task_accept' || action === 'task_done'
+            ? 'done'
+            : action === 'task_reject'
+              ? 'rejected'
+              : null;
       if (!to) return;
       if (to === 'rejected' && !input) {
         // Без причины вернуть нельзя — открываем задачу.

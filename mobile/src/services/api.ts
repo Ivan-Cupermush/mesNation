@@ -59,11 +59,16 @@ export interface TaskTransition {
 
 export interface Task {
   id: number;
+  /** Задача или просьба (у просьбы нет важности, наблюдателей и проверки). */
+  kind?: 'task' | 'request';
+  /** Просивший сказал «спасибо» за выполненную просьбу. */
+  thanked_at?: string | null;
   /** Действия со статусом, доступные текущему пользователю (приходят с сервера). */
   available_transitions?: TaskTransition[];
   title: string;
   description: string;
-  importance: 'green' | 'yellow' | 'red';
+  /** У просьбы — null. */
+  importance: 'green' | 'yellow' | 'red' | null;
   hard_deadline: string | null;
   executor_deadline: string | null;
   reviewer_deadline: string | null;
@@ -209,6 +214,15 @@ export interface UserInSubtree {
   display_name: string;
   avatar_url: string | null;
   role_name: string;
+  role_color?: string | null;
+  role_icon?: string | null;
+  /** Кем приходится: я, подчинённый (ниже по дереву) или коллега своего уровня. */
+  relation?: 'self' | 'subordinate' | 'colleague';
+  /** Та же должность, что у меня. */
+  same_role?: boolean;
+  /** Задачу — себе и подчинённым, просьбу — ещё и коллегам. */
+  can_task?: boolean;
+  can_request?: boolean;
 }
 
 // ================================================================
@@ -549,6 +563,8 @@ export const api = {
   getTask: (id: number) => request<Task>(`/api/tasks/${id}`),
 
   createTask: (data: {
+    /** Задача или просьба. */
+    kind?: 'task' | 'request';
     title: string;
     description?: string;
     importance?: 'green' | 'yellow' | 'red';

@@ -2,8 +2,9 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import sharp from 'sharp';
-import { UPLOAD_DIRS } from '../lib/uploads';
+import { UPLOAD_DIRS, removeFile } from '../lib/uploads';
 import { logger } from '../lib/logger';
+import { badRequest } from '../lib/errors';
 
 const run = promisify(execFile);
 
@@ -48,6 +49,36 @@ export async function hasFfmpeg(): Promise<boolean> {
     }
   }
   return ffmpegAvailable;
+}
+
+const toAvatar = (src: string, out: string) =>
+  sharp(src).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(out);
+
+/**
+ * Аватар: квадрат 512 px в JPEG (быстро грузится, без EXIF с геометкой).
+ * Снимки HEIC (iPhone, многие Samsung) sharp не читает — их сначала
+ * переводит в JPEG ffmpeg. Не вышло — понятная ошибка, а не «ошибка сервера».
+ */
+export async function saveAvatar(src: string, out: string): Promise<void> {
+  try {
+    await toAvatar(src, out);
+    return;
+  } catch {
+    // попробуем через ffmpeg
+  }
+  if (await hasFfmpeg()) {
+    const tmp = `${out}.src.jpg`;
+    try {
+      await run(bin('ffmpeg'), ['-y', '-i', src, '-frames:v', '1', '-q:v', '2', tmp], { timeout: 60000 });
+      await toAvatar(tmp, out);
+      return;
+    } catch {
+      logger.warn('Аватар: ни sharp, ни ffmpeg не смогли прочитать снимок');
+    } finally {
+      removeFile(tmp);
+    }
+  }
+  throw badRequest('Не удалось прочитать фото. Выберите снимок в формате JPG или PNG');
 }
 
 function thumbName(fileName: string) {

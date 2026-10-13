@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AtSign, BarChart3, ChevronLeft, ChevronRight, Copy, KeyRound, Mail, MessageCircle, UserCheck, UserX, Users } from 'lucide-react';
+import { AtSign, BarChart3, ChevronLeft, ChevronRight, Copy, KeyRound, Mail, MessageCircle, MoreVertical, UserCheck, UserPen, UserX, Users } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api } from '../../lib/http';
 import { displayName, lastSeenLabel, plural } from '../../lib/format';
@@ -18,6 +18,10 @@ import type { Chat } from '../chats/types';
 import { UserPermissions } from './Permissions';
 import { usePresence, userKeys } from './queries';
 import s from './UserProfile.module.css';
+import ContactMenu from '../contacts/ContactMenu';
+import { useContactNames } from '../contacts/names';
+import cs from '../contacts/contacts.module.css';
+import { anchorFrom, type MenuAnchor } from '../../ui/menuAnchor';
 
 type UserProfileData = Profile & { can_manage: boolean; is_active: boolean };
 
@@ -44,6 +48,8 @@ export default function UserProfile() {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [manual, setManual] = useState('');
   const [issued, setIssued] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  const { nameOf: contactNameOf } = useContactNames();
 
   if (isLoading) return <PageLoader />;
   if (error || !user) {
@@ -129,13 +135,31 @@ export default function UserProfile() {
           <ChevronLeft size={26} />
         </IconButton>
         <div className={s.headerTitle}>Профиль</div>
+        {!isMe && (
+          <IconButton label="Ещё" onClick={(e) => setMenu(anchorFrom(e.currentTarget))}>
+            <MoreVertical size={21} />
+          </IconButton>
+        )}
       </header>
+      {!isMe && (
+        <ContactMenu
+          anchor={menu}
+          onClose={() => setMenu(null)}
+          user={{ id: user.id, username: user.username, display_name: user.display_name ?? null, avatar_url: user.avatar_url ?? null, role_name: user.role_name ?? null }}
+          onWrite={user.is_active ? write : undefined}
+        />
+      )}
       <div className={s.scroll}>
         <div className={s.inner}>
           <section className={s.hero}>
             <Avatar name={name} src={user.avatar_url} size={110} online={presence?.online} />
             <h1 className={s.name}>{name}</h1>
             <div className={s.username}>@{user.username}</div>
+            {contactNameOf(user.id) && (
+              <button type="button" className={cs.aliasChip} onClick={(e) => setMenu(anchorFrom(e.currentTarget))}>
+                <UserPen size={14} /> У вас в контактах: {contactNameOf(user.id)}
+              </button>
+            )}
             {user.role_name && (
               <div className={s.role} style={user.role_color ? { color: user.role_color } : undefined}>
                 {user.role_name}

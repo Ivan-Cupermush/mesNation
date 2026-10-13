@@ -258,6 +258,22 @@ describe('чаты', () => {
     expect(list.find((x) => x.id === r.body.id).name).toBe('MGR1');
   });
 
+  it('фото группы: снимок больше 10 МБ принимается, нечитаемый файл — понятная ошибка', async () => {
+    const sharp = (await import('sharp')).default;
+    // Шум почти не сжимается: JPEG такого размера — как снимок с камеры телефона.
+    const big = await sharp({ create: { width: 3600, height: 3600, channels: 3, noise: { type: 'gaussian', mean: 128, sigma: 70 } } })
+      .jpeg({ quality: 100 })
+      .toBuffer();
+    expect(big.length).toBeGreaterThan(10 * 1024 * 1024);
+    const ok = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', big, 'IMG_0001.jpg');
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.avatar_url).toMatch(/^\/uploads\/avatars\/.+\.jpg$/);
+
+    const broken = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', Buffer.from('not an image at all'), 'IMG_0002.heic');
+    expect(broken.status).toBe(400);
+    expect(broken.body.error).toMatch(/JPG или PNG/);
+  });
+
   it('ранее отсутствовавшие эндпоинты работают', async () => {
     expect((await as(c.mgr1).get(`/api/chats/${groupId}`)).status).toBe(200);
     expect((await as(c.mgr1).get(`/api/chats/${groupId}/members`)).body).toHaveLength(2);
@@ -429,6 +445,166 @@ describe('заметки: вложения, копия, PDF, отправка в
     expect(shared.body.is_accepted).toBe(true);
     const history = (await as(c.mgr2).get(`/api/messages/${chat.body.id}`)).body as any[];
     expect(history.find((m) => m.id === msg.body.id).note_share.accepted_user_ids).toContain(c.mgr2.id);
+  });
+
+  it('подпись в том же сообщении, запрос актуальной версии, копия «Название (2)»', async () => {
+    const note = await as(c.mgr1).post('/api/notes', { title: 'Скрипт звонка', content: 'Версия 1' });
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    const msg = await as(c.mgr1).post(`/api/notes/${note.body.id}/share`, { chat_id: chat.body.id, comment: 'Посмотри до созвона' });
+    expect(msg.status).toBe(201);
+    // Подпись — текст самой заметки-сообщения, отдельного сообщения нет.
+    expect(msg.body.text).toBe('Посмотри до созвона');
+    expect(msg.body.note_share.sender_name).toBeTruthy();
+    const list = (await as(c.mgr2).get('/api/chats')).body as any[];
+    expect(list.find((x) => x.id === chat.body.id).last_message.note_title).toBe('Скрипт звонка');
+    const shareId = msg.body.note_share_id;
+
+    // Принял снимок, автор потом обновил заметку.
+    await as(c.mgr2).post(`/api/notes/shared/${shareId}/accept`);
+    await as(c.mgr1).patch(`/api/notes/${note.body.id}`, { content: 'Версия 2' });
+
+    // Автор сам у себя запросить не может, посторонний — тоже.
+    expect((await as(c.mgr1).post(`/api/notes/shared/${shareId}/request`)).status).toBe(400);
+    expect((await as(c.bk).post(`/api/notes/shared/${shareId}/request`)).status).toBe(403);
+
+    const before = (await as(c.mgr1).get('/api/notifications/unread-count')).body.count;
+    const r1 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r1.status).toBe(201);
+    expect(r1.body.status).toBe('pending');
+    // Повторное нажатие не создаёт второй запрос.
+    const r2 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r2.body.id).toBe(r1.body.id);
+    expect(r2.body.already).toBe(true);
+    expect((await as(c.mgr2).get(`/api/notes/shared/${shareId}`)).body.my_request.status).toBe('pending');
+
+    // У автора — уведомление в колокольчике и экран запроса с актуальной версией.
+    expect((await as(c.mgr1).get('/api/notifications/unread-count')).body.count).toBe(before + 1);
+    const feed = (await as(c.mgr1).get('/api/notifications')).body as any[];
+    const n = feed.find((x) => x.kind === 'note_request' && x.data.request_id === r1.body.id);
+    expect(n.request_status).toBe('pending');
+    expect(n.actor_id).toBe(c.mgr2.id);
+    const view = await as(c.mgr1).get(`/api/notes/requests/${r1.body.id}`);
+    expect(view.body.is_owner).toBe(true);
+    expect(view.body.note.preview).toBe('Версия 2');
+    expect(view.body.note.changed_since_share).toBe(true);
+    // Запросивший не видит текст до подтверждения, чужие — вообще ничего.
+    expect((await as(c.mgr2).get(`/api/notes/requests/${r1.body.id}`)).body.note.preview).toBeNull();
+    expect((await as(c.bk).get(`/api/notes/requests/${r1.body.id}`)).status).toBe(404);
+    expect((await as(c.mgr2).post(`/api/notes/requests/${r1.body.id}/approve`)).status).toBe(403);
+
+    const ok = await as(c.mgr1).post(`/api/notes/requests/${r1.body.id}/approve`);
+    expect(ok.status).toBe(200);
+    expect(ok.body.status).toBe('approved');
+    // Повтор ничего не ломает и не плодит копий.
+    expect((await as(c.mgr1).post(`/api/notes/requests/${r1.body.id}/approve`)).body.status).toBe('approved');
+
+    // У запросившего — новая копия рядом с принятой ранее, как в Проводнике.
+    const mine = (await as(c.mgr2).get('/api/notes')).body as any[];
+    const copies = mine.filter((x) => x.title.startsWith('Скрипт звонка'));
+    expect(copies.map((x) => x.title).sort()).toEqual(['Скрипт звонка', 'Скрипт звонка (2)']);
+    expect(copies.find((x) => x.title === 'Скрипт звонка (2)').content).toBe('Версия 2');
+    expect(copies.find((x) => x.title === 'Скрипт звонка').content).toBe('Версия 1');
+    const done = await as(c.mgr2).get(`/api/notes/requests/${r1.body.id}`);
+    expect(done.body.result_note_id).toBe(copies.find((x) => x.title === 'Скрипт звонка (2)').id);
+    const feed2 = (await as(c.mgr2).get('/api/notifications')).body as any[];
+    expect(feed2.find((x) => x.kind === 'note_request_approved' && x.data.request_id === r1.body.id).body).toBe('Скрипт звонка (2)');
+
+    // Второй запрос, отказ, третий запрос и третья копия.
+    const r3 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(r3.body.id).not.toBe(r1.body.id);
+    expect((await as(c.mgr1).post(`/api/notes/requests/${r3.body.id}/decline`)).body.status).toBe('declined');
+    expect((await as(c.mgr2).get('/api/notifications')).body.some((x: any) => x.kind === 'note_request_declined')).toBe(true);
+    const r4 = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    await as(c.mgr1).post(`/api/notes/requests/${r4.body.id}/approve`);
+    const titles = ((await as(c.mgr2).get('/api/notes')).body as any[]).map((x) => x.title);
+    expect(titles).toContain('Скрипт звонка (3)');
+
+    // Прочитать всё.
+    expect((await as(c.mgr2).post('/api/notifications/read', {})).body.count).toBe(0);
+
+    // Подпись у заметки можно изменить и убрать.
+    const ed = await as(c.mgr1).patch(`/api/messages/${msg.body.id}`, { text: '' });
+    expect(ed.status).toBe(200);
+    expect(ed.body.text).toBeNull();
+
+    // Автор удалил заметку — запросить уже нечего.
+    await as(c.mgr1).delete(`/api/notes/${note.body.id}`);
+    const gone = await as(c.mgr2).post(`/api/notes/shared/${shareId}/request`);
+    expect(gone.status).toBe(400);
+    expect(gone.body.error).toMatch(/удалил/);
+  });
+});
+
+describe('контакты как в Telegram', () => {
+  it('своё имя для коллеги видно только мне, контакт в сообщении, добавить в группу', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    // Своё имя — только у меня; у собеседника имя прежнее.
+    const set = await as(c.mgr1).put(`/api/contacts/${c.mgr2.id}/name`, { first_name: 'Костя', last_name: 'Склад' });
+    expect(set.status).toBe(200);
+    const mine = ((await as(c.mgr1).get('/api/chats')).body as any[]).find((x) => x.id === chat.body.id);
+    expect(mine.name).toBe('Костя Склад');
+    expect(mine.peer.contact_name).toBe('Костя Склад');
+    expect(mine.peer.display_name).not.toBe('Костя Склад');
+    expect((await as(c.mgr1).get(`/api/chats/${chat.body.id}`)).body.name).toBe('Костя Склад');
+    const names = (await as(c.mgr1).get('/api/contacts/names')).body as any[];
+    expect(names).toEqual([{ user_id: c.mgr2.id, first_name: 'Костя', last_name: 'Склад' }]);
+    expect((await as(c.mgr2).get('/api/contacts/names')).body).toEqual([]);
+    // Профиль сотрудника не меняется.
+    expect((await as(c.mgr1).get(`/api/users/${c.mgr2.id}`)).body.display_name).not.toBe('Костя Склад');
+    // Себя переименовать нельзя, пустое имя — сброс.
+    expect((await as(c.mgr1).put(`/api/contacts/${c.mgr1.id}/name`, { first_name: 'Я' })).status).toBe(400);
+    await as(c.mgr1).put(`/api/contacts/${c.mgr2.id}/name`, { first_name: '', last_name: '' });
+    expect((await as(c.mgr1).get('/api/contacts/names')).body).toEqual([]);
+
+    // Поделиться контактом: карточка сотрудника, подпись, пересылка.
+    const msg = await as(c.mgr1).post(`/api/chats/${chat.body.id}/contact`, { user_id: c.bk.id, comment: 'Наш бухгалтер' });
+    expect(msg.status).toBe(201);
+    expect(msg.body.content_type).toBe('contact');
+    expect(msg.body.contact.id).toBe(c.bk.id);
+    expect(msg.body.contact.display_name || msg.body.contact.username).toBeTruthy();
+    expect(msg.body.text).toBe('Наш бухгалтер');
+    const list = ((await as(c.mgr2).get('/api/chats')).body as any[]).find((x) => x.id === chat.body.id);
+    expect(list.last_message.contact_user_id).toBe(c.bk.id);
+    expect(list.last_message.contact_name).toBeTruthy();
+    expect((await as(c.acc).post(`/api/chats/${chat.body.id}/contact`, { user_id: c.bk.id })).status).toBe(403);
+    const group = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Склад', user_ids: [c.mgr2.id] });
+    const fwd = await as(c.mgr1).post('/api/messages/forward', { messageId: msg.body.id, toChatId: group.body.id });
+    expect(fwd.body.contact.id).toBe(c.bk.id);
+
+    // Добавить в группу: мои группы с правом добавлять и пометкой «уже в группе».
+    const groups = (await as(c.mgr1).get(`/api/contacts/${c.bk.id}/groups`)).body as any[];
+    const g = groups.find((x) => x.id === group.body.id);
+    expect(g.can_add).toBe(true);
+    expect(g.is_member).toBe(false);
+    expect((await as(c.mgr1).post(`/api/chats/${group.body.id}/members`, { user_ids: [c.bk.id] })).status).toBe(200);
+    expect(((await as(c.mgr1).get(`/api/contacts/${c.bk.id}/groups`)).body as any[]).find((x) => x.id === group.body.id).is_member).toBe(true);
+    // Чужая группа, где меня нет, в списке не появляется.
+    expect(((await as(c.acc).get(`/api/contacts/${c.bk.id}/groups`)).body as any[]).some((x) => x.id === group.body.id)).toBe(false);
+  });
+});
+
+describe('колокольчик', () => {
+  it('новая задача появляется в уведомлениях исполнителя', async () => {
+    const t = await as(c.mgr1).post('/api/tasks', {
+      title: 'Обзвонить клиентов',
+      assignee_ids: [c.bk.id],
+      executor_deadline: new Date(Date.now() + 86400_000).toISOString(),
+    });
+    expect(t.status).toBe(201);
+    // Уведомление пишется в фоне — даём ему мгновение.
+    let found: any;
+    for (let i = 0; i < 20 && !found; i++) {
+      const feed = (await as(c.bk).get('/api/notifications')).body as any[];
+      found = feed.find((x) => x.kind === 'task' && x.data.task_id === t.body.id);
+      if (!found) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(found.title).toBe('Новая задача');
+    expect(found.body).toBe('Обзвонить клиентов');
+    expect(found.actor_name).toBeTruthy();
+    expect(found.read_at).toBeNull();
+    // Автор задачи сам себе уведомление не получает.
+    const own = (await as(c.mgr1).get('/api/notifications')).body as any[];
+    expect(own.some((x) => x.kind === 'task' && x.data.task_id === t.body.id)).toBe(false);
   });
 });
 
@@ -662,6 +838,45 @@ describe('мессенджер как в Telegram', () => {
     expect((await as(c.acc).get(`/api/messages/${chat.body.id}/search?q=договор`)).status).toBe(403);
   });
 
+  it('поиск как в Telegram: части слов в любом порядке, ё, раскладка, файлы и заметки, все чаты', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Поиск 2', user_ids: [c.mgr2.id] });
+    const id = chat.body.id;
+    const send = (text: string) => as(c.mgr1).post(`/api/chats/${id}/messages`, { text });
+    const report = await send('Квартальный отчёт по продажам готов');
+    await send('Отчет по закупкам отложили');
+    await send('Привет всем');
+    await as(c.mgr1).upload('/api/upload', 'file', Buffer.from('x'), 'Прайс-лист.xlsx').field('chatId', String(id)).field('as_file', 'true');
+    const note = await as(c.mgr1).post('/api/notes', { title: 'Регламент отгрузки', content: '' });
+    await as(c.mgr1).post(`/api/notes/${note.body.id}/share`, { chat_id: id });
+
+    const find = async (q: string) =>
+      ((await as(c.mgr2).get(`/api/messages/${id}/search?q=${encodeURIComponent(q)}`)).body as any[]).map((m) => m.text || m.file_name || m.note_share?.title);
+    // Часть слова и ё = е — оба «отчёта».
+    expect(await find('отчет')).toHaveLength(2);
+    expect(await find('ОТЧЁ')).toHaveLength(2);
+    // Слова в любом порядке, части слов.
+    expect(await find('прод квартал')).toEqual(['Квартальный отчёт по продажам готов']);
+    expect(await find('отчет закуп')).toEqual(['Отчет по закупкам отложили']);
+    // Не та раскладка: «ghbdtn» → «привет».
+    expect(await find('ghbdtn')).toEqual(['Привет всем']);
+    // Имя файла и название заметки тоже ищутся.
+    expect(await find('прайс')).toEqual(['Прайс-лист.xlsx']);
+    expect(await find('регламент')).toEqual(['Регламент отгрузки']);
+
+    // Поиск по всем чатам: с названием чата, без чужих чатов.
+    const all = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('квартал отч')}`);
+    expect(all.status).toBe(200);
+    const hit = (all.body as any[]).find((m) => m.id === report.body.id);
+    expect(hit.chat_name).toBe('Поиск 2');
+    expect(hit.chat_type).toBe('group');
+    expect(((await as(c.acc).get(`/api/search/messages?q=${encodeURIComponent('квартал отч')}`)).body as any[]).some((m) => m.id === report.body.id)).toBe(false);
+    // Постранично.
+    const page = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('отч')}&limit=1`);
+    expect(page.body).toHaveLength(1);
+    const next = await as(c.mgr2).get(`/api/search/messages?q=${encodeURIComponent('отч')}&limit=1&before=${page.body[0].id}`);
+    expect(next.body[0].id).toBeLessThan(page.body[0].id);
+  });
+
   it('голосовое и кружочек из браузера (WebM) пересохраняются в m4a и mp4', async () => {
     const { execFileSync } = await import('child_process');
     const { mkdtempSync, readFileSync } = await import('fs');
@@ -880,8 +1095,11 @@ describe('стартовая страница', () => {
       assignee_ids: [c.mgr2.id],
       executor_deadline: new Date(Date.now() + 7 * 86400_000).toISOString(),
     });
-    // Местное время: полдень по UTC+7 (tz_offset = -420).
-    const r = await as(c.mgr2).get('/api/home?tz_offset=-420&prev=3');
+    // Часовой пояс, в котором сейчас около полудня: задача «через час» — сегодня
+    // в любое время запуска теста (с фиксированным UTC+7 тест падал вечером по UTC).
+    const now = new Date();
+    const tzOffset = (now.getUTCHours() - 12) * 60 + now.getUTCMinutes();
+    const r = await as(c.mgr2).get(`/api/home?tz_offset=${tzOffset}&prev=3`);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body.greeting).toMatch(/^(Доброе утро|Добрый день|Добрый вечер|Доброй ночи)$/);
     expect(r.body.name).toBe('MGR2');

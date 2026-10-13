@@ -1,5 +1,5 @@
 import { AppState } from 'react-native';
-import type { MessagePush, TaskPush } from './model';
+import type { MessagePush, NoteRequestPush, TaskPush } from './model';
 
 /**
  * Что сейчас на экране: открытый чат не показывает уведомлений о своих же
@@ -26,7 +26,7 @@ export const isAppActive = () => AppState.currentState === 'active';
 
 // ---------- Баннеры внутри приложения ----------
 
-export type Banner = { kind: 'message'; data: MessagePush } | { kind: 'task'; data: TaskPush };
+export type Banner = { kind: 'message'; data: MessagePush } | { kind: 'task'; data: TaskPush } | { kind: 'note'; data: NoteRequestPush };
 
 const bannerListeners = new Set<(b: Banner) => void>();
 

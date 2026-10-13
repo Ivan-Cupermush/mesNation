@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import path from 'path';
-import sharp from 'sharp';
+import { saveAvatar } from '../services/media';
 import { z } from 'zod';
 import pool, { withTransaction } from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
@@ -9,8 +9,9 @@ import { badRequest, forbidden, notFound } from '../lib/errors';
 import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
 import { assertChatMember, assertChatPermission, getChatRights } from '../services/access';
 import { fireAndForget, notifyChatRead } from '../services/push';
-import { MESSAGE_SELECT, createServiceMessage, serializeMessage, userName } from '../services/messages';
+import { MESSAGE_SELECT, createMessage, createServiceMessage, serializeMessage, userName } from '../services/messages';
 import { emitToChat, emitToUser } from '../realtime/socket';
+import { contactNamesFor } from './contacts';
 
 /** Монтируется на /api/chats (после authenticate). */
 const router = Router();
@@ -41,12 +42,14 @@ async function loadMembers(chatId: number) {
  * Карточка чата для конкретного пользователя: для личного чата имя и
  * аватар берутся у собеседника.
  */
-function presentChat(chat: any, members: any[], userId: number) {
+function presentChat(chat: any, members: any[], userId: number, aliases?: Map<number, string>) {
   const out = { ...chat, members, members_count: members.length };
   if (chat.type === 'private') {
     const peer = members.find((m) => m.id !== userId);
-    out.peer = peer || null;
-    out.name = peer ? peer.display_name || peer.username : chat.name || 'Удалённый пользователь';
+    const alias = peer ? aliases?.get(peer.id) : undefined;
+    out.peer = peer ? { ...peer, ...(alias ? { contact_name: alias } : {}) } : null;
+    // Своё имя контакта (видно только мне) — вместо настоящего.
+    out.name = peer ? alias || peer.display_name || peer.username : chat.name || 'Удалённый пользователь';
     out.avatar_url = peer?.avatar_url ?? null;
   }
   return out;
@@ -129,6 +132,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
                       m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id,
                       (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
+                      (SELECT ns.title FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_title,
+                      m.contact_user_id,
+                      (SELECT COALESCE(cu.display_name, cu.username) FROM users cu WHERE cu.id = m.contact_user_id) AS contact_name,
                       COALESCE(u.display_name, u.username) AS sender_name
                FROM messages m LEFT JOIN users u ON u.id = m.sender_id
                WHERE m.chat_id = c.id::text AND m.deleted_for_all IS NOT TRUE
@@ -149,7 +155,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
      ORDER BY cm.pinned_at DESC NULLS LAST, COALESCE((SELECT MAX(created_at) FROM messages WHERE chat_id = c.id::text), c.created_at) DESC`,
     [me],
   );
-  res.json(rows.map((c) => presentChat(c, c.members, me)));
+  const aliases = await contactNamesFor(me);
+  res.json(rows.map((c) => presentChat(c, c.members, me, aliases)));
 });
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
@@ -167,7 +174,11 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     can_pin_messages: rights.can('pin_messages'),
     can_add_admins: rights.can('add_admins'),
   };
-  res.json({ ...presentChat(chat, await loadMembers(chatId), req.userId!), ...(await readMarks(chatId, req.userId!)), my_rights });
+  res.json({
+    ...presentChat(chat, await loadMembers(chatId), req.userId!, await contactNamesFor(req.userId!)),
+    ...(await readMarks(chatId, req.userId!)),
+    my_rights,
+  });
 });
 
 async function readMarks(chatId: number, userId: number) {
@@ -373,6 +384,36 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
 // ---------- Администраторы ----------
 
+// ---------- Поделиться контактом ----------
+
+const contactSchema = z.object({
+  user_id: id,
+  topic_id: id.nullish(),
+  reply_to_message_id: id.nullish(),
+  client_id: z.string().max(64).nullish(),
+  comment: z.string().trim().max(4000).optional(),
+});
+
+/** Карточка сотрудника в чате — нажатие открывает его профиль или личный чат. */
+router.post('/:id/contact', validate(contactSchema), async (req: AuthRequest, res: Response) => {
+  const chatId = paramId(req);
+  const { user_id, topic_id, reply_to_message_id, client_id, comment } = req.body as z.infer<typeof contactSchema>;
+  const u = await pool.query('SELECT is_active FROM users WHERE id = $1', [user_id]);
+  if (!u.rows.length) throw notFound('Сотрудник не найден');
+  if (!u.rows[0].is_active) throw badRequest('Сотрудник больше не работает в компании');
+  const message = await createMessage({
+    chatId,
+    senderId: req.userId!,
+    topicId: topic_id ?? null,
+    replyToMessageId: reply_to_message_id ?? null,
+    clientId: client_id ?? null,
+    text: comment || null,
+    contentType: 'contact',
+    contactUserId: user_id,
+  });
+  res.status(201).json(message);
+});
+
 router.get('/:id/admins', async (req: AuthRequest, res: Response) => {
   const chatId = paramId(req);
   await assertChatMember(chatId, req.userId!);
@@ -491,7 +532,8 @@ router.get('/:id/messages', async (req: AuthRequest, res: Response) => {
 
 // ---------- Аватар группы ----------
 
-const chatAvatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 10, imagesOnly: true, prefix: 'chat_' });
+// Снимок с телефона в полном разрешении бывает больше 10 МБ — сервер ужмёт его до 512 px.
+const chatAvatarUpload = makeUploader({ dir: UPLOAD_DIRS.avatars, maxSizeMb: 30, imagesOnly: true, prefix: 'chat_' });
 
 router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
   const file = req.file;
@@ -501,7 +543,7 @@ router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRe
     const rights = await assertChatPermission(chatId, req.userId!, 'change_info', 'Нет прав на изменение группы');
     if (rights.type !== 'group') throw badRequest('Аватар можно задать только группе');
     const outName = path.basename(file.filename, path.extname(file.filename)) + '.jpg';
-    await sharp(file.path).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(path.join(UPLOAD_DIRS.avatars, outName));
+    await saveAvatar(file.path, path.join(UPLOAD_DIRS.avatars, outName));
     removeFile(file.path);
     const url = `/uploads/avatars/${outName}`;
     const prev = await pool.query('SELECT avatar_url FROM chats WHERE id = $1', [chatId]);

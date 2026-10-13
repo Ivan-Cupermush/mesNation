@@ -21,8 +21,13 @@ import {
   Mail,
   ChevronRight,
   KeyRound,
-  SlidersHorizontal
+  SlidersHorizontal,
+  MoreVertical,
+  UserPen
 } from 'lucide-react-native';
+import ContactMenu from '../components/contacts/ContactMenu';
+import { contactName, useContactNames } from '../services/contacts';
+import { showToast } from '../components/ui/toast';
 import { api, CurrentUser } from '../services/api';
 import { UserPermissions } from '../components/PermissionToggles';
 import { publicFileUrl, request } from '../services/http';
@@ -54,6 +59,12 @@ export default function UserProfileScreen({ navigation }: any) {
   const [busy, setBusy] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [meId, setMeId] = useState<number | null>(null);
+  useContactNames();
+  useEffect(() => {
+    request<any>('/api/auth/me').then((u) => setMeId(Number(u?.id) || null)).catch(() => undefined);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -192,7 +203,13 @@ export default function UserProfileScreen({ navigation }: any) {
           <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
-        <View style={{ width: 40 }} />
+        {user && meId !== null && user.id !== meId ? (
+          <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerBackBtn} accessibilityLabel="Ещё">
+            <MoreVertical size={22} color={T.textPrimary} strokeWidth={2} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       {loading ? (
@@ -226,6 +243,14 @@ export default function UserProfileScreen({ navigation }: any) {
               {name || '—'}
             </Text>
             <Text style={styles.heroUsername}>@{user?.username || '…'}</Text>
+            {user && contactName(user.id) ? (
+              <TouchableOpacity style={styles.aliasChip} onPress={() => setMenuOpen(true)} activeOpacity={0.7}>
+                <UserPen size={13} color={T.accent} />
+                <Text style={styles.aliasText} numberOfLines={1}>
+                  У вас в контактах: {contactName(user.id)}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             {user?.role_name ? <Text style={styles.heroRole}>{user.role_name}</Text> : null}
             {user && !user.is_active ? (
               <View style={styles.inactiveBadge}>
@@ -363,6 +388,19 @@ export default function UserProfileScreen({ navigation }: any) {
         </ScrollView>
       )}
 
+      {user && (
+        <ContactMenu
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          user={{ id: user.id, username: user.username, display_name: user.display_name ?? null, avatar_url: user.avatar_url ?? null, role_name: user.role_name ?? null }}
+          onWrite={user.is_active ? openPrivateChat : undefined}
+          onDone={(msg) => {
+            showToast(msg);
+            load();
+          }}
+        />
+      )}
+
       {/* ===== КНОПКА НАПИСАТЬ ===== */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
@@ -381,6 +419,8 @@ export default function UserProfileScreen({ navigation }: any) {
 
 const styles = themed(() => ({
   heroRole: { marginTop: 6, fontSize: 13, fontWeight: '700', color: T.accent },
+  aliasChip: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: T.accentMuted, maxWidth: '90%' },
+  aliasText: { fontSize: 12.5, fontWeight: '600', color: T.accent },
   inactiveBadge: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: T.dangerSoft },
   inactiveBadgeText: { fontSize: 12, fontWeight: '700', color: T.danger },
   accountLabel: { width: 70, fontSize: 13, fontWeight: '600', color: T.textSecondary },

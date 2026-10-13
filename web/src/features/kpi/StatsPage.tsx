@@ -22,6 +22,7 @@ import { TargetCard } from './TargetCard';
 import { TargetDialog, useTargetActions } from './TargetDialog';
 import type { SalesTarget } from './types';
 import s from './kpi.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 /**
  * «Статистика»: наверху — продажи за текущий месяц по отчётам о продажах
@@ -102,9 +103,12 @@ export default function StatsPage() {
       subtitle={displayName(me)}
       large
       actions={
-        <IconButton label="Добавить продажу или KPI" tone="soft" size={42} onClick={(e) => setAddAnchor(anchorFrom(e.currentTarget))}>
-          <Plus size={22} />
-        </IconButton>
+        <>
+          <IconButton label="Добавить продажу или KPI" tone="soft" size={42} onClick={(e) => setAddAnchor(anchorFrom(e.currentTarget))}>
+            <Plus size={22} />
+          </IconButton>
+          <ShellActions />
+        </>
       }
     />
   );

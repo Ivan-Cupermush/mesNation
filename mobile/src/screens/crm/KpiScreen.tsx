@@ -17,6 +17,7 @@ import KpiMonthBlock from '../../components/kpi/KpiMonthBlock';
 import { isKpiTarget } from '../../services/kpi';
 
 import { T, themed } from '../../theme/runtime';
+import HeaderBell from '../../components/HeaderBell';
 // Статистика — за текущий месяц: квадратики и KPI из отчётов и файла KPI, продажи вручную — тоже за месяц.
 const period = 'month';
 
@@ -145,6 +146,7 @@ export default function KpiScreen({ navigation }: any) {
               {currentUser ? `${currentUser.display_name || currentUser.username}` : 'Продажи и динамика'}
             </Text>
           </View>
+          <HeaderBell style={[styles.profileBtn, { marginRight: 10 }]} />
           <TouchableOpacity
             style={styles.profileBtn}
             onPress={() => navigation.getParent()?.navigate('ChatTab', { screen: 'Profile' })}

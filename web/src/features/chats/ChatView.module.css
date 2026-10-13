@@ -351,7 +351,77 @@
 /* ---------- Поиск по чату ---------- */
 
 .searchHeader {
+  position: relative;
   gap: 2px;
+}
+
+/* Найденное списком — выпадает под строкой поиска */
+.searchList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--c-card);
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.14);
+  z-index: 5;
+}
+
+.searchItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.searchItem:hover {
+  background: var(--c-input-bg);
+}
+
+.searchItemOn {
+  background: var(--c-accent-muted);
+}
+
+.searchItemBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.searchItemTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.searchItemTop span {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.searchItemText {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--c-text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.searchItemText mark {
+  color: var(--c-text-primary);
 }
 
 .searchField {

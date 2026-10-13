@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AlertCircle, CalendarClock, ChevronRight, Quote, Target, TrendingUp } from 'lucide-react-native';
 import { T, themed } from '../theme/runtime';
 import SalesTiles, { statsCaption } from '../components/kpi/SalesTiles';
+import HeaderBell from '../components/HeaderBell';
 import { statusMeta } from '../components/tasks/taskStatus';
 import { errorText, HomeData, kpiApi, kpiTitle, money } from '../services/kpi';
 
@@ -83,7 +84,10 @@ export default function HomeScreen({ navigation }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={T.accent} />}
       >
         <View style={styles.hero}>
-          <Text style={styles.date}>{today()}</Text>
+          <View style={styles.heroTop}>
+            <Text style={[styles.date, { flex: 1 }]}>{today()}</Text>
+            <HeaderBell style={styles.heroBell} />
+          </View>
           <Text style={styles.greeting}>
             {data.greeting}, {firstName(data.name)}!
           </Text>
@@ -196,6 +200,8 @@ const styles = themed(() => ({
   center: { justifyContent: 'center', alignItems: 'center', padding: 24 },
   scroll: { paddingHorizontal: 20, paddingTop: 12 },
   hero: { backgroundColor: T.accentMuted, borderRadius: 24, padding: 18, gap: 8, marginBottom: 22 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', marginTop: -6, marginRight: -6 },
+  heroBell: { backgroundColor: T.card },
   date: { fontSize: 13, fontWeight: '600', color: T.textSecondary },
   greeting: { fontSize: 24, fontWeight: '800', color: T.textPrimary, fontFamily: font },
   phrase: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },

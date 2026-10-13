@@ -196,8 +196,11 @@
   inset: 0;
   z-index: 1200;
   display: flex;
+  flex-direction: column;
+  gap: 18px;
   align-items: center;
   justify-content: center;
+  transition: background 0.2s;
   pointer-events: none;
   animation: fadeIn 0.18s var(--ease);
 }
@@ -248,4 +251,58 @@
   left: 0;
   top: 0;
   color: var(--c-accent);
+}
+
+/* Вспышка фронтальной камеры: яркий тёплый экран подсвечивает лицо. */
+.overlayFlash {
+  /* Низ остаётся видимым: там «отправить» и «отменить». */
+  background: linear-gradient(to bottom, #fff7e6 calc(100% - 110px), rgba(255, 247, 230, 0) calc(100% - 70px));
+}
+
+.camCircleLive {
+  pointer-events: auto;
+  cursor: zoom-in;
+}
+
+.camControls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  pointer-events: auto;
+}
+
+.camBtn {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.overlayFlash .camBtn,
+.overlayFlash .zoomPill {
+  color: #1a1a1a;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.camBtnOn,
+.overlayFlash .camBtnOn {
+  background: #ffd43b;
+  color: #1a1a1a;
+}
+
+.zoomPill {
+  min-width: 56px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  color: #ffd43b;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  font-size: 14px;
+  font-weight: 800;
 }

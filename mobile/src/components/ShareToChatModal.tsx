@@ -22,9 +22,12 @@ interface Props {
   title: string;
   onClose: () => void;
   onSend: (chatId: number, comment: string) => Promise<void>;
+  /** Что отправляем — показывается над полем подписи. */
+  preview?: React.ReactNode;
+  commentPlaceholder?: string;
 }
 
-export default function ShareToChatModal({ visible, title, onClose, onSend }: Props) {
+export default function ShareToChatModal({ visible, title, onClose, onSend, preview, commentPlaceholder }: Props) {
   const [chats, setChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,12 +120,13 @@ export default function ShareToChatModal({ visible, title, onClose, onSend }: Pr
             />
           )}
 
+          {preview && selected ? <View style={styles.previewBox}>{preview}</View> : null}
           <View style={styles.footer}>
             <TextInput
               style={styles.commentInput}
               value={comment}
               onChangeText={setComment}
-              placeholder="Комментарий (необязательно)"
+              placeholder={commentPlaceholder || 'Комментарий (необязательно)'}
               placeholderTextColor={T.textMuted}
               multiline
               maxLength={4000}
@@ -165,6 +169,7 @@ const styles = themed(() => ({
   rowActive: { backgroundColor: T.accentMuted },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: T.accentMuted, alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1, fontSize: 16, color: T.textPrimary },
+  previewBox: { paddingHorizontal: 12, paddingTop: 10, backgroundColor: T.card, borderTopWidth: 1, borderTopColor: T.border, alignItems: 'flex-end' },
   footer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

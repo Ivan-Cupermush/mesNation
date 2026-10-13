@@ -9,6 +9,7 @@ import { Page, PageBody, PageHeader } from '../../ui/Page';
 import { SettingsRow, SettingsSection } from '../../ui/SettingsList';
 import { useFeedback } from '../../ui/feedback';
 import s from './account.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 /**
  * Настройки компании — как в приложении, только у директора: профиль,
@@ -38,7 +39,7 @@ export default function SettingsPage() {
 
   return (
     <Page>
-      <PageHeader title="Настройки" large />
+      <PageHeader title="Настройки" large actions={<ShellActions />} />
       <PageBody narrow>
         <button type="button" className={s.profileCard} onClick={() => navigate('/profile')}>
           <Avatar name={displayName(me)} src={me.avatar_url} size={56} />

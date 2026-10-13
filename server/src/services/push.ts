@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import pool from '../db/pool';
+import { addNotification } from './notifications';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 
@@ -123,7 +124,15 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…'
 /** Короткий текст сообщения для уведомления (как превью в Telegram). */
 export function pushPreview(m: any): string {
   if (m.poll_id) return `Опрос: ${m.poll_question || ''}`.trim();
-  if (m.note_share_id) return `Заметка: ${m.note_share?.title || ''}`.trim();
+  if (m.contact_user_id) {
+    const who = m.contact?.display_name || m.contact?.username || '';
+    return clip(`Контакт: ${who}${m.text ? `, ${m.text}` : ''}`.trim(), 300);
+  }
+  if (m.note_share_id) {
+    const caption = (m.text || '').trim();
+    const title = m.note_share?.title || 'Без названия';
+    return clip(caption ? `Заметка «${title}», ${caption}` : `Заметка «${title}»`, 300);
+  }
   const text = (m.text || '').trim();
   const kind = m.media_kind || (m.thumb_url ? 'photo' : m.file_url ? 'file' : null);
   const label =
@@ -232,9 +241,17 @@ export async function notifyChatRead(userId: number, chatId: number, messageId: 
 export type TaskPushKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned';
 
 /** События задачи: назначили, сдали на проверку, вернули, приняли. */
+const TASK_TITLES: Record<TaskPushKind, string> = {
+  assigned: 'Новая задача',
+  review: 'Задача на проверке',
+  rejected: 'Задача вернулась на доработку',
+  done: 'Задача принята',
+  returned: 'Задача снова в работе',
+};
+
 export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: number[], actorId: number, comment?: string | null) {
-  const recipients = userIds.filter((u) => u !== actorId);
-  if (!pushEnabled() || !recipients.length) return;
+  const recipients = Array.from(new Set(userIds)).filter((u) => u !== actorId);
+  if (!recipients.length) return;
   const { rows } = await pool.query(
     `SELECT t.id, t.title, t.description, t.importance,
             COALESCE(t.executor_deadline, t.hard_deadline) AS deadline, t.reviewer_deadline,
@@ -245,6 +262,20 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
   );
   const t = rows[0];
   if (!t) return;
+  await addNotification(recipients, {
+    kind: 'task',
+    actorId,
+    title: TASK_TITLES[kind],
+    body: clip(t.title || 'Задача', 200),
+    data: {
+      task_id: t.id,
+      task_kind: kind,
+      importance: t.importance || 'yellow',
+      deadline: t.deadline ? new Date(t.deadline).toISOString() : null,
+      comment: (comment || '').trim() ? clip(comment!.trim(), 300) : null,
+    },
+  });
+  if (!pushEnabled()) return;
   await pushToUsers(recipients, {
     type: 'task',
     kind,
@@ -258,6 +289,36 @@ export async function notifyTask(kind: TaskPushKind, taskId: number, userIds: nu
     actor_avatar: t.actor_avatar || '',
     comment: clip((comment || '').trim(), 300),
   });
+}
+
+/**
+ * Запрос актуальной версии заметки и ответ на него. В шторке выглядит как
+ * просьба от человека: его аватар, имя, название заметки и кнопки действий.
+ */
+export async function notifyNoteRequest(
+  kind: 'request' | 'approved' | 'declined',
+  requestId: number,
+  userId: number,
+  actorId: number,
+  noteTitle: string,
+  extra: { preview?: string; note_id?: number | null } = {},
+) {
+  if (!pushEnabled()) return;
+  const actor = (await pool.query('SELECT COALESCE(display_name, username) AS name, avatar_url FROM users WHERE id = $1', [actorId])).rows[0];
+  await pushToUsers(
+    [userId],
+    {
+      type: 'note_request',
+      kind,
+      request_id: String(requestId),
+      note_title: clip(noteTitle || 'Без названия', 200),
+      preview: clip((extra.preview || '').replace(/\s+/g, ' ').trim(), 300),
+      note_id: extra.note_id ? String(extra.note_id) : '',
+      actor_name: actor?.name || '',
+      actor_avatar: actor?.avatar_url || '',
+    },
+    `note-request-${requestId}`,
+  );
 }
 
 /** Для фоновых задач: ошибка уведомления не должна ломать основной запрос. */

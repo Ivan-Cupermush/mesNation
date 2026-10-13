@@ -21,6 +21,8 @@ const ProfilePage = lazy(() => import('./features/account/ProfilePage'));
 const SettingsPage = lazy(() => import('./features/account/SettingsPage'));
 const AppearancePage = lazy(() => import('./features/account/AppearancePage'));
 const NotificationsPage = lazy(() => import('./features/account/NotificationsPage'));
+const InboxPage = lazy(() => import('./features/inbox/InboxPage'));
+const NoteRequestPage = lazy(() => import('./features/inbox/NoteRequestPage'));
 const EmployeesPage = lazy(() => import('./features/users/EmployeesPage'));
 const CreateUserPage = lazy(() => import('./features/users/CreateUserPage'));
 const RolesPage = lazy(() => import('./features/roles/RolesPage'));
@@ -79,6 +81,8 @@ function AppRoutes() {
           <Route path="settings/appearance" element={<AppearancePage />} />
           <Route path="settings/notifications" element={<NotificationsPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="notifications" element={<InboxPage />} />
+          <Route path="notifications/requests/:id" element={<NoteRequestPage />} />
           <Route path="employees" element={<EmployeesPage />} />
           <Route path="roles" element={<RolesPage />} />
           <Route path="create-user" element={<CreateUserPage />} />

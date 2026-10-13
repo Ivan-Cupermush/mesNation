@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check } from 'lucide-react';
 import { fuzzyMatch } from '../../lib/fuzzy';
 import { Avatar } from '../../ui/Avatar';
@@ -20,10 +20,14 @@ interface Props {
   onClose: () => void;
   /** topicId: тема супергруппы (null — «Общий»). */
   onSend: (chatId: number, topicId: number | null, comment: string) => Promise<void>;
+  /** Подсказка в поле комментария (для заметки — «Подпись»). */
+  commentPlaceholder?: string;
+  /** Что отправляем — над полем подписи. */
+  preview?: ReactNode;
 }
 
 /** Выбор чата (и темы супергруппы) с необязательным комментарием — пересылка, отправка заметки. */
-export default function ChatPicker({ open, title, action = 'Отправить', onClose, onSend }: Props) {
+export default function ChatPicker({ open, title, action = 'Отправить', onClose, onSend, commentPlaceholder, preview }: Props) {
   const { toast } = useFeedback();
   const { data: chats, isLoading } = useChats();
   const [query, setQuery] = useState('');
@@ -131,8 +135,9 @@ export default function ChatPicker({ open, title, action = 'Отправить',
           </div>
         </div>
       )}
+      {preview && <div className={s.preview}>{preview}</div>}
       <div className={s.comment}>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий (необязательно)" rows={2} maxLength={MAX_TEXT} />
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder={commentPlaceholder || 'Комментарий (необязательно)'} rows={2} maxLength={MAX_TEXT} />
       </div>
     </Modal>
   );

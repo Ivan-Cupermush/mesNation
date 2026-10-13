@@ -221,7 +221,11 @@ export function setChatMutedLocally(chatId: string, muted: boolean) {
 
 function previewOf(m: any): string {
   if (m.poll_id) return `Опрос: ${m.poll_question || ''}`.trim();
-  if (m.note_share_id) return 'Заметка';
+  if (m.contact_user_id) return `Контакт: ${m.contact?.display_name || m.contact?.username || ''}`.trim();
+  if (m.note_share_id) {
+    const title = m.note_share?.title || 'Без названия';
+    return m.text ? `Заметка «${title}», ${m.text}` : `Заметка «${title}»`;
+  }
   const text = (m.text || '').trim();
   const label = m.media_kind === 'photo' ? 'Фото' : m.media_kind === 'video' ? 'Видео' : m.file_url ? m.file_name || 'Файл' : '';
   if (label && text) return `${label}, ${text}`;

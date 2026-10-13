@@ -15,6 +15,7 @@ import {
   Linking,
   Pressable,
   BackHandler,
+  Keyboard,
   LayoutAnimation,
   Vibration,
   Animated,
@@ -45,6 +46,10 @@ import {
   Download,
   Search,
   ChevronUp,
+  RefreshCw,
+  List as ListIcon,
+  Smile,
+  Keyboard as KeyboardIcon,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -56,6 +61,11 @@ import ShareToChatModal from '../components/ShareToChatModal';
 import AttachSheet, { MediaSendOptions, PickedFile, PickedMedia } from '../components/chat/AttachSheet';
 import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/PollComposer';
 import NotePickerModal from '../components/chat/NotePickerModal';
+import { requestNoteVersion } from '../components/NoteShareBubble';
+import SearchResultsSheet from '../components/chat/SearchResultsSheet';
+import EmojiPanel from '../components/chat/EmojiPanel';
+import { contactName, useContactNames } from '../services/contacts';
+import { deleteLastSymbol } from '../components/chat/emojiData';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
@@ -111,7 +121,8 @@ export default function ChatScreen({ navigation }: any) {
   const { sendByEnter } = useTheme();
 
   const [chat, setChat] = useState<any>(null);
-  const chatName = chat?.name || route.params.chatName || 'Чат';
+  const peerAlias = chat?.type === 'private' ? contactName(chat?.peer?.id) : undefined;
+  const chatName = peerAlias || chat?.name || route.params.chatName || 'Чат';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -292,6 +303,59 @@ export default function ChatScreen({ navigation }: any) {
     }, 400);
   };
 
+  // ===== Панель смайликов (вместо клавиатуры, как в Telegram) =====
+  const inputRef = useRef<TextInput>(null);
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const emojiSearch = useRef(false);
+  const kbHeight = useRef(290);
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', (e) => {
+      if (!emojiSearch.current) kbHeight.current = Math.max(240, Math.min(420, e.endCoordinates.height));
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setEmojiOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [emojiOpen]);
+
+  const toggleEmoji = () => {
+    if (emojiOpen) {
+      setEmojiOpen(false);
+      inputRef.current?.focus();
+    } else {
+      Keyboard.dismiss();
+      setEmojiOpen(true);
+    }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const sel = selectionRef.current;
+    const start = sel ? Math.min(sel.start, text.length) : text.length;
+    const end = sel ? Math.min(sel.end, text.length) : text.length;
+    const next = text.slice(0, start) + emoji + text.slice(end);
+    onChangeText(next);
+    selectionRef.current = { start: start + emoji.length, end: start + emoji.length };
+  };
+
+  const eraseBeforeCursor = () => {
+    const sel = selectionRef.current;
+    const pos = sel ? Math.min(sel.start, text.length) : text.length;
+    if (sel && sel.end > sel.start) {
+      onChangeText(text.slice(0, sel.start) + text.slice(sel.end));
+      selectionRef.current = { start: sel.start, end: sel.start };
+      return;
+    }
+    const head = deleteLastSymbol(text.slice(0, pos));
+    onChangeText(head + text.slice(pos));
+    selectionRef.current = { start: head.length, end: head.length };
+  };
+
   const clearDraft = () => {
     if (draftTimer.current) clearTimeout(draftTimer.current);
     AsyncStorage.removeItem(draftKey(chatId, topicId)).catch(() => undefined);
@@ -440,9 +504,18 @@ export default function ChatScreen({ navigation }: any) {
     return map;
   }, [chat]);
 
+  // Своё имя контакта (видно только мне) — вместо настоящего, как в Telegram.
+  const contactsVersion = useContactNames();
   const senderNameOf = useCallback(
-    (m: any): string => m.sender_display_name || m.sender_name || membersById[m.sender_id]?.display_name || membersById[m.sender_id]?.username || 'Участник',
-    [membersById],
+    (m: any): string =>
+      contactName(m.sender_id) ||
+      m.sender_display_name ||
+      m.sender_name ||
+      membersById[m.sender_id]?.display_name ||
+      membersById[m.sender_id]?.username ||
+      'Участник',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [membersById, contactsVersion],
   );
 
   const items: ListItem[] = useMemo(() => {
@@ -662,7 +735,7 @@ export default function ChatScreen({ navigation }: any) {
   const handleSend = async () => {
     const t = text.trim();
     // У фото можно убрать подпись, у текстового сообщения текст обязателен.
-    if (!t && !(editingMessage && editingMessage.file_url)) return;
+    if (!t && !(editingMessage && (editingMessage.file_url || editingMessage.note_share_id))) return;
     emitEvent('stop_typing', { chatId: Number(chatId) });
     lastTypingSent.current = 0;
 
@@ -769,14 +842,30 @@ export default function ChatScreen({ navigation }: any) {
     // Сам опрос придёт всем участникам по сокету.
   };
 
-  const shareNote = async (noteId: number) => {
+  /** Заметка уходит как файл: снимок + подпись в том же сообщении. */
+  const shareNote = async (noteId: number, caption: string) => {
     setShowNotes(false);
+    const reply = replyTo?.id ?? null;
+    setReplyTo(null);
     try {
-      await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId });
+      await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId, comment: caption || undefined, reply_to_message_id: reply });
     } catch (e: any) {
       Alert.alert('Не удалось отправить заметку', e?.message || '');
     }
   };
+
+  /** «Запросить текущую версию» у автора пересланной заметки. */
+  const askNoteVersion = async (m: any) => {
+    const share = m?.note_share;
+    if (!share) return;
+    try {
+      showToast(await requestNoteVersion(share.id, share.sender_name));
+    } catch (e: any) {
+      Alert.alert('Не удалось отправить запрос', e?.message || '');
+    }
+  };
+
+  const openOwnNote = (noteId: number) => navigation.navigate('NotesTab', { screen: 'NoteEditor', initial: false, params: { noteId } });
 
   const retryOrDiscard = (m: ChatMessage) => {
     Alert.alert('Сообщение не отправлено', 'Нет связи с сервером или чат недоступен.', [
@@ -882,9 +971,17 @@ export default function ChatScreen({ navigation }: any) {
     const main = rowMain(row);
     if (main.local) return [];
     const mine = main.sender_id === currentUserId;
-    const list: SheetAction[] = [
-      { key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={20} color={C.text} />, onPress: () => setReplyTo(main) },
-    ];
+    const list: SheetAction[] = [];
+    // Чужая заметка — первым пунктом «Запросить текущую версию».
+    if (main.note_share && main.note_share.sender_id !== currentUserId) {
+      list.push({
+        key: 'noteVersion',
+        label: 'Запросить текущую версию',
+        icon: <RefreshCw size={20} color={C.text} />,
+        onPress: () => askNoteVersion(main),
+      });
+    }
+    list.push({ key: 'reply', label: 'Ответить', icon: <CornerUpLeft size={20} color={C.text} />, onPress: () => setReplyTo(main) });
     if (main.text && main.content_type !== 'note') {
       list.push({
         key: 'copy',
@@ -912,10 +1009,10 @@ export default function ChatScreen({ navigation }: any) {
         onPress: () => togglePin(main),
       });
     }
-    if (mine && !main.poll_id && !main.note_share_id) {
+    if (mine && !main.poll_id) {
       list.push({
         key: 'edit',
-        label: main.file_url ? 'Изменить подпись' : 'Изменить',
+        label: main.file_url || main.note_share_id ? 'Изменить подпись' : 'Изменить',
         icon: <Pencil size={20} color={C.text} />,
         onPress: () => {
           setEditingMessage(main);
@@ -1102,6 +1199,10 @@ export default function ChatScreen({ navigation }: any) {
   const [searching, setSearching] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [searchHits, setSearchHits] = useState<number[]>([]);
+  const [searchMsgs, setSearchMsgs] = useState<any[]>([]);
+  /** Запрос, по которому показаны результаты, — для подсветки в ленте. */
+  const [searchApplied, setSearchApplied] = useState('');
+  const [searchList, setSearchList] = useState(false);
   const [searchIdx, setSearchIdx] = useState(0);
   const [searchBusy, setSearchBusy] = useState(false);
 
@@ -1110,6 +1211,8 @@ export default function ChatScreen({ navigation }: any) {
     const q = searchQ.trim();
     if (!q) {
       setSearchHits([]);
+      setSearchMsgs([]);
+      setSearchApplied('');
       return;
     }
     setSearchBusy(true);
@@ -1118,14 +1221,17 @@ export default function ChatScreen({ navigation }: any) {
         const res = await request<any[]>(`/api/messages/${chatId}/search`, { query: { q, topic_id: topicId ?? undefined } });
         const ids = res.map((m) => m.id);
         setSearchHits(ids);
+        setSearchMsgs(res);
+        setSearchApplied(q);
         setSearchIdx(0);
         if (ids.length) scrollToMessage(ids[0]);
       } catch {
         setSearchHits([]);
+        setSearchMsgs([]);
       } finally {
         setSearchBusy(false);
       }
-    }, 350);
+    }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQ, searching, chatId, topicId]);
@@ -1141,6 +1247,9 @@ export default function ChatScreen({ navigation }: any) {
     setSearching(false);
     setSearchQ('');
     setSearchHits([]);
+    setSearchMsgs([]);
+    setSearchApplied('');
+    setSearchList(false);
   };
 
   useEffect(() => {
@@ -1216,11 +1325,12 @@ export default function ChatScreen({ navigation }: any) {
     [selRows],
   );
   const selSingle = selRows.length === 1 ? rowMain(selRows[0]) : null;
-  const selCanEdit = !!selSingle && selSingle.sender_id === currentUserId && !selSingle.poll_id && !selSingle.note_share_id && selSingle.media_kind !== 'video_note';
+  const selCanEdit = !!selSingle && selSingle.sender_id === currentUserId && !selSingle.poll_id && selSingle.media_kind !== 'video_note';
   const selCanCopy = selMsgs.some((m) => m.text && m.content_type !== 'note');
   const selCanForward = selMsgs.length > 0 && selMsgs.every((m) => !m.poll_id);
   const selCanSave = selMsgs.some((m) => m.file_url || m.text);
-  const selMore = selRows.length === 1 ? actionsFor(selRows[0]).filter((a) => ['pin', 'open', 'retract', 'stop'].includes(a.key)) : [];
+  const selMore = selRows.length === 1 ? actionsFor(selRows[0]).filter((a) => ['noteVersion', 'pin', 'open', 'retract', 'stop'].includes(a.key)) : [];
+  const selNoteForeign = !!selSingle?.note_share && selSingle.note_share.sender_id !== currentUserId;
 
   const selReply = () => {
     if (!selSingle) return;
@@ -1364,6 +1474,7 @@ export default function ChatScreen({ navigation }: any) {
         peerLastReadId={peerLastReadId}
         currentUserId={currentUserId || 0}
         highlighted={highlightId !== null && rowMessages(item.row).some((m) => m.id === highlightId)}
+        searchQuery={searching ? searchApplied : undefined}
         onLongPress={startSelection}
         selecting={selecting}
         selected={selected.has(item.row.key)}
@@ -1379,6 +1490,7 @@ export default function ChatScreen({ navigation }: any) {
         onRetry={retryOrDiscard}
         onCancelUpload={cancelUpload}
         onNoteAccepted={onNoteAccepted}
+        onOpenNote={openOwnNote}
         onPressSender={(userId) => navigation.navigate('UserProfile', { userId })}
       />
     );
@@ -1478,9 +1590,17 @@ export default function ChatScreen({ navigation }: any) {
           {searching && !selecting ? (
             // Поиск: «N из M» и стрелки к старым/новым совпадениям.
             <View style={styles.selBar}>
-              <Text style={styles.searchCount}>
-                {searchBusy ? 'Ищем…' : !searchQ.trim() ? 'Введите запрос' : searchHits.length ? `${searchIdx + 1} из ${searchHits.length}` : 'Ничего не найдено'}
-              </Text>
+              <TouchableOpacity
+                style={styles.searchCountBtn}
+                onPress={() => searchHits.length && setSearchList(true)}
+                disabled={!searchHits.length}
+                accessibilityLabel="Все найденные сообщения списком"
+              >
+                {searchHits.length > 0 && <ListIcon size={19} color={C.accent} />}
+                <Text style={styles.searchCount}>
+                  {searchBusy ? 'Ищем…' : !searchQ.trim() ? 'Введите запрос' : searchHits.length ? `${searchIdx + 1} из ${searchHits.length}` : 'Ничего не найдено'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => searchStep(1)} disabled={searchIdx >= searchHits.length - 1} style={styles.pillBtn} accessibilityLabel="Предыдущее совпадение">
                 <ChevronUp size={24} color={searchIdx >= searchHits.length - 1 ? T.textMuted : C.accent} />
               </TouchableOpacity>
@@ -1553,11 +1673,21 @@ export default function ChatScreen({ navigation }: any) {
                   <Paperclip size={22} color={C.text} strokeWidth={2} />
                 </TouchableOpacity>
                 <View style={styles.inputCapsule}>
+                  <TouchableOpacity onPress={toggleEmoji} style={styles.emojiBtn} accessibilityLabel={emojiOpen ? 'Клавиатура' : 'Смайлики'}>
+                    {emojiOpen ? <KeyboardIcon size={22} color={C.textMuted} /> : <Smile size={23} color={C.textMuted} />}
+                  </TouchableOpacity>
                   <TextInput
+                    ref={inputRef}
                     style={styles.input}
                     value={text}
                     onChangeText={onChangeText}
-                    placeholder={editingMessage?.file_url ? 'Подпись' : 'Сообщение'}
+                    onSelectionChange={(e) => {
+                      selectionRef.current = e.nativeEvent.selection;
+                    }}
+                    onFocus={() => {
+                      if (emojiOpen && !emojiSearch.current) setEmojiOpen(false);
+                    }}
+                    placeholder={editingMessage?.file_url || editingMessage?.note_share_id ? 'Подпись' : 'Сообщение'}
                     placeholderTextColor={T.textMuted}
                     multiline
                     maxLength={4000}
@@ -1583,6 +1713,16 @@ export default function ChatScreen({ navigation }: any) {
                   </TouchableOpacity>
                 )}
               </View>
+              {emojiOpen && recorder.phase === 'idle' && (
+                <EmojiPanel
+                  height={kbHeight.current}
+                  onPick={insertEmoji}
+                  onBackspace={eraseBeforeCursor}
+                  onSearchFocus={(on) => {
+                    emojiSearch.current = on;
+                  }}
+                />
+              )}
               <RecordingLayer rec={recorder} />
             </>
           )}
@@ -1695,6 +1835,21 @@ export default function ChatScreen({ navigation }: any) {
             })}
           </ScrollView>
         )}
+        {selecting && selSingle && selNoteForeign && (
+          <TouchableOpacity
+            style={styles.notePill}
+            activeOpacity={0.8}
+            onPress={() => {
+              const m = selSingle;
+              clearSelection();
+              askNoteVersion(m);
+            }}
+            accessibilityLabel="Запросить текущую версию заметки"
+          >
+            <RefreshCw size={17} color={C.accent} strokeWidth={2.3} />
+            <Text style={styles.notePillText}>Запросить текущую версию</Text>
+          </TouchableOpacity>
+        )}
 
         {pinnedMessages.length > 0 && !searching && (
           <TouchableOpacity
@@ -1743,6 +1898,19 @@ export default function ChatScreen({ navigation }: any) {
         onShowInChat={(it) => {
           setViewer(null);
           setTimeout(() => scrollToMessage(it.id), 250);
+        }}
+      />
+      <SearchResultsSheet
+        visible={searchList}
+        query={searchApplied}
+        items={searchMsgs}
+        currentUserId={currentUserId ?? 0}
+        nameOf={senderNameOf}
+        onClose={() => setSearchList(false)}
+        onPick={(m, i) => {
+          setSearchList(false);
+          setSearchIdx(i);
+          scrollToMessage(m.id);
         }}
       />
       <ActionSheet
@@ -1847,12 +2015,24 @@ const styles = themed(() => ({
   pillBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   searchPill: { flexDirection: 'row', justifyContent: 'flex-start', gap: 8 },
   searchInput: { flex: 1, fontSize: 16, color: C.text, paddingVertical: 0 },
-  searchCount: { flex: 1, fontSize: 15, fontWeight: '600', color: C.text, paddingLeft: 16 },
+  searchCountBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, height: 44 },
+  searchCount: { fontSize: 15, fontWeight: '600', color: C.text },
   reactPill: { flexGrow: 0, alignSelf: 'flex-start', maxWidth: '100%', borderRadius: 24, ...glass(0.95) },
   reactPillInner: { paddingHorizontal: 6, paddingVertical: 4, gap: 2 },
   reactBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   reactBtnOn: { backgroundColor: withAlpha(T.accent, 0.18) },
   reactEmoji: { fontSize: 24 },
+  notePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    ...glass(0.95),
+  },
+  notePillText: { fontSize: 14.5, fontWeight: '700', color: C.accent },
 
   pinnedBar: {
     flexDirection: 'row',
@@ -1928,11 +2108,14 @@ const styles = themed(() => ({
   plateClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
-  inputCapsule: { flex: 1, minHeight: 44, borderRadius: 22, justifyContent: 'center', ...glass(0.92) },
+  inputCapsule: { flex: 1, minHeight: 44, borderRadius: 22, flexDirection: 'row', alignItems: 'flex-end', ...glass(0.92) },
+  emojiBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 2 },
   input: {
+    flex: 1,
     minHeight: 44,
     maxHeight: 140,
-    paddingHorizontal: 16,
+    paddingLeft: 2,
+    paddingRight: 16,
     paddingTop: Platform.OS === 'ios' ? 12 : 10,
     paddingBottom: Platform.OS === 'ios' ? 12 : 10,
     fontSize: 16,

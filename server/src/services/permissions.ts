@@ -63,8 +63,11 @@ export async function permissionScope(userId: number, permission: Permission): P
   const o = await override(userId, permission);
   if (!o) return own;
   if (!o.allowed) return null;
-  // Включил директор (или включивший уже удалён) — на всю компанию, руководитель отдела — на его отдел.
-  if (o.granted_by == null || (await getUserNode(o.granted_by)).isRoot) return ALL;
+  // Включил директор — на всю компанию, руководитель отдела — на его отдел.
+  // Неизвестно, кто включил (запись осиротела), — только своя команда: права
+  // на всю компанию не появляются сами собой.
+  if (o.granted_by == null) return own ?? { all: false, ids: new Set() };
+  if ((await getUserNode(o.granted_by)).isRoot) return ALL;
   const granter = await teamScope(o.granted_by);
   if (!granter) return own;
   return { all: false, ids: new Set([...(own?.ids ?? []), ...granter.ids]) };

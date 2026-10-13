@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellOff, BellRing, Eye, ListTodo, MessageCircle, ShieldAlert } from 'lucide-react';
+import { BellOff, BellRing, Eye, ListTodo, MessageCircle, NotebookPen, ShieldAlert } from 'lucide-react';
 import { notificationsSupported, requestNotifications } from '../chats/notifications';
 import { Button } from '../../ui/Button';
 import { Switch } from '../../ui/Field';
@@ -33,7 +33,7 @@ export default function NotificationsPage() {
     setPermission(currentPermission());
   };
 
-  const test = (kind: 'message' | 'task') => {
+  const test = (kind: 'message' | 'task' | 'note') => {
     if (permission !== 'granted') {
       toast('Сначала разрешите уведомления');
       return;
@@ -41,6 +41,8 @@ export default function NotificationsPage() {
     try {
       if (kind === 'message') {
         new Notification('Отдел продаж · Анна', { body: settings.preview ? 'Отчёт за квартал готов, посмотрите, пожалуйста' : 'Новое сообщение', icon: '/favicon.svg', tag: 'preview-message' });
+      } else if (kind === 'note') {
+        new Notification('Анна Смирнова', { body: 'Просит текущую версию заметки «Скрипт звонка»', icon: '/favicon.svg', tag: 'preview-note' });
       } else {
         new Notification('Новая задача', { body: 'Подготовить коммерческое предложение', icon: '/favicon.svg', tag: 'preview-task' });
       }
@@ -74,12 +76,14 @@ export default function NotificationsPage() {
         <SettingsSection title="Что присылать">
           <SettingsRow icon={<MessageCircle size={18} />} title="Сообщения" hint="Личные чаты и группы (кроме «без звука»)" right={<Switch checked={settings.messages} onChange={(v) => setNotifySettings({ messages: v })} label="Сообщения" />} />
           <SettingsRow icon={<ListTodo size={18} />} tone="warning" title="Задачи" hint="Назначения, проверка и её итоги" right={<Switch checked={settings.tasks} onChange={(v) => setNotifySettings({ tasks: v })} label="Задачи" />} />
+          <SettingsRow icon={<NotebookPen size={18} />} tone="violet" title="Заметки" hint="Запросы текущей версии и ответы на них" right={<Switch checked={settings.notes} onChange={(v) => setNotifySettings({ notes: v })} label="Заметки" />} />
           <SettingsRow icon={<Eye size={18} />} tone="info" title="Показывать текст" hint="Иначе — просто «Новое сообщение»" right={<Switch checked={settings.preview} onChange={(v) => setNotifySettings({ preview: v })} label="Показывать текст" />} />
         </SettingsSection>
 
         <SettingsSection title="Проверка">
           <SettingsRow icon={<BellRing size={18} />} title="Показать уведомление о сообщении" onClick={() => test('message')} />
           <SettingsRow icon={<BellRing size={18} />} tone="danger" title="Показать уведомление о задаче" onClick={() => test('task')} />
+          <SettingsRow icon={<BellRing size={18} />} tone="violet" title="Показать запрос заметки" onClick={() => test('note')} />
         </SettingsSection>
         <p className={s.footer}>Настройки звука — в настройках браузера и системы.</p>
       </PageBody>

@@ -14,6 +14,7 @@ import { kbKeys, useKbHealth, useKbMessages, useKbSessions } from './queries';
 import { SessionList } from './SessionList';
 import type { ChatResponse, KbMessage } from './types';
 import s from './knowledge.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 const MAX_TEXT = 4000;
 /** Ответ нейросети на сервере может идти минуту-две. */
@@ -180,6 +181,7 @@ export function KbChat({ sessionId, wide }: { sessionId: number; wide: boolean }
             </IconButton>
           </>
         )}
+        {!wide && <ShellActions />}
         {(!wide || sessionId > 0) && (
           <IconButton label="Новый диалог" onClick={() => navigate('/knowledge/new')} disabled={!sessionId}>
             <SquarePen size={20} />

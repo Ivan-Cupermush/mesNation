@@ -108,14 +108,23 @@
   white-space: nowrap;
 }
 
+.meRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-border);
+}
+
 .me {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 8px;
-  margin-top: 8px;
-  border-top: 1px solid var(--c-border);
-  border-radius: 0 0 14px 14px;
+  padding: 8px;
+  border-radius: 14px;
   text-align: left;
 }
 
@@ -214,7 +223,13 @@
   }
 
   .me {
+    flex: none;
     padding: 8px;
+  }
+
+  .meRow {
+    flex-direction: column-reverse;
+    gap: 8px;
   }
 }
 

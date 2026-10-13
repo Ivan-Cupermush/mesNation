@@ -1,8 +1,17 @@
 import notifee, { Event, EventType } from '@notifee/react-native';
 import { request } from '../services/http';
-import { navigationRef, openChat, openTask } from '../navigation/ref';
+import { navigationRef, openChat, openNote, openNoteRequest, openTask } from '../navigation/ref';
 import { PushPayload, getNotifySettings } from './model';
-import { clearChatNotification, clearTaskNotification, showMessageNotification, showTaskNotification, taskNotificationId } from './display';
+import {
+  clearChatNotification,
+  clearNoteRequestNotification,
+  clearTaskNotification,
+  noteRequestNotificationId,
+  showMessageNotification,
+  showNoteRequestNotification,
+  showTaskNotification,
+  taskNotificationId,
+} from './display';
 import { firstTime, isAppActive, isChatOpen, showBanner } from './state';
 
 /**
@@ -29,6 +38,16 @@ export async function handleIncoming(p: PushPayload | null): Promise<void> {
     await showMessageNotification(p);
     return;
   }
+  if (p.type === 'note_request') {
+    if (!firstTime(`n:${p.requestId}:${p.kind}`)) return;
+    if (isAppActive()) {
+      const s = await getNotifySettings();
+      if (s.notes && s.inApp) showBanner({ kind: 'note', data: p });
+      return;
+    }
+    await showNoteRequestNotification(p);
+    return;
+  }
   if (!firstTime(`t:${p.taskId}:${p.kind}:${p.comment}`)) return;
   if (isAppActive()) {
     const s = await getNotifySettings();
@@ -43,7 +62,7 @@ export async function handleNotificationEvent({ type, detail }: Event): Promise<
   const n = detail.notification;
   const data = (n?.data || {}) as Record<string, string>;
   // Пробные уведомления из настроек никуда не ведут.
-  if (data.chat_id === 'preview' || data.task_id === '0') {
+  if (data.chat_id === 'preview' || data.task_id === '0' || data.request_id === '0') {
     if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
       if (n?.id) await notifee.cancelNotification(n.id).catch(() => undefined);
     }
@@ -75,6 +94,15 @@ export async function handleNotificationEvent({ type, detail }: Event): Promise<
       }
       return;
     }
+    if (data.type === 'note_request') {
+      const requestId = Number(data.request_id);
+      if (action === 'note_decline') {
+        await request(`/api/notes/requests/${requestId}/decline`, { method: 'POST', body: {} });
+        await clearNoteRequestNotification(requestId);
+        return;
+      }
+      return openFromData(data);
+    }
     if (data.type === 'task') {
       const taskId = Number(data.task_id);
       if (action === 'default') return openFromData(data);
@@ -92,11 +120,16 @@ export async function handleNotificationEvent({ type, detail }: Event): Promise<
     // Не получилось из шторки (нет сети, задачу уже взяли) — сообщаем там же.
     await notifee
       .displayNotification({
-        id: data.type === 'task' ? taskNotificationId(Number(data.task_id)) : `error-${data.chat_id}`,
+        id:
+          data.type === 'task'
+            ? taskNotificationId(Number(data.task_id))
+            : data.type === 'note_request'
+              ? noteRequestNotificationId(Number(data.request_id))
+              : `error-${data.chat_id}`,
         title: 'Не удалось выполнить действие',
         body: e?.message || 'Откройте приложение и попробуйте ещё раз',
         data,
-        android: { channelId: data.type === 'task' ? 'tasks' : 'messages', smallIcon: 'ic_stat_offix', pressAction: { id: 'default', launchActivity: 'default' } },
+        android: { channelId: data.type === 'task' ? 'tasks' : data.type === 'note_request' ? 'notes' : 'messages', smallIcon: 'ic_stat_offix', pressAction: { id: 'default', launchActivity: 'default' } },
       })
       .catch(() => undefined);
   }
@@ -110,5 +143,10 @@ export function openFromData(data: Record<string, any>) {
   } else if (data.type === 'task' && data.task_id) {
     clearTaskNotification(Number(data.task_id));
     openTask(Number(data.task_id));
+  } else if (data.type === 'note_request' && data.request_id) {
+    clearNoteRequestNotification(Number(data.request_id));
+    // Ответ «поделился» ведёт сразу в новую заметку, остальное — на экран запроса.
+    if (data.kind === 'approved' && data.note_id) openNote(Number(data.note_id));
+    else openNoteRequest(Number(data.request_id));
   }
 }

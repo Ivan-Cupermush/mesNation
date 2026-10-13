@@ -15,6 +15,7 @@ import { money } from '../kpi/format';
 import type { KpiTarget, KpiTotals, SalesStats } from '../kpi/types';
 import { priorityOf, statusMeta } from '../tasks/status';
 import s from './HomePage.module.css';
+import ShellActions from '../inbox/ShellActions';
 
 interface HomeTask {
   id: number;
@@ -81,7 +82,10 @@ export default function HomePage() {
       <PageBody>
         <div className={s.stack}>
           <section className={s.hero}>
-            <span className={s.date}>{today()}</span>
+            <span className={s.heroTop}>
+              <span className={s.date}>{today()}</span>
+              <ShellActions />
+            </span>
             <h1>
               {data.greeting}, {firstName(data.name)}!
             </h1>

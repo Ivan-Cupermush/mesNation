@@ -6,12 +6,14 @@ import { albumLayout } from './albumLayout';
 import { isUnlistened, isVisualMedia, linkify, messagePreview, rowMain, rowMessages, type Row } from './model';
 import PollBubble from './PollBubble';
 import NoteShareBubble from './NoteShareBubble';
+import { HighlightedText } from './SearchHits';
 import { UploadRing } from './UploadRing';
 import VoiceBubble from './voice/VoiceBubble';
 import VideoNoteBubble from './voice/VideoNoteBubble';
 import type { Message, Reaction } from './types';
 import type { MenuAnchor } from '../../ui/menuAnchor';
 import s from './MessageBubble.module.css';
+import ContactBubble from '../contacts/ContactCard';
 
 interface Props {
   row: Row;
@@ -34,6 +36,7 @@ interface Props {
   onCancel: (msg: Message) => void;
   onSenderClick: (userId: number) => void;
   onNoteAccepted: (messageId: number, noteId: number) => void;
+  onOpenNote?: (noteId: number) => void;
   onReact: (msg: Message, emoji: string) => void;
   onPlayVoice: (msg: Message) => void;
   onSeekVoice: (msg: Message, ratio: number) => void;
@@ -69,7 +72,7 @@ function MessageBubble(props: Props) {
   const selecting = !!props.selecting;
   const pollMediaVisual = isPoll && !!main.file_url && (main.media_kind === 'photo' || main.media_kind === 'video');
   const pollMediaFile = isPoll && !!main.file_url && !pollMediaVisual;
-  const caption = main.text && !isNote && !isPoll ? main.text : '';
+  const caption = main.text && !isPoll ? main.text : '';
   const showSideAvatar = isGroup && !mine;
   const showName = firstInSeries && isGroup && !mine;
   const mediaOnly = isVisual && !caption && !main.reply_to_message_id && !main.forwarded_from_user_id && !showName;
@@ -240,8 +243,10 @@ function MessageBubble(props: Props) {
         {pollMediaFile && <FileRow msg={main} onOpen={props.onOpenFile} />}
         {isPoll && main.poll && <PollBubble poll={main.poll} myVotes={main.my_votes || []} mine={mine} />}
         {isNote && main.note_share && (
-          <NoteShareBubble share={main.note_share} meId={meId} mine={mine} onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)} />
+          <NoteShareBubble share={main.note_share} meId={meId} mine={mine} onAccepted={(noteId) => props.onNoteAccepted(main.id, noteId)} onOpenNote={props.onOpenNote} />
         )}
+
+        {main.contact && <ContactBubble contact={main.contact} mine={mine} meId={meId} />}
 
         {caption && (
           <div className={[s.text, isVisual && s.captionInMedia].filter(Boolean).join(' ')}>
@@ -252,6 +257,8 @@ function MessageBubble(props: Props) {
             </span>
           </div>
         )}
+        {/* Заметка или контакт без подписи — место под время, чтобы оно не ложилось на карточку. */}
+        {(isNote || !!main.contact) && !caption && !reactionsRow && <div className={s.cardMetaRoom} />}
         {reactionsRow && <div className={[s.reactionsWrap, isVisual && s.reactionsInMedia, mediaOnly && s.reactionsUnderMedia].filter(Boolean).join(' ')}>{reactionsRow}</div>}
         {!(isVisual && !caption && !reactions) && (
           <span className={[s.metaAbs, isVisual && s.metaAbsMedia].filter(Boolean).join(' ')}>{meta(mediaOnly)}</span>
@@ -286,26 +293,9 @@ function Linkified({ text, query }: { text: string; query?: string }) {
   );
 }
 
-/** Найденное при поиске по чату — подсвечено. */
+/** Найденное при поиске по чату — подсвечено (части слов, ё = е, раскладка). */
 function Highlighted({ text, query }: { text: string; query?: string }) {
-  const q = query?.trim().toLowerCase();
-  if (!q) return <>{text}</>;
-  const out: ReactNode[] = [];
-  const lower = text.toLowerCase();
-  let from = 0;
-  let at = lower.indexOf(q);
-  while (at !== -1) {
-    if (at > from) out.push(text.slice(from, at));
-    out.push(
-      <mark key={at} className={s.mark}>
-        {text.slice(at, at + q.length)}
-      </mark>,
-    );
-    from = at + q.length;
-    at = lower.indexOf(q, from);
-  }
-  if (from < text.length) out.push(text.slice(from));
-  return <>{out}</>;
+  return <HighlightedText text={text} query={query} />;
 }
 
 /** Реакции под сообщением: своя — закрашена; нажатие — поставить или снять. */

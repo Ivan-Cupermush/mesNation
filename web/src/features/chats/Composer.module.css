@@ -1,4 +1,5 @@
 .bar {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 4px;
@@ -38,7 +39,7 @@
 .input {
   width: 100%;
   min-height: 42px;
-  padding: 10px 14px;
+  padding: 10px 46px 10px 14px;
   border: none;
   border-radius: 21px;
   background: var(--c-input-bg);
@@ -55,7 +56,7 @@
 
 .counter {
   position: absolute;
-  right: 12px;
+  right: 48px;
   bottom: -2px;
   font-size: 11px;
   color: var(--c-text-muted);
@@ -158,4 +159,24 @@
     opacity: 0;
     transform: translateY(4px);
   }
+}
+
+/* Смайлики — внутри поля справа, как в Telegram */
+.emojiBtn {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+  transition: color 0.15s, background 0.15s;
+}
+
+.emojiBtn:hover,
+.emojiBtnOn {
+  color: var(--c-accent);
 }

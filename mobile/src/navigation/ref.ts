@@ -1,4 +1,4 @@
-import { createNavigationContainerRef } from '@react-navigation/native';
+import { createNavigationContainerRef, StackActions } from '@react-navigation/native';
 
 /**
  * Навигация вне экранов: переход из уведомления в чат или задачу.
@@ -14,6 +14,15 @@ export function navigateWhenReady(go: () => void) {
   else pending = go;
 }
 
+/**
+ * Колокольчик и экран запроса открываются поверх вкладок — перед переходом
+ * в чат, задачу или заметку их нужно закрыть, иначе переход случится «под» ними.
+ */
+function toMain() {
+  const st = navigationRef.getRootState();
+  if (st && st.routes.length > 1 && st.routes[st.index]?.name !== 'Main') navigationRef.dispatch(StackActions.popToTop());
+}
+
 /** Вызывается из NavigationContainer.onReady. */
 export function flushPendingNavigation() {
   const go = pending;
@@ -22,15 +31,36 @@ export function flushPendingNavigation() {
 }
 
 export function openChat(params: { chatId: string; chatName?: string; topicId?: number | null }) {
-  navigateWhenReady(() =>
+  navigateWhenReady(() => {
+    toMain();
     navigationRef.navigate('ChatTab', {
       screen: 'Chat',
       initial: false,
       params: { chatId: String(params.chatId), chatName: params.chatName, ...(params.topicId ? { topicId: params.topicId } : {}) },
-    }),
-  );
+    });
+  });
 }
 
 export function openTask(taskId: number) {
-  navigateWhenReady(() => navigationRef.navigate('TasksTab', { screen: 'TaskDetail', initial: false, params: { taskId } }));
+  navigateWhenReady(() => {
+    toMain();
+    navigationRef.navigate('TasksTab', { screen: 'TaskDetail', initial: false, params: { taskId } });
+  });
+}
+
+/** Экран подтверждения «поделиться текущей версией заметки». */
+export function openNoteRequest(requestId: number) {
+  navigateWhenReady(() => navigationRef.navigate('NoteRequest', { requestId }));
+}
+
+/** Заметка из своих заметок (например, полученная новая версия). */
+export function openNote(noteId: number) {
+  navigateWhenReady(() => {
+    toMain();
+    navigationRef.navigate('NotesTab', { screen: 'NoteEditor', initial: false, params: { noteId } });
+  });
+}
+
+export function openNotifications() {
+  navigateWhenReady(() => navigationRef.navigate('Notifications'));
 }

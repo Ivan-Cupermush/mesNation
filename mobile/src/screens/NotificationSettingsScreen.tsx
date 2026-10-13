@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import notifee from '@notifee/react-native';
-import { ChevronLeft, ChevronRight, CalendarClock, ClipboardCheck, MessageCircle, Volume2, BellRing, CheckCircle2, AlertTriangle } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CalendarClock, ClipboardCheck, MessageCircle, Volume2, BellRing, CheckCircle2, AlertTriangle, NotebookPen, RefreshCw } from 'lucide-react-native';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
-import { NotifySettings, DEFAULT_SETTINGS, IMPORTANCE, getNotifySettings, setNotifySettings } from '../notifications/model';
-import { CHANNEL_MESSAGES, CHANNEL_TASKS, showMessageNotification, showTaskNotification } from '../notifications/display';
+import { NotifySettings, DEFAULT_SETTINGS, IMPORTANCE, NOTE_COLOR, getNotifySettings, setNotifySettings } from '../notifications/model';
+import { CHANNEL_MESSAGES, CHANNEL_NOTES, CHANNEL_TASKS, showMessageNotification, showNoteRequestNotification, showTaskNotification } from '../notifications/display';
 import { getPushMode } from '../notifications';
 
 /**
@@ -24,7 +24,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
 
   const update = async (patch: Partial<NotifySettings>) => setS(await setNotifySettings(patch));
 
-  const test = async (kind: 'message' | 'task') => {
+  const test = async (kind: 'message' | 'task' | 'note') => {
     try {
       const perm = await notifee.requestPermission();
       if (perm?.authorizationStatus === 0) {
@@ -49,6 +49,17 @@ export default function NotificationSettingsScreen({ navigation }: any) {
           senderAvatar: '',
           text: 'Отчёт за квартал готов, посмотрите, пожалуйста',
           sentAt: Date.now(),
+        });
+      } else if (kind === 'note') {
+        await showNoteRequestNotification({
+          type: 'note_request',
+          kind: 'request',
+          requestId: 0,
+          noteTitle: 'Скрипт звонка новому клиенту',
+          preview: 'Приветствие, три вопроса о задачах клиента, что предложить в конце разговора',
+          noteId: 0,
+          actorName: 'Анна Смирнова',
+          actorAvatar: '',
         });
       } else {
         await showTaskNotification({
@@ -135,8 +146,37 @@ export default function NotificationSettingsScreen({ navigation }: any) {
               </View>
             </View>
           </View>
+          <View style={[styles.shade, styles.shadeTask]}>
+            <View style={[styles.shadeStripe, { backgroundColor: NOTE_COLOR }]} />
+            <View style={{ flex: 1 }}>
+              <View style={styles.shadeHead}>
+                <NotebookPen size={12} color={NOTE_COLOR} />
+                <Text style={[styles.shadeApp, { color: NOTE_COLOR }]}>Offix · Заметки · сейчас</Text>
+              </View>
+              <View style={styles.shadeRow}>
+                <View>
+                  <View style={[styles.shadeAvatar, { backgroundColor: '#3E7BFA' }]}>
+                    <Text style={styles.shadeAvatarText}>А</Text>
+                  </View>
+                  <View style={styles.shadeBadge}>
+                    <RefreshCw size={8} color="#FFFFFF" strokeWidth={3.2} />
+                  </View>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shadeTitle}>Анна Смирнова</Text>
+                  <Text style={styles.shadeText} numberOfLines={2}>
+                    Просит текущую версию заметки <Text style={{ fontWeight: '700' }}>«Скрипт звонка»</Text>
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.shadeActions}>
+                <Text style={[styles.shadeAction, { color: NOTE_COLOR }]}>Посмотреть и поделиться</Text>
+                <Text style={[styles.shadeAction, { color: NOTE_COLOR }]}>Отклонить</Text>
+              </View>
+            </View>
+          </View>
           <Text style={styles.previewHint}>
-            Задачи отличаются цветом приоритета, своим значком, звуковым каналом и двойной вибрацией.
+            Задачи отличаются цветом приоритета, своим значком, звуковым каналом и двойной вибрацией. Запросы заметок — фиолетовые, с аватаром коллеги и короткой тройной вибрацией.
           </Text>
         </View>
 
@@ -145,6 +185,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         <View style={styles.card}>
           <Row title="Сообщения" hint="Личные чаты и группы" value={s.messages} onChange={(v) => update({ messages: v })} />
           <Row title="Задачи" hint="Назначения, проверка и её итоги" value={s.tasks} onChange={(v) => update({ tasks: v })} divider />
+          <Row title="Заметки" hint="Запросы текущей версии и ответы на них" value={s.notes} onChange={(v) => update({ notes: v })} divider />
           <Row
             title="Показывать текст"
             hint="Иначе — просто «Новое сообщение»"
@@ -161,6 +202,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         <View style={styles.card}>
           <LinkRow icon={<Volume2 size={19} color={T.accent} />} title="Сообщения" onPress={() => notifee.openNotificationSettings(CHANNEL_MESSAGES)} />
           <LinkRow icon={<Volume2 size={19} color={IMPORTANCE.yellow.color} />} title="Задачи" onPress={() => notifee.openNotificationSettings(CHANNEL_TASKS)} divider />
+          <LinkRow icon={<Volume2 size={19} color={NOTE_COLOR} />} title="Заметки" onPress={() => notifee.openNotificationSettings(CHANNEL_NOTES)} divider />
         </View>
 
         {/* Проверка */}
@@ -168,6 +210,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         <View style={styles.card}>
           <LinkRow icon={<BellRing size={19} color={T.accent} />} title="Показать уведомление о сообщении" onPress={() => test('message')} />
           <LinkRow icon={<BellRing size={19} color={IMPORTANCE.red.color} />} title="Показать уведомление о задаче" onPress={() => test('task')} divider />
+          <LinkRow icon={<BellRing size={19} color={NOTE_COLOR} />} title="Показать запрос заметки" onPress={() => test('note')} divider />
         </View>
         <Text style={styles.hint}>Уведомление появится в шторке телефона — так оно выглядит, когда Offix закрыт.</Text>
       </ScrollView>
@@ -224,6 +267,19 @@ const styles = themed(() => ({
   shadeRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   shadeAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   shadeAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  shadeBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: T.card,
+    backgroundColor: NOTE_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   shadeTitle: { fontSize: 14, fontWeight: '700', color: T.textPrimary },
   shadeText: { fontSize: 13, color: T.textSecondary, marginTop: 1 },
   shadeKind: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },

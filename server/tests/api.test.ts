@@ -268,6 +268,10 @@ describe('чаты', () => {
     const ok = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', big, 'IMG_0001.jpg');
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
     expect(ok.body.avatar_url).toMatch(/^\/uploads\/avatars\/.+\.jpg$/);
+    // Файл аватара на месте (раньше у .jpg он удалялся сразу после сохранения).
+    const img = await as(c.mgr1).get(ok.body.avatar_url);
+    expect(img.status).toBe(200);
+    expect(img.headers['content-type']).toMatch(/image\/jpeg/);
 
     const broken = await as(c.mgr1).upload(`/api/chats/${groupId}/avatar`, 'avatar', Buffer.from('not an image at all'), 'IMG_0002.heic');
     expect(broken.status).toBe(400);

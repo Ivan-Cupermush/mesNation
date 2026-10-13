@@ -264,7 +264,7 @@ router.post('/avatar', authenticate, avatarUpload.single('avatar'), async (req: 
     removeFile(file.path);
     throw e;
   }
-  if (outPath !== file.path) removeFile(file.path);
+  if (path.resolve(outPath) !== path.resolve(file.path)) removeFile(file.path);
   const url = `/uploads/avatars/${outName}`;
   const prev = await pool.query('SELECT avatar_url FROM users WHERE id = $1', [req.userId]);
   await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [url, req.userId]);

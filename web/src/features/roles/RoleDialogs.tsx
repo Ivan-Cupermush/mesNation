@@ -3,8 +3,8 @@ import { Check } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { Modal } from '../../ui/Modal';
 import { TextField } from '../../ui/Field';
-import { RoleTree } from './RoleTree';
-import { buildTree, type RoleNode } from './queries';
+import { RoleGraph } from './RoleGraph';
+import { branchTotals, buildTree, type RoleNode } from './queries';
 import s from './RolesPage.module.css';
 
 const COLORS = ['#6366F1', '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444', '#6B7280'];
@@ -123,20 +123,13 @@ export function RolePickerDialog({
   onClose: () => void;
   onPick: (node: RoleNode) => void;
 }) {
-  const tree = useMemo(() => buildTree(nodes), [nodes]);
+  const totals = useMemo(() => branchTotals(buildTree(nodes)), [nodes]);
   return (
-    <Modal open={open} onClose={onClose} title={title} size="md">
+    <Modal open={open} onClose={onClose} title={title} size="lg">
       {hint && <p className={s.dialogHint}>{hint}</p>}
-      <RoleTree
-        items={tree}
-        selected={current ?? null}
-        disabled={disabled}
-        expandAll
-        onSelect={(id) => {
-          const node = nodes.find((n) => n.id === id);
-          if (node) onPick(node);
-        }}
-      />
+      <div className={s.pickerGraph}>
+        <RoleGraph nodes={nodes} totals={totals} selected={current ?? null} disabled={disabled} onSelect={onPick} />
+      </div>
     </Modal>
   );
 }

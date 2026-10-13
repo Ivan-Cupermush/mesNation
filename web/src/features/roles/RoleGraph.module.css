@@ -1,0 +1,207 @@
+.view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  /* Точечная сетка — «доска», на которой нарисована структура (как в приложении). */
+  background-color: var(--c-background);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--c-text-muted) 30%, transparent) 1.2px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+
+.view:active {
+  cursor: grabbing;
+}
+
+.canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.animating {
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edges path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--c-text-muted) 70%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 0;
+  border-radius: 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-card);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--c-shadow, #000) 8%, transparent);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.node:hover {
+  border-color: color-mix(in srgb, var(--role) 55%, var(--c-border));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-shadow, #000) 14%, transparent);
+}
+
+.node:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.root {
+  border: 1.5px solid var(--role);
+}
+
+.selected,
+.selected:hover {
+  border: 2px solid var(--c-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-accent) 18%, transparent), 0 6px 18px color-mix(in srgb, var(--c-shadow, #000) 12%, transparent);
+}
+
+.off {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stripe {
+  align-self: stretch;
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--role);
+}
+
+.icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-left: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--role) 16%, transparent);
+  font-size: 19px;
+  line-height: 1;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.meta svg {
+  flex-shrink: 0;
+}
+
+.vacant {
+  color: var(--c-text-muted);
+}
+
+.branch {
+  color: var(--c-text-muted);
+}
+
+.add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--c-accent);
+  background: var(--c-card);
+  color: var(--c-accent);
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.add:hover {
+  transform: scale(1.12);
+  background: var(--c-accent-muted);
+}
+
+.zoom {
+  position: absolute;
+  right: 16px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+}
+
+.zoom button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--c-text-primary);
+}
+
+.zoom button:hover {
+  background: var(--c-input-bg);
+}
+
+.zoom span {
+  width: 1px;
+  height: 22px;
+  background: var(--c-divider, var(--c-border));
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-secondary);
+  font-size: 14px;
+}

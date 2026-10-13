@@ -14,9 +14,9 @@ import { Page, PageHeader } from '../../ui/Page';
 import { PageLoader, Spinner } from '../../ui/Spinner';
 import { useFeedback } from '../../ui/feedback';
 import { userKeys } from '../users/queries';
-import { RoleTree } from './RoleTree';
+import { RoleGraph } from './RoleGraph';
 import { RoleEditDialog, RolePickerDialog, type RoleDraft } from './RoleDialogs';
-import { buildTree, findItem, roleKeys, subtreeIds, useRoleTree, useRoleUsers, type RoleNode, type RoleUser } from './queries';
+import { branchTotals, buildTree, findItem, roleKeys, subtreeIds, useRoleTree, useRoleUsers, type RoleNode, type RoleUser } from './queries';
 import s from './RolesPage.module.css';
 
 /**
@@ -33,6 +33,7 @@ export default function RolesPage() {
   const [params, setParams] = useSearchParams();
   const { data: nodes, isLoading, error, refetch } = useRoleTree();
   const tree = useMemo(() => buildTree(nodes || []), [nodes]);
+  const totals = useMemo(() => branchTotals(tree), [tree]);
   const selectedId = Number(params.get('node')) || null;
   const focusUser = Number(params.get('user')) || null;
   const selected = nodes?.find((n) => n.id === selectedId) ?? null;
@@ -122,7 +123,13 @@ export default function RolesPage() {
       <div className={[s.layout, wide && s.split].filter(Boolean).join(' ')}>
         <div className={s.treePane}>
           {!canEdit && <p className={s.readOnly}>Менять дерево может только директор.</p>}
-          <RoleTree items={tree} selected={selectedId} onSelect={select} />
+          <RoleGraph
+            nodes={nodes}
+            totals={totals}
+            selected={selectedId}
+            onSelect={(n) => select(n.id)}
+            onAddChild={canEdit ? (n) => setEditor({ mode: 'create', node: n }) : undefined}
+          />
         </div>
         {wide && <div className={s.detailPane}>{detail || <EmptyState compact title="Выберите роль" />}</div>}
       </div>

@@ -91,3 +91,14 @@ export function findItem(items: TreeItem[], id: number): TreeItem | null {
   }
   return null;
 }
+
+/** Сотрудников во всей ветке каждой роли (для подсказки в дереве). */
+export function branchTotals(items: TreeItem[]): Map<number, number> {
+  const out = new Map<number, number>();
+  const walk = (t: TreeItem) => {
+    out.set(t.node.id, t.total);
+    t.children.forEach(walk);
+  };
+  items.forEach(walk);
+  return out;
+}

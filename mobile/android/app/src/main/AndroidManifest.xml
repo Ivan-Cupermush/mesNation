@@ -39,6 +39,45 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Недавние чаты в системном «Поделиться» и по долгому нажатию на значок. -->
+        <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+        <!-- Offix в системном «Поделиться» других приложений: фото, видео, файлы, текст и ссылки. -->
+        <intent-filter>
+            <action android:name="android.intent.action.SEND" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:mimeType="*/*" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.intent.action.SEND_MULTIPLE" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:mimeType="*/*" />
+        </intent-filter>
+        <!-- offix://u/логин, offix://chat/12, offix://qr/код — из ярлыков и кнопки «Открыть в приложении». -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="offix" />
+        </intent-filter>
+        <!-- Ссылка на профиль и вход по QR, отсканированные обычной камерой, сразу открываются в Offix
+             (сервер подтверждает приложение файлом /.well-known/assetlinks.json). -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+            <data android:host="offixcrm.ru" />
+            <data android:pathPrefix="/u/" />
+            <data android:pathPrefix="/qr/" />
+        </intent-filter>
       </activity>
+      <!-- Файлы из Offix в системное «Поделиться» (WhatsApp, почта, галерея). -->
+      <provider
+        android:name=".OffixFileProvider"
+        android:authorities="${applicationId}.offix.files"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/offix_file_paths" />
+      </provider>
     </application>
 </manifest>

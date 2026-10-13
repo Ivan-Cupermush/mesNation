@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, TextInput, FlatList, ActivityIndicator, Alert, KeyboardAvoidingView, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MessageCircle, Share2, UserPen, UserPlus, X, Check, Search, Users } from 'lucide-react-native';
+import { MessageCircle, Share2, UserPen, UserPlus, X, Check, Search, Users, QrCode } from 'lucide-react-native';
+import { openQrProfile } from '../../navigation/ref';
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
 import { request } from '../../services/http';
@@ -14,8 +15,8 @@ import { ContactCard, SharedContact } from './ContactCard';
 
 /**
  * Меню ⋯ в профиле сотрудника и в информации о личном чате — как в Telegram:
- * поделиться контактом, изменить контакт (своё имя, видно только мне),
- * добавить в группу.
+ * поделиться контактом, QR-код контакта, изменить контакт (своё имя,
+ * видно только мне), добавить в группу.
  */
 export default function ContactMenu({
   visible,
@@ -42,6 +43,7 @@ export default function ContactMenu({
       ? [{ key: 'write', label: 'Написать', icon: <MessageCircle size={20} color={T.textPrimary} />, onPress: () => { onClose(); onWrite(); } }]
       : []),
     { key: 'share', label: 'Поделиться контактом', icon: <Share2 size={20} color={T.textPrimary} />, onPress: () => { onClose(); setShare(true); } },
+    { key: 'qr', label: 'QR-код контакта', icon: <QrCode size={20} color={T.textPrimary} />, onPress: () => { onClose(); openQrProfile(user.id); } },
     { key: 'edit', label: 'Изменить контакт', icon: <UserPen size={20} color={T.textPrimary} />, onPress: () => { onClose(); setEdit(true); } },
     { key: 'group', label: 'Добавить в группу', icon: <UserPlus size={20} color={T.textPrimary} />, onPress: () => { onClose(); setGroups(true); } },
   ];

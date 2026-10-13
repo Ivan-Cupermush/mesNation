@@ -31,7 +31,10 @@ import {
   Palette,
   Bell,
   Users,
+  QrCode,
+  ScanLine,
 } from 'lucide-react-native';
+import { openQrProfile, openQrScanner } from '../navigation/ref';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import { api } from '../services/api';
 import { getToken, SERVER_URL } from '../utils';
@@ -233,13 +236,20 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
-        </TouchableOpacity>
+        <View style={styles.headerSide}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+            <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
-        <TouchableOpacity onPress={openEditModal} style={styles.headerEditBtn}>
-          <Pencil size={18} color={T.accent} strokeWidth={2} />
-        </TouchableOpacity>
+        <View style={[styles.headerSide, { justifyContent: 'flex-end', gap: 8 }]}>
+          <TouchableOpacity onPress={() => openQrProfile()} style={styles.headerEditBtn} accessibilityLabel="Мой QR-код">
+            <QrCode size={19} color={T.accent} strokeWidth={2} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={openEditModal} style={styles.headerEditBtn} accessibilityLabel="Редактировать профиль">
+            <Pencil size={18} color={T.accent} strokeWidth={2} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -415,6 +425,31 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           </TouchableOpacity>
         </View>
 
+        {/* ===== QR: свой код и вход на компьютере ===== */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.infoRow} onPress={() => openQrProfile()} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: T.accentMuted }]}>
+              <QrCode size={16} color={T.accent} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Мой QR-код</Text>
+              <Text style={styles.infoLabel}>Покажите коллеге — откроется ваш профиль</Text>
+            </View>
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+          <View style={styles.infoDivider} />
+          <TouchableOpacity style={styles.infoRow} onPress={() => openQrScanner()} activeOpacity={0.7}>
+            <View style={[styles.infoIconWrap, { backgroundColor: T.infoSoft }]}>
+              <ScanLine size={16} color={T.info} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoValue}>Сканировать QR-код</Text>
+              <Text style={styles.infoLabel}>Профиль коллеги или вход на сайте с компьютера</Text>
+            </View>
+            <ChevronLeft size={16} color={T.textMuted} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+        </View>
+
         {/* ===== БЕЗОПАСНОСТЬ ===== */}
         <View style={styles.card}>
           <TouchableOpacity style={styles.infoRow} onPress={() => setPasswordOpen(true)} activeOpacity={0.7}>
@@ -547,6 +582,7 @@ const styles = themed(() => ({
     borderBottomWidth: 1,
     borderBottomColor: T.border,
   },
+  headerSide: { width: 88, flexDirection: 'row', alignItems: 'center' },
   headerBackBtn: {
     width: 40,
     height: 40,

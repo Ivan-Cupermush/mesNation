@@ -55,6 +55,19 @@ router.get('/assignable', async (req: AuthRequest, res: Response) => {
   res.json(await getAssignableUsers(req.userId!));
 });
 
+/**
+ * Сотрудник по логину — для ссылок и QR-кодов профиля (https://…/u/логин),
+ * как t.me/username в Telegram.
+ */
+router.get('/by-username/:username', async (req: AuthRequest, res: Response) => {
+  const username = String(req.params.username || '').trim().toLowerCase();
+  if (!/^[a-z0-9._-]{1,50}$/.test(username)) throw notFound('Сотрудник не найден');
+  const { rows } = await pool.query(`${USER_LIST_SELECT} WHERE LOWER(u.username) = $1 LIMIT 1`, [username]);
+  if (!rows[0]) throw notFound('Сотрудник не найден');
+  const { email: _e, deactivated_at: _d, ...user } = rows[0];
+  res.json(user);
+});
+
 /** Может ли текущий пользователь управлять учётной записью target. */
 async function canManage(actorId: number, targetId: number): Promise<boolean> {
   if (actorId === targetId) return false;

@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import pinoHttp from 'pino-http';
 import crypto from 'crypto';
-import { corsOrigins, trustProxySetting } from './config/env';
+import { corsOrigins, env, trustProxySetting } from './config/env';
 import { logger } from './lib/logger';
 import { errorHandler, notFoundHandler } from './lib/errors';
 import { AuthRequest, authenticate, requireDirector } from './middleware/auth';
@@ -31,6 +31,7 @@ import knowledgeRouter from './routes/knowledge';
 import homeRouter from './routes/home';
 import notificationsRouter from './routes/notifications';
 import contactsRouter from './routes/contacts';
+import qrLoginRouter from './routes/qrLogin';
 import { filesApiRouter, uploadsRouter } from './routes/files';
 import { createWebRouter, resolveWebDist } from './web';
 import { lastMigration, serverCommit } from './lib/version';
@@ -116,7 +117,21 @@ export function createApp(options: AppOptions = {}) {
   app.get('/api/company', async (_req, res) => {
     res.json({ company_name: await getCompanyName() });
   });
+  app.use('/api/auth/qr', qrLoginRouter);
   app.use('/api/auth', authRouter);
+  // Android App Links: ссылки на профиль (/u/логин) и вход по QR открываются сразу в приложении.
+  app.get('/.well-known/assetlinks.json', (_req, res) => {
+    const fingerprints = env.ANDROID_CERT_SHA256.split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.json([
+      {
+        relation: ['delegate_permission/common.handle_all_urls'],
+        target: { namespace: 'android_app', package_name: env.ANDROID_PACKAGE, sha256_cert_fingerprints: fingerprints },
+      },
+    ]);
+  });
   app.use('/uploads', uploadsRouter);
 
   // Страница ручного импорта KPI (сама требует входа, данные защищены на API).

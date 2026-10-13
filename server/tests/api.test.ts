@@ -57,6 +57,56 @@ describe('авторизация', () => {
     expect(r.body.error).toBe('Неверный логин или пароль');
   });
 
+  it('вход на сайт по QR: телефон подтверждает, сайт один раз забирает сессию', async () => {
+    const created = await as().post('/api/auth/qr', {});
+    expect(created.status).toBe(201);
+    const { token, secret } = created.body;
+    expect((await as().post('/api/auth/qr/poll', { token, secret })).body.status).toBe('pending');
+    // Без secret (сфотографировали код с чужого экрана) — сессию не забрать.
+    expect((await as().post('/api/auth/qr/poll', { token, secret: 'x'.repeat(40) })).status).toBe(404);
+    // Без входа на телефоне подтвердить нельзя.
+    expect((await as().post(`/api/auth/qr/${token}/approve`)).status).toBe(401);
+
+    const info = await as(c.mgr1).get(`/api/auth/qr/${token}`);
+    expect(info.status).toBe(200);
+    expect(info.body.status).toBe('scanned');
+    expect(info.body.device.label).toBeTruthy();
+    const scanned = (await as().post('/api/auth/qr/poll', { token, secret })).body;
+    expect(scanned.status).toBe('scanned');
+    expect(scanned.user.display_name).toBeTruthy();
+
+    expect((await as(c.mgr1).post(`/api/auth/qr/${token}/approve`)).body.status).toBe('approved');
+    const done = (await as().post('/api/auth/qr/poll', { token, secret })).body;
+    expect(done.status).toBe('approved');
+    expect(done.user.id).toBe(c.mgr1.id);
+    const me = await client(app, { ...c.mgr1, token: done.token }).get('/api/auth/me');
+    expect(me.body.id).toBe(c.mgr1.id);
+    // Второй раз — уже нет.
+    expect((await as().post('/api/auth/qr/poll', { token, secret })).body.status).toBe('expired');
+    expect((await as(c.mgr1).post(`/api/auth/qr/${token}/approve`)).status).toBe(400);
+  });
+
+  it('вход по QR можно отклонить', async () => {
+    const { token, secret } = (await as().post('/api/auth/qr', {})).body;
+    await as(c.mgr2).post(`/api/auth/qr/${token}/decline`);
+    expect((await as().post('/api/auth/qr/poll', { token, secret })).body.status).toBe('declined');
+    expect((await as(c.mgr2).post(`/api/auth/qr/${token}/approve`)).status).toBe(400);
+    expect((await as(c.mgr2).get('/api/auth/qr/not-a-token')).status).toBe(400);
+  });
+
+  it('профиль по логину (ссылка и QR-код /u/логин) и assetlinks для Android', async () => {
+    const r = await as(c.mgr2).get('/api/users/by-username/MGR1');
+    expect(r.status).toBe(200);
+    expect(r.body.id).toBe(c.mgr1.id);
+    expect(r.body.email).toBeUndefined();
+    expect((await as(c.mgr2).get('/api/users/by-username/nobody')).status).toBe(404);
+    expect((await as().get('/api/users/by-username/mgr1')).status).toBe(401);
+    const links = await as().get('/.well-known/assetlinks.json');
+    expect(links.status).toBe(200);
+    expect(links.body[0].target.package_name).toBe('com.mesnation');
+    expect(links.body[0].target.sha256_cert_fingerprints[0]).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+  });
+
   it('/me содержит название компании и признак директора', async () => {
     const me = (await as(c.dir).get('/api/auth/me')).body;
     expect(me.company_name).toBe('ООО Тест');

@@ -30,6 +30,7 @@ import kpiReportsRouter from './routes/kpiReports';
 import knowledgeRouter from './routes/knowledge';
 import homeRouter from './routes/home';
 import notificationsRouter from './routes/notifications';
+import contactsRouter from './routes/contacts';
 import { filesApiRouter, uploadsRouter } from './routes/files';
 import { createWebRouter, resolveWebDist } from './web';
 import { lastMigration, serverCommit } from './lib/version';
@@ -152,6 +153,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('/api/knowledge', knowledgeRouter);
   app.use('/api/home', homeRouter);
   app.use('/api/notifications', notificationsRouter);
+  app.use('/api/contacts', contactsRouter);
 
   const webDir = options.webDistDir === undefined ? resolveWebDist() : options.webDistDir;
   const web = webDir ? createWebRouter(webDir) : null;

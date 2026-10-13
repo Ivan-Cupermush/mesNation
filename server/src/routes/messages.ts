@@ -315,6 +315,7 @@ router.post('/messages/forward', validate(forwardSchema), async (req: AuthReques
     thumbUrl: original.thumb_url,
     contentType: original.content_type || 'text',
     noteShareId: original.note_share_id ?? null,
+    contactUserId: original.contact_user_id ?? null,
     mediaKind: original.media_kind ?? null,
     mediaWidth: original.media_width ?? null,
     mediaHeight: original.media_height ?? null,

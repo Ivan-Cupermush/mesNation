@@ -124,6 +124,10 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…'
 /** Короткий текст сообщения для уведомления (как превью в Telegram). */
 export function pushPreview(m: any): string {
   if (m.poll_id) return `Опрос: ${m.poll_question || ''}`.trim();
+  if (m.contact_user_id) {
+    const who = m.contact?.display_name || m.contact?.username || '';
+    return clip(`Контакт: ${who}${m.text ? `, ${m.text}` : ''}`.trim(), 300);
+  }
   if (m.note_share_id) {
     const caption = (m.text || '').trim();
     const title = m.note_share?.title || 'Без названия';

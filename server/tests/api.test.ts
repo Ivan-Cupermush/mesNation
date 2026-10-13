@@ -535,6 +535,54 @@ describe('заметки: вложения, копия, PDF, отправка в
   });
 });
 
+describe('контакты как в Telegram', () => {
+  it('своё имя для коллеги видно только мне, контакт в сообщении, добавить в группу', async () => {
+    const chat = await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] });
+    // Своё имя — только у меня; у собеседника имя прежнее.
+    const set = await as(c.mgr1).put(`/api/contacts/${c.mgr2.id}/name`, { first_name: 'Костя', last_name: 'Склад' });
+    expect(set.status).toBe(200);
+    const mine = ((await as(c.mgr1).get('/api/chats')).body as any[]).find((x) => x.id === chat.body.id);
+    expect(mine.name).toBe('Костя Склад');
+    expect(mine.peer.contact_name).toBe('Костя Склад');
+    expect(mine.peer.display_name).not.toBe('Костя Склад');
+    expect((await as(c.mgr1).get(`/api/chats/${chat.body.id}`)).body.name).toBe('Костя Склад');
+    const names = (await as(c.mgr1).get('/api/contacts/names')).body as any[];
+    expect(names).toEqual([{ user_id: c.mgr2.id, first_name: 'Костя', last_name: 'Склад' }]);
+    expect((await as(c.mgr2).get('/api/contacts/names')).body).toEqual([]);
+    // Профиль сотрудника не меняется.
+    expect((await as(c.mgr1).get(`/api/users/${c.mgr2.id}`)).body.display_name).not.toBe('Костя Склад');
+    // Себя переименовать нельзя, пустое имя — сброс.
+    expect((await as(c.mgr1).put(`/api/contacts/${c.mgr1.id}/name`, { first_name: 'Я' })).status).toBe(400);
+    await as(c.mgr1).put(`/api/contacts/${c.mgr2.id}/name`, { first_name: '', last_name: '' });
+    expect((await as(c.mgr1).get('/api/contacts/names')).body).toEqual([]);
+
+    // Поделиться контактом: карточка сотрудника, подпись, пересылка.
+    const msg = await as(c.mgr1).post(`/api/chats/${chat.body.id}/contact`, { user_id: c.bk.id, comment: 'Наш бухгалтер' });
+    expect(msg.status).toBe(201);
+    expect(msg.body.content_type).toBe('contact');
+    expect(msg.body.contact.id).toBe(c.bk.id);
+    expect(msg.body.contact.display_name || msg.body.contact.username).toBeTruthy();
+    expect(msg.body.text).toBe('Наш бухгалтер');
+    const list = ((await as(c.mgr2).get('/api/chats')).body as any[]).find((x) => x.id === chat.body.id);
+    expect(list.last_message.contact_user_id).toBe(c.bk.id);
+    expect(list.last_message.contact_name).toBeTruthy();
+    expect((await as(c.acc).post(`/api/chats/${chat.body.id}/contact`, { user_id: c.bk.id })).status).toBe(403);
+    const group = await as(c.mgr1).post('/api/chats', { type: 'group', name: 'Склад', user_ids: [c.mgr2.id] });
+    const fwd = await as(c.mgr1).post('/api/messages/forward', { messageId: msg.body.id, toChatId: group.body.id });
+    expect(fwd.body.contact.id).toBe(c.bk.id);
+
+    // Добавить в группу: мои группы с правом добавлять и пометкой «уже в группе».
+    const groups = (await as(c.mgr1).get(`/api/contacts/${c.bk.id}/groups`)).body as any[];
+    const g = groups.find((x) => x.id === group.body.id);
+    expect(g.can_add).toBe(true);
+    expect(g.is_member).toBe(false);
+    expect((await as(c.mgr1).post(`/api/chats/${group.body.id}/members`, { user_ids: [c.bk.id] })).status).toBe(200);
+    expect(((await as(c.mgr1).get(`/api/contacts/${c.bk.id}/groups`)).body as any[]).find((x) => x.id === group.body.id).is_member).toBe(true);
+    // Чужая группа, где меня нет, в списке не появляется.
+    expect(((await as(c.acc).get(`/api/contacts/${c.bk.id}/groups`)).body as any[]).some((x) => x.id === group.body.id)).toBe(false);
+  });
+});
+
 describe('колокольчик', () => {
   it('новая задача появляется в уведомлениях исполнителя', async () => {
     const t = await as(c.mgr1).post('/api/tasks', {

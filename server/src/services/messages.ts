@@ -29,6 +29,13 @@ export const MESSAGE_SELECT = `
      'created_at', ns.created_at,
      'accepted_user_ids', COALESCE((SELECT json_agg(a.user_id) FROM note_share_acceptances a WHERE a.share_id = ns.id), '[]'::json))
    FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_share,
+  m.contact_user_id,
+  (SELECT json_build_object(
+     'id', cu.id, 'username', cu.username, 'display_name', cu.display_name, 'avatar_url', cu.avatar_url,
+     'role_name', (SELECT rt.name FROM user_role_assignments ura JOIN role_tree rt ON rt.id = ura.role_node_id
+                   WHERE ura.user_id = cu.id LIMIT 1),
+     'is_active', cu.is_active)
+   FROM users cu WHERE cu.id = m.contact_user_id) AS contact,
   u.display_name AS sender_display_name,
   u.username     AS sender_name,
   u.avatar_url   AS sender_avatar_url`;
@@ -41,7 +48,7 @@ export const MESSAGE_SELECT = `
 export function serializeMessage(m: any) {
   const { deleted_for_user_ids: _hidden, ...rest } = m;
   if (rest.deleted_for_all) {
-    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, media_kind: null, media_waveform: null, reactions: null };
+    return { ...rest, text: null, file_url: null, file_name: null, thumb_url: null, poll_id: null, note_share_id: null, note_share: null, contact_user_id: null, contact: null, media_kind: null, media_waveform: null, reactions: null };
   }
   return rest;
 }
@@ -71,6 +78,8 @@ export interface NewMessage {
   mimeType?: string | null;
   /** Голосовое: уровни громкости 0..31 через запятую. */
   mediaWaveform?: string | null;
+  /** «Поделиться контактом»: чья карточка в сообщении. */
+  contactUserId?: number | null;
 }
 
 /**
@@ -108,8 +117,8 @@ export async function createMessage(input: NewMessage) {
                              file_url, file_name, thumb_url, external_reply_chat_id, content_type, poll_id,
                              forwarded_from_user_id, forwarded_from_message_id, note_share_id,
                              media_group_id, media_kind, media_width, media_height, media_duration, file_size, mime_type,
-                             media_waveform)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+                             media_waveform, contact_user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        ON CONFLICT (sender_id, client_id) WHERE client_id IS NOT NULL DO NOTHING
        RETURNING *
      )
@@ -138,6 +147,7 @@ export async function createMessage(input: NewMessage) {
       input.fileSize ?? null,
       input.mimeType ?? null,
       input.mediaWaveform ?? null,
+      input.contactUserId ?? null,
     ],
   );
 

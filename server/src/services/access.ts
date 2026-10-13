@@ -13,9 +13,9 @@ import { forbidden, notFound } from '../lib/errors';
  * - Глубина узла считается по структуре дерева, а не по колонке level,
  *   которая устаревает при переносе узлов.
  * - Задачу можно поставить себе и своему поддереву (всем ниже по дереву).
- * - Просьбу — ещё и коллегам: людям на той же глубине (своя должность и
+ * - Запрос — ещё и коллегам: людям на той же глубине (своя должность и
  *   другие должности того же уровня, даже из других отделов).
- *   Вверх по иерархии — ни задачу, ни просьбу.
+ *   Вверх по иерархии — ни задачу, ни запрос.
  */
 
 export interface UserNode {
@@ -80,11 +80,11 @@ export async function getNodeIdsAtDepth(depth: number): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
-/** Кем человек приходится тому, кто ставит задачу или просьбу. */
+/** Кем человек приходится тому, кто ставит задачу или запрос. */
 export type AssignRelation = 'self' | 'subordinate' | 'colleague';
 export type TaskKind = 'task' | 'request';
 
-/** Кому что можно: задачу — себе и поддереву, просьбу — ещё и коллегам своего уровня. */
+/** Кому что можно: задачу — себе и поддереву, запрос — ещё и коллегам своего уровня. */
 export const KIND_RELATIONS: Record<TaskKind, AssignRelation[]> = {
   task: ['self', 'subordinate'],
   request: ['self', 'subordinate', 'colleague'],
@@ -99,7 +99,7 @@ async function assignableNodes(userId: number): Promise<{ me: UserNode; below: n
 }
 
 /**
- * Активные пользователи, которым можно поставить задачу или просьбу (включая
+ * Активные пользователи, которым можно поставить задачу или запрос (включая
  * себя): relation — кем приходится, same_role — та же должность, can_task /
  * can_request — что именно можно. Пользователь без узла — только себе.
  */
@@ -124,7 +124,7 @@ export async function getAssignableUsers(userId: number) {
   }));
 }
 
-/** Проверяет, что всех из списка можно назначить исполнителями задачи или просьбы. */
+/** Проверяет, что всех из списка можно назначить исполнителями задачи или запроса. */
 export async function assertCanAssign(userId: number, targetIds: number[], kind: TaskKind = 'task') {
   if (!targetIds.length) return;
   const users = await getAssignableUsers(userId);
@@ -132,12 +132,12 @@ export async function assertCanAssign(userId: number, targetIds: number[], kind:
   const denied = targetIds.filter((id) => !allowed.has(id));
   if (!denied.length) return;
   if (kind === 'task' && denied.every((id) => users.some((u) => u.id === id && u.relation === 'colleague'))) {
-    throw forbidden('Коллегам своего уровня задачу поставить нельзя — отправьте им просьбу');
+    throw forbidden('Коллегам своего уровня задачу поставить нельзя — отправьте им запрос');
   }
   throw forbidden(
     kind === 'task'
       ? 'Задачу можно поставить только себе и своим подчинённым'
-      : 'Просьбу можно отправить себе, коллегам своего уровня и подчинённым',
+      : 'Запрос можно отправить себе, коллегам своего уровня и подчинённым',
   );
 }
 

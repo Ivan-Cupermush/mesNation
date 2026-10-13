@@ -11,8 +11,8 @@ function describe(t: Task, from: TaskStatus | undefined): string | null {
   if (from === undefined) return t.is_assignee && !t.is_creator && t.status_new === 'new' ? (request ? 'Вас просят помочь' : 'Новая задача') : null;
   if (from === t.status_new) return null;
   if (request) {
-    // Просьба: без проверки — просившему сообщаем, что её выполнили.
-    return t.status_new === 'done' && t.is_creator && !t.is_assignee ? 'Ваша просьба выполнена' : null;
+    // Запрос: без проверки — просившему сообщаем, что его выполнили.
+    return t.status_new === 'done' && t.is_creator && !t.is_assignee ? 'Ваш запрос выполнен' : null;
   }
   const reviewer = (t.is_creator || t.is_watcher) && !t.is_assignee;
   const worker = t.is_assignee && !t.is_creator;

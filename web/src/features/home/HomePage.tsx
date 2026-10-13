@@ -241,7 +241,7 @@ export default function HomePage() {
                           </span>
                         </span>
                         {t.kind === 'request' ? (
-                          <span className={s.reqIcon} title="Просьба">
+                          <span className={s.reqIcon} title="Запрос">
                             <HandHeart size={15} />
                           </span>
                         ) : (

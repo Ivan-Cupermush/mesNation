@@ -67,7 +67,7 @@ export default function TaskList({ state, onChange, children }: Props) {
           </button>
         </div>
         <ShellActions />
-        <IconButton label="Создать задачу или просьбу" tone="soft" size={42} onClick={() => setChoosing(true)}>
+        <IconButton label="Создать задачу или запрос" tone="soft" size={42} onClick={() => setChoosing(true)}>
           <Plus size={22} />
         </IconButton>
       </header>
@@ -78,7 +78,7 @@ export default function TaskList({ state, onChange, children }: Props) {
           <SlidersHorizontal size={19} />
         </IconButton>
       </div>
-      <div className={s.kinds} role="tablist" aria-label="Задачи и просьбы">
+      <div className={s.kinds} role="tablist" aria-label="Задачи и запросы">
         {KIND_FILTERS.map((k) => (
           <button
             key={k.key}
@@ -115,13 +115,13 @@ export default function TaskList({ state, onChange, children }: Props) {
             <EmptyState
               compact
               icon={<ListTodo size={40} strokeWidth={1.5} />}
-              title={state.query.trim() ? 'Ничего не найдено' : state.kind === 'request' ? 'Просьб пока нет' : 'Задач пока нет'}
+              title={state.query.trim() ? 'Ничего не найдено' : state.kind === 'request' ? 'Запросов пока нет' : 'Задач пока нет'}
               text={
                 state.query.trim() || state.filter !== 'all' || state.status !== 'any'
                   ? 'Попробуйте изменить запрос или фильтр'
                   : state.kind === 'request'
-                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Просьба».'
-                    : 'Нажмите «+», чтобы создать первую задачу или просьбу'
+                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Запрос».'
+                    : 'Нажмите «+», чтобы создать первую задачу или запрос'
               }
             />
           ) : (

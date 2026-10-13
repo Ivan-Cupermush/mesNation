@@ -26,7 +26,7 @@ const nameOf = (u: Person) => u.display_name || u.username;
 const byName = (a: Person, b: Person) => nameOf(a).localeCompare(nameOf(b), 'ru');
 
 /**
- * Группы выбора (как на сайте). Просьба: сначала коллеги вашей должности,
+ * Группы выбора (как на сайте). Запрос: сначала коллеги вашей должности,
  * дальше — по ролям (коллеги своего уровня, затем подчинённые), в конце —
  * себе. Задача: себе и подчинённые по ролям.
  */
@@ -68,7 +68,7 @@ interface Props {
   myRole: string | null;
   selected: number[];
   onToggle: (u: Person) => void;
-  /** Задача: коллегам — только просьбой. Переключить форму на просьбу. */
+  /** Задача: коллегам — только запросом. Переключить форму на запрос. */
   onSwitchToRequest?: () => void;
 }
 
@@ -180,10 +180,10 @@ export default function AssigneeSheet({ visible, onClose, users, loading, kind, 
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.tipTitle}>Нужна помощь коллеги?</Text>
-                      <Text style={styles.tipText}>Коллегам своего уровня ставят не задачу, а просьбу — без проверки и важности.</Text>
+                      <Text style={styles.tipText}>Коллегам своего уровня ставят не задачу, а запрос — без проверки и важности.</Text>
                     </View>
                     <TouchableOpacity onPress={onSwitchToRequest} style={styles.tipBtn} activeOpacity={0.8}>
-                      <Text style={styles.tipBtnText}>Просьба</Text>
+                      <Text style={styles.tipBtnText}>Запрос</Text>
                     </TouchableOpacity>
                   </View>
                 ) : null

@@ -39,7 +39,7 @@ const PRIORITY_THICKNESS = {
 };
 
 const getTaskColor = (task: Task): string => {
-  // Просьба — фиолетовая полоса (важности у неё нет).
+  // Запрос — фиолетовая полоса (важности у него нет).
   if (task.kind === 'request') return '#7C5CFA';
   if (task.importance === 'red') return PRIORITY_COLORS.high;
   if (task.importance === 'yellow') return PRIORITY_COLORS.medium;

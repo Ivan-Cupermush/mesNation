@@ -70,7 +70,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
   const isEdit = !!editTaskId;
   // «Создать задачу» из сообщения чата: название и описание уже заполнены.
   const prefillFrom: { title?: string; description?: string } | undefined = route?.params?.prefill;
-  // Задача или просьба: выбрали по «+»; у сохранённой — её тип (подставится при загрузке).
+  // Задача или запрос: выбрали по «+»; у сохранённой — её тип (подставится при загрузке).
   const [kind, setKindState] = useState<TaskKind>(route?.params?.kind === 'request' ? 'request' : 'task');
   const request = kind === 'request';
   const [myRole, setMyRole] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
       navigation.addListener('beforeRemove', (e: any) => {
         if (savedRef.current || prefilling || snapshotRef.current === initialRef.current) return;
         e.preventDefault();
-        Alert.alert(isEdit ? 'Отменить изменения?' : kindRef.current === 'request' ? 'Не отправлять просьбу?' : 'Отменить создание задачи?', 'Введённые данные не сохранятся.', [
+        Alert.alert(isEdit ? 'Отменить изменения?' : kindRef.current === 'request' ? 'Не отправлять запрос?' : 'Отменить создание задачи?', 'Введённые данные не сохранятся.', [
           { text: 'Остаться', style: 'cancel' },
           { text: 'Выйти', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
         ]);
@@ -265,18 +265,18 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         }
       }
       if (failed.length) {
-        Alert.alert(request ? 'Просьба отправлена' : 'Задача создана', `Не удалось прикрепить: ${failed.join(', ')}. Добавьте их в карточке.`, [
+        Alert.alert(request ? 'Запрос отправлен' : 'Задача создана', `Не удалось прикрепить: ${failed.join(', ')}. Добавьте их в карточке.`, [
           { text: 'OK', onPress: () => navigation.replace('TaskDetail', { taskId: task.id }) },
         ]);
       } else {
         if (request) {
           const one = selectedAssignees.length === 1 && selectedAssignees[0].id !== meId ? selectedAssignees[0] : null;
-          showToast(one ? `Просьба отправлена — ${one.display_name || one.username} получит уведомление` : 'Просьба отправлена');
+          showToast(one ? `Запрос отправлен — ${one.display_name || one.username} получит уведомление` : 'Запрос отправлен');
         }
         navigation.replace('TaskDetail', { taskId: task.id });
       }
     } catch (e: any) {
-      showError(e.message || (request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу'), 'Ошибка');
+      showError(e.message || (request ? 'Не удалось отправить запрос' : 'Не удалось сохранить задачу'), 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -374,7 +374,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : request ? 'НОВАЯ ПРОСЬБА' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
+          <Text style={styles.headerTitle}>{isEdit ? 'РЕДАКТИРОВАТЬ' : request ? 'НОВЫЙ ЗАПРОС' : 'СОЗДАТЬ ЗАДАЧУ'}</Text>
         </View>
         <TouchableOpacity
           onPress={handleCreate}
@@ -405,7 +405,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ===== Задача или просьба ===== */}
+        {/* ===== Задача или запрос ===== */}
         {!isEdit && (
           <View style={styles.kindSwitch}>
             {(['task', 'request'] as const).map((k) => {
@@ -414,7 +414,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
               return (
                 <TouchableOpacity key={k} onPress={() => setKind(k)} activeOpacity={0.8} style={[styles.kindTab, on && styles.kindTabOn]}>
                   {k === 'request' ? <HandHeart size={17} color={color} strokeWidth={2.2} /> : <ListTodo size={17} color={color} strokeWidth={2.2} />}
-                  <Text style={[styles.kindTabText, { color }]}>{k === 'request' ? 'Просьба' : 'Задача'}</Text>
+                  <Text style={[styles.kindTabText, { color }]}>{k === 'request' ? 'Запрос' : 'Задача'}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -465,7 +465,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           />
         </View>
 
-        {/* ===== КАРТОЧКА 2: Приоритет (у просьбы нет) ===== */}
+        {/* ===== КАРТОЧКА 2: Приоритет (у запроса нет) ===== */}
         {!request && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -659,7 +659,7 @@ export default function CreateTaskScreen({ navigation, route }: any) {
           {request ? (
             <Text style={styles.fieldHint}>
               {selectedAssignees.length === 1 && selectedAssignees[0].id === meId
-                ? 'Просьба себе — как напоминание: отметите «Готово», когда сделаете.'
+                ? 'Запрос себе — как напоминание: отметите «Готово», когда сделаете.'
                 : 'Коллега получит уведомление и отметит «Готово», когда поможет.'}
             </Text>
           ) : (

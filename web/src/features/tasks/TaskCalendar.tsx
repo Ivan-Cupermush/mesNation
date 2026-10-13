@@ -133,9 +133,9 @@ export default function TaskCalendar({ state }: { state: TaskFilterState }) {
               </div>
               <div className={s.bars} style={{ height: Math.max(56, shown.length * 22 + 8) }}>
                 {shown.map(({ t, from, to, endsHere }, i) => {
-                  // Просьба — фиолетовая полоса средней толщины (важности у неё нет).
+                  // Запрос — фиолетовая полоса средней толщины (важности у него нет).
                   const req = t.kind === 'request';
-                  const p = req ? { color: 'var(--c-violet)', long: 'Просьба' } : priorityOf(t.importance);
+                  const p = req ? { color: 'var(--c-violet)', long: 'Запрос' } : priorityOf(t.importance);
                   const h = req ? 6 : (THICKNESS[t.importance ?? 'yellow'] ?? 6);
                   return (
                     <button

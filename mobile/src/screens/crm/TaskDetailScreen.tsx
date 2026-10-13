@@ -65,7 +65,7 @@ import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { request as httpRequest, signedFileUrl } from '../../services/http';
 
-/** «Спасибо» за выполненную просьбу. */
+/** «Спасибо» за выполненный запрос. */
 const request_thanks = (taskId: number) => httpRequest(`/api/tasks/${taskId}/thanks`, { method: 'POST' });
 import DateTimePickerModal from '../../components/DateTimePickerModal';
 import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
@@ -163,7 +163,7 @@ export default function TaskDetailScreen({ navigation }: any) {
   const request = isRequest(task);
   const creatorName = task?.creator?.display_name || task?.creator_name || 'Коллега';
 
-  /** «Спасибо» за выполненную просьбу: комментарий и уведомление исполнителям. */
+  /** «Спасибо» за выполненный запрос: комментарий и уведомление исполнителям. */
   const handleThanks = async () => {
     setTransitioning(true);
     try {
@@ -219,9 +219,9 @@ export default function TaskDetailScreen({ navigation }: any) {
     }
     const hint: Record<string, string> = request
       ? {
-          in_progress: 'Просьба будет отмечена «В работе».',
-          done: `${creatorName} получит уведомление, что просьба выполнена.`,
-          archived: 'Просьба переместится в архив. Её можно будет вернуть.',
+          in_progress: 'Запрос будет отмечен «В работе».',
+          done: `${creatorName} получит уведомление, что запрос выполнен.`,
+          archived: 'Запрос переместится в архив. Его можно будет вернуть.',
         }
       : {
           in_progress: 'Задача перейдёт в статус «В работе».',
@@ -248,7 +248,7 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   // ===== Разархивация (п. 13): задача возвращается в статус, где была до архива =====
   const handleUnarchive = () => {
-    Alert.alert(request ? 'Вернуть просьбу из архива?' : 'Вернуть задачу из архива?', request ? 'Просьба вернётся в статус, в котором была до архива.' : 'Задача вернётся в статус, в котором была до архивации.', [
+    Alert.alert(request ? 'Вернуть запрос из архива?' : 'Вернуть задачу из архива?', request ? 'Запрос вернётся в статус, в котором был до архива.' : 'Задача вернётся в статус, в котором была до архивации.', [
       { text: 'Отмена', style: 'cancel' },
       {
         text: request ? 'Вернуть' : 'Разархивировать',
@@ -271,19 +271,19 @@ export default function TaskDetailScreen({ navigation }: any) {
   const handleDelete = () => {
     setShowMenu(false);
     Alert.alert(
-      request ? 'Отменить просьбу?' : 'Удалить задачу?',
-      request ? 'Просьба уйдёт в архив с пометкой «отменена». Её можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
+      request ? 'Отменить запрос?' : 'Удалить задачу?',
+      request ? 'Запрос уйдёт в архив с пометкой «отменён». Его можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
       [
       { text: 'Не надо', style: 'cancel' },
       {
-        text: request ? 'Отменить просьбу' : 'Удалить',
+        text: request ? 'Отменить запрос' : 'Удалить',
         style: 'destructive',
         onPress: async () => {
           try {
             await api.deleteTask(taskId);
             loadData();
           } catch (e: any) {
-            Alert.alert('Ошибка', e.message || (request ? 'Не удалось отменить просьбу' : 'Не удалось удалить задачу'));
+            Alert.alert('Ошибка', e.message || (request ? 'Не удалось отменить запрос' : 'Не удалось удалить задачу'));
           }
         },
       },
@@ -582,7 +582,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerLabel}>{request ? 'ПРОСЬБА' : 'ДЕТАЛИ ЗАДАЧИ'}</Text>
+          <Text style={styles.headerLabel}>{request ? 'ЗАПРОС' : 'ДЕТАЛИ ЗАДАЧИ'}</Text>
         </View>
         {/* ⋯ — у всех участников: отправить в чат, ссылка; у создателя ещё правка и архив. */}
         <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
@@ -611,7 +611,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           {/* ===== ГЛАВНЫЙ БЛОК: ЗАГОЛОВОК + СТАТУС ===== */}
           <View style={[styles.heroCard, request && styles.heroRequest]}>
             {request && <View style={styles.heroStripe} />}
-            {/* Приоритет (у просьбы — метка «Просьба») + статус */}
+            {/* Приоритет (у запроса — метка «Запрос») + статус */}
             <View style={styles.heroBadges}>
               {request && <RequestBadge large />}
               <StatusPill status={task.status_new} overdue={task.is_overdue} kind={task.kind} />
@@ -644,7 +644,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 <HandHeart size={15} color={T.violet} strokeWidth={2.2} />
                 <Text style={styles.asksText}>
                   {isCreator && isAssignee && (task.assignees || []).length === 1
-                    ? 'Просьба себе — как напоминание'
+                    ? 'Запрос себе — как напоминание'
                     : isCreator
                       ? `Вы попросили: ${(task.assignees || []).map((a: any) => a.display_name || a.username).join(', ') || '—'}`
                       : `${creatorName} просит ${isAssignee ? 'вас' : (task.assignees || []).map((a: any) => a.display_name || a.username).join(', ')} помочь`}
@@ -765,7 +765,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </TouchableOpacity>
 
-            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает. У просьбы их нет — когда попросили. */}
+            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает. У запроса их нет — когда попросили. */}
             {request ? (
               <View style={styles.infoCard}>
                 <View style={styles.infoIconWrap}>
@@ -872,7 +872,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                   !isAssignee && (
                     <Text style={styles.noActionsText}>
                       {request
-                        ? 'Вы видите просьбу как руководитель участника — отмечать её могут те, кого попросили.'
+                        ? 'Вы видите запрос как руководитель участника — отмечать его могут те, кого попросили.'
                         : 'Вы наблюдаете за задачей — менять статус могут создатель и исполнители.'}
                     </Text>
                   )
@@ -891,7 +891,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.archiveTitle}>
-                    {task.archived_as === 'deleted' ? (request ? 'Просьба отменена' : 'Задача удалена') : request ? 'Просьба в архиве' : 'Задача в архиве'}
+                    {task.archived_as === 'deleted' ? (request ? 'Запрос отменён' : 'Задача удалена') : request ? 'Запрос в архиве' : 'Задача в архиве'}
                   </Text>
                   <Text style={styles.archiveSubtitle}>
                     {task.archived_at ? formatDate(task.archived_at) : ''}
@@ -920,7 +920,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 const done = cp.status === 'completed';
                 const missed = cp.status === 'missed';
                 const late = !done && !missed && new Date(cp.deadline) < new Date();
-                // В просьбе (наблюдателей нет) точки отмечает и тот, кого попросили.
+                // В запросе (наблюдателей нет) точки отмечает и тот, кого попросили.
                 const canMark = (isCreator || isWatcher || (request && isAssignee)) && task.status_new !== 'archived';
                 return (
                   <View key={cp.id} style={styles.checkpointRow}>
@@ -1509,11 +1509,11 @@ export default function TaskDetailScreen({ navigation }: any) {
               <>
                 <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
                   <Pencil size={20} color={T.accent} strokeWidth={2} />
-                  <Text style={assigneeStyles.name}>{request ? 'Редактировать просьбу' : 'Редактировать задачу'}</Text>
+                  <Text style={assigneeStyles.name}>{request ? 'Редактировать запрос' : 'Редактировать задачу'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
                   <Trash2 size={20} color={T.danger} strokeWidth={2} />
-                  <Text style={[assigneeStyles.name, { color: T.danger }]}>{request ? 'Отменить просьбу' : 'Удалить (в архив)'}</Text>
+                  <Text style={[assigneeStyles.name, { color: T.danger }]}>{request ? 'Отменить запрос' : 'Удалить (в архив)'}</Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -1538,7 +1538,7 @@ export default function TaskDetailScreen({ navigation }: any) {
         onSend={(chatId, comment, topicId) =>
           httpRequest(`/api/chats/${chatId}/messages`, {
             method: 'POST',
-            body: { text: [comment, `${request ? '🤝 Просьба' : '📋 Задача'} «${task.title}»`, `${SERVER_URL}/tasks/${task.id}`].filter(Boolean).join('\n'), topic_id: topicId ?? undefined },
+            body: { text: [comment, `${request ? '🤝 Запрос' : '📋 Задача'} «${task.title}»`, `${SERVER_URL}/tasks/${task.id}`].filter(Boolean).join('\n'), topic_id: topicId ?? undefined },
           }).then(() => undefined)
         }
         onDone={(n) => {
@@ -1716,7 +1716,7 @@ const styles = themed(() => ({
   },
 
   // ===== HERO CARD =====
-  // Просьба: фиолетовая полоска и обводка, «кто просит», «спасибо».
+  // Запрос: фиолетовая полоска и обводка, «кто просит», «спасибо».
   heroRequest: { borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.28), overflow: 'hidden' },
   heroStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: T.violet },
   asksRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },

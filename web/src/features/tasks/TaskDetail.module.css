@@ -388,7 +388,7 @@ button.cell:hover {
   color: var(--c-text-muted);
 }
 
-/* ===== Просьба ===== */
+/* ===== Запрос ===== */
 .heroRequest {
   position: relative;
   overflow: hidden;

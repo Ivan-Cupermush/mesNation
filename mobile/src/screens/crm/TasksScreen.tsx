@@ -1,8 +1,16 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, ScrollView,
-  Platform, TextInput, Modal, ActivityIndicator, RefreshControl
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  TextInput,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -12,8 +20,10 @@ import {
 import TaskCalendar from '../../components/tasks/TaskCalendar';
 import { api, Task } from '../../services/api';
 import { StatusPill, StatusSegments } from '../../components/tasks/taskStatus';
+import { isRequest, KindChooserSheet, RequestBadge, requestLine, TaskKind } from '../../components/tasks/kind';
 
 import { T, themed } from '../../theme/runtime';
+import { withAlpha } from '../../theme/palettes';
 import SafeBottom from '../../components/ui/SafeBottom';
 import HeaderBell from '../../components/HeaderBell';
 const AVATAR_COLORS = ['#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444'];
@@ -36,6 +46,13 @@ const BASE_FILTERS = [
   { id: 'archived', label: 'Архив' },
 ];
 const TEAM_FILTER = { id: 'team', label: 'Команда' };
+
+/** Всё, только задачи или только просьбы. */
+const KIND_FILTERS: { id: 'all' | TaskKind; label: string }[] = [
+  { id: 'all', label: 'Всё' },
+  { id: 'task', label: 'Задачи' },
+  { id: 'request', label: 'Просьбы' },
+];
 
 /**
  * Иконки роли на плашке задачи: монитор — создал, ключ — исполняю, глаз — наблюдаю.
@@ -104,6 +121,8 @@ export default function TasksScreen({ navigation }: any) {
   const [showFade, setShowFade] = useState(true);
   const [sortBy, setSortBy] = useState<'deadline' | 'priority'>('deadline');
   const [showSortModal, setShowSortModal] = useState(false);
+  const [kindFilter, setKindFilter] = useState<'all' | TaskKind>('all');
+  const [choosing, setChoosing] = useState(false);
 
   const [teamTasks, setTeamTasks] = useState<Task[]>([]);
   const [isManager, setIsManager] = useState(false);
@@ -173,6 +192,7 @@ export default function TasksScreen({ navigation }: any) {
         list = list.filter((t) => t.status_new !== 'archived');
         break;
     }
+    if (kindFilter !== 'all') list = list.filter((t) => (t.kind || 'task') === kindFilter);
     const prio: Record<string, number> = { red: 0, yellow: 1, green: 2 };
     const dl = (t: Task) => {
       const iso = t.current_deadline || t.executor_deadline || t.hard_deadline;
@@ -182,8 +202,9 @@ export default function TasksScreen({ navigation }: any) {
     const doneRank = (t: Task) => (t.status_new === 'done' ? 1 : 0);
     list.sort((a, b) => {
       if (doneRank(a) !== doneRank(b)) return doneRank(a) - doneRank(b);
-      const pA = prio[a.importance] ?? 9;
-      const pB = prio[b.importance] ?? 9;
+      // У просьбы важности нет — считаем средней.
+      const pA = prio[a.importance ?? 'yellow'] ?? 9;
+      const pB = prio[b.importance ?? 'yellow'] ?? 9;
       const dA = dl(a);
       const dB = dl(b);
       if (sortBy === 'deadline') {
@@ -194,22 +215,33 @@ export default function TasksScreen({ navigation }: any) {
       return dA - dB;
     });
     return list;
-  }, [tasks, teamTasks, searchQuery, activeFilter, sortBy, meId]);
+  }, [tasks, teamTasks, searchQuery, activeFilter, kindFilter, sortBy, meId]);
+
+  /** Просьбы ко мне, за которые ещё никто не взялся. */
+  const newRequests = useMemo(() => tasks.filter((t) => isRequest(t) && t.is_assignee && t.status_new === 'new').length, [tasks]);
 
   const renderTaskCard = (task: Task) => {
-    const priority = PRIORITY_CONFIG[task.importance] || PRIORITY_CONFIG.yellow;
+    const request = isRequest(task);
+    const priority = PRIORITY_CONFIG[task.importance ?? 'yellow'] || PRIORITY_CONFIG.yellow;
     const due = stageDeadline(task);
     const assignees = task.assignees || [];
     return (
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
-        style={styles.taskCard}
+        style={[styles.taskCard, request && styles.requestCard]}
       >
+        {request && <View style={styles.requestStripe} />}
         <View style={styles.taskHeader}>
           <View style={styles.priorityRow}>
-            <Flag size={16} color={priority.color} strokeWidth={2} />
-            <Text style={[styles.priorityLabel, { color: priority.color }]}>{priority.label}</Text>
+            {request ? (
+              <RequestBadge />
+            ) : (
+              <>
+                <Flag size={16} color={priority.color} strokeWidth={2} />
+                <Text style={[styles.priorityLabel, { color: priority.color }]}>{priority.label}</Text>
+              </>
+            )}
             {task.is_overdue && <Text style={styles.overdueTag}>просрочена</Text>}
             {task.archived_as === 'deleted' && <Text style={styles.deletedTag}>удалена</Text>}
           </View>
@@ -219,10 +251,11 @@ export default function TasksScreen({ navigation }: any) {
           </View>
         </View>
         <Text style={styles.taskTitle} numberOfLines={2}>{task.title}</Text>
+        {request && <Text style={styles.requestFrom} numberOfLines={1}>{requestLine(task)}</Text>}
         <View style={styles.progressRow}>
-          <StatusPill status={task.status_new} overdue={task.is_overdue} />
+          <StatusPill status={task.status_new} overdue={task.is_overdue} kind={task.kind} />
           <View style={styles.segmentsWrap}>
-            <StatusSegments status={task.status_new} />
+            <StatusSegments status={task.status_new} kind={task.kind} />
           </View>
         </View>
         {task.description ? (
@@ -324,6 +357,22 @@ export default function TasksScreen({ navigation }: any) {
         </View>
       </View>
 
+      <View style={styles.kinds}>
+        {KIND_FILTERS.map((k) => {
+          const on = kindFilter === k.id;
+          return (
+            <TouchableOpacity key={k.id} onPress={() => setKindFilter(k.id)} activeOpacity={0.8} style={[styles.kind, on && styles.kindOn]}>
+              <Text style={[styles.kindText, on && styles.kindTextOn, on && k.id === 'request' && { color: T.violet }]}>{k.label}</Text>
+              {k.id === 'request' && newRequests > 0 && (
+                <View style={styles.kindBadge}>
+                  <Text style={styles.kindBadgeText}>{newRequests}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       <View style={styles.filtersWrap}>
         <ScrollView
           horizontal
@@ -378,9 +427,13 @@ export default function TasksScreen({ navigation }: any) {
           ListEmptyComponent={
             <View style={styles.emptyBlock}>
               <Search size={40} color={T.textMuted} strokeWidth={1.5} />
-              <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'Ничего не найдено' : 'Задач пока нет'}</Text>
+              <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'Ничего не найдено' : kindFilter === 'request' ? 'Просьб пока нет' : 'Задач пока нет'}</Text>
               <Text style={styles.emptySubtitle}>
-                {searchQuery.trim() ? 'Попробуй изменить запрос или фильтр' : 'Нажми «+», чтобы создать первую задачу'}
+                {searchQuery.trim()
+                  ? 'Попробуйте изменить запрос или фильтр'
+                  : kindFilter === 'request'
+                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Просьба»'
+                    : 'Нажмите «+», чтобы создать задачу или просьбу'}
               </Text>
             </View>
           }
@@ -394,9 +447,18 @@ export default function TasksScreen({ navigation }: any) {
         </View>
       )}
 
-      <TouchableOpacity onPress={() => navigation.navigate('CreateTask')} activeOpacity={0.85} style={styles.fab}>
+      <TouchableOpacity onPress={() => setChoosing(true)} activeOpacity={0.85} style={styles.fab} accessibilityLabel="Создать задачу или просьбу">
         <Plus size={24} color={T.onAccent} strokeWidth={2.5} />
       </TouchableOpacity>
+
+      <KindChooserSheet
+        visible={choosing}
+        onClose={() => setChoosing(false)}
+        onPick={(kind) => {
+          setChoosing(false);
+          navigation.navigate('CreateTask', { kind });
+        }}
+      />
 
       <Modal visible={showSortModal} transparent animationType="fade" onRequestClose={() => setShowSortModal(false)} statusBarTranslucent>
         <TouchableOpacity activeOpacity={1} onPress={() => setShowSortModal(false)} style={sortStyles.overlay}>
@@ -484,6 +546,17 @@ const styles = themed(() => ({
   emptyTitle: { fontSize: 16, fontWeight: '600', color: T.textPrimary, marginTop: 16 },
   emptySubtitle: { fontSize: 13, color: T.textSecondary, marginTop: 4 },
   taskCard: { backgroundColor: T.card, borderRadius: 22, padding: 20, shadowColor: T.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 4 },
+  // Просьба: фиолетовая полоска слева и лёгкая обводка — сразу видно, что это не задача.
+  requestCard: { borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.3), overflow: 'hidden' },
+  requestStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: T.violet },
+  requestFrom: { fontSize: 13, fontWeight: '700', color: T.violet, marginTop: -4, marginBottom: 6 },
+  kinds: { flexDirection: 'row', gap: 4, marginHorizontal: 24, marginBottom: 10, padding: 3, borderRadius: 14, backgroundColor: T.inputBg },
+  kind: { flex: 1, height: 34, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  kindOn: { backgroundColor: T.card, shadowColor: T.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  kindText: { fontSize: 13.5, fontWeight: '700', color: T.textSecondary },
+  kindTextOn: { color: T.textPrimary },
+  kindBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: T.violet, alignItems: 'center', justifyContent: 'center' },
+  kindBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
   taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   priorityRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   priorityLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },

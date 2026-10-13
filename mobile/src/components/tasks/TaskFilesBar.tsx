@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, Image } from 'react-native';
+import Modal from '../ui/AppModal';
 import * as RNFS from 'react-native-fs';
 import { Trash2, Forward, Share2, FileText } from 'lucide-react-native';
 import { cachedSignedUrl, request } from '../../services/http';
 import { shareFiles, nativeShareAvailable } from '../../native/share';
 import { ChatTargetsModal, ChatTarget } from '../ChatTargetsPicker';
 import { plural } from '../chat/chatUtils';
-import { showToast } from '../ui/toast';
+import { showToast, showError, showInfo } from '../ui/toast';
 import { openChat } from '../../navigation/ref';
 import { T, themed } from '../../theme/runtime';
 
@@ -54,7 +55,7 @@ export default function TaskFilesBar({
 
   const remove = () => {
     if (!deletable.length) {
-      Alert.alert('Нельзя удалить', 'Удалить файл может его автор или создатель задачи.');
+      showError('Удалить файл может его автор или создатель задачи.', 'Нельзя удалить');
       return;
     }
     const partial = deletable.length < chosen.length;
@@ -103,7 +104,7 @@ export default function TaskFilesBar({
         showToast(`Переслано в ${targets.length} ${plural(targets.length, ['чат', 'чата', 'чатов'])}`);
       }
     } catch (e: any) {
-      Alert.alert('Не удалось переслать', e?.message || '');
+      showError(e?.message || '', 'Не удалось переслать');
     } finally {
       setProgress(null);
     }
@@ -112,7 +113,7 @@ export default function TaskFilesBar({
   /** Скачиваем во временную папку и открываем системное «Поделиться» (WhatsApp, почта, галерея). */
   const shareOut = async () => {
     if (!nativeShareAvailable()) {
-      Alert.alert('Обновите приложение', 'Отправка файлов в другие приложения появилась в новой версии Offix.');
+      showInfo('Отправка файлов в другие приложения появилась в новой версии Offix.', 'Обновите приложение');
       return;
     }
     setPreparing({ done: 0, total: chosen.length });
@@ -131,7 +132,7 @@ export default function TaskFilesBar({
       await shareFiles(out, { title: chosen.length === 1 ? chosen[0].file_name : `${chosen.length} ${nameWord(chosen.length)} из задачи` });
       onDone(false);
     } catch (e: any) {
-      Alert.alert('Не удалось отправить', e?.message || '');
+      showError(e?.message || '', 'Не удалось отправить');
     } finally {
       setPreparing(null);
     }

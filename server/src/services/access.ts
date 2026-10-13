@@ -12,9 +12,10 @@ import { forbidden, notFound } from '../lib/errors';
  *   значения не имеет: корень можно переименовать без потери прав.
  * - Глубина узла считается по структуре дерева, а не по колонке level,
  *   которая устаревает при переносе узлов.
- * - Ставить задачи можно: себе, всем в своём поддереве и людям на той же
- *   глубине (коллеги одного уровня, даже из других отделов).
- *   Вверх по иерархии — нельзя.
+ * - Задачу можно поставить себе и своему поддереву (всем ниже по дереву).
+ * - Просьбу — ещё и коллегам: людям на той же глубине (своя должность и
+ *   другие должности того же уровня, даже из других отделов).
+ *   Вверх по иерархии — ни задачу, ни просьбу.
  */
 
 export interface UserNode {
@@ -79,43 +80,65 @@ export async function getNodeIdsAtDepth(depth: number): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
-/** Узлы, людям в которых пользователь может ставить задачи. */
-export async function getAssignableNodeIds(userId: number): Promise<number[]> {
+/** Кем человек приходится тому, кто ставит задачу или просьбу. */
+export type AssignRelation = 'self' | 'subordinate' | 'colleague';
+export type TaskKind = 'task' | 'request';
+
+/** Кому что можно: задачу — себе и поддереву, просьбу — ещё и коллегам своего уровня. */
+export const KIND_RELATIONS: Record<TaskKind, AssignRelation[]> = {
+  task: ['self', 'subordinate'],
+  request: ['self', 'subordinate', 'colleague'],
+};
+
+/** Узлы строго ниже своего (поддерево) и узлы своего уровня (коллеги, включая свой). */
+async function assignableNodes(userId: number): Promise<{ me: UserNode; below: number[]; level: number[] }> {
   const me = await getUserNode(userId);
-  if (me.nodeId == null || me.depth == null) return [];
-  const [subtree, peers] = await Promise.all([
-    getSubtreeNodeIds(me.nodeId),
-    getNodeIdsAtDepth(me.depth),
-  ]);
-  return Array.from(new Set([...subtree, ...peers]));
+  if (me.nodeId == null || me.depth == null) return { me, below: [], level: [] };
+  const [subtree, level] = await Promise.all([getSubtreeNodeIds(me.nodeId), getNodeIdsAtDepth(me.depth)]);
+  return { me, below: subtree.filter((n) => n !== me.nodeId), level };
 }
 
 /**
- * Активные пользователи, которым можно ставить задачи (включая себя).
- * Пользователь без узла может ставить задачи только себе.
+ * Активные пользователи, которым можно поставить задачу или просьбу (включая
+ * себя): relation — кем приходится, same_role — та же должность, can_task /
+ * can_request — что именно можно. Пользователь без узла — только себе.
  */
 export async function getAssignableUsers(userId: number) {
-  const nodeIds = await getAssignableNodeIds(userId);
+  const { me, below, level } = await assignableNodes(userId);
   const { rows } = await pool.query(
     `SELECT u.id, u.username, u.display_name, u.avatar_url,
-            rt.id AS role_node_id, rt.name AS role_name, rt.color AS role_color
+            rt.id AS role_node_id, rt.name AS role_name, rt.color AS role_color, rt.icon AS role_icon,
+            CASE WHEN u.id = $1 THEN 'self' WHEN ura.role_node_id = ANY($2::int[]) THEN 'subordinate' ELSE 'colleague' END AS relation,
+            (u.id <> $1 AND ura.role_node_id IS NOT DISTINCT FROM $4::int) AS same_role
      FROM users u
      LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
      LEFT JOIN role_tree rt ON rt.id = ura.role_node_id
-     WHERE u.is_active = TRUE AND (u.id = $1 OR ura.role_node_id = ANY($2::int[]))
+     WHERE u.is_active = TRUE AND (u.id = $1 OR ura.role_node_id = ANY($2::int[]) OR ura.role_node_id = ANY($3::int[]))
      ORDER BY (u.id = $1) DESC, rt.name NULLS LAST, COALESCE(u.display_name, u.username)`,
-    [userId, nodeIds],
+    [userId, below, level, me.nodeId],
   );
-  return rows;
+  return rows.map((r) => ({
+    ...r,
+    can_task: KIND_RELATIONS.task.includes(r.relation),
+    can_request: KIND_RELATIONS.request.includes(r.relation),
+  }));
 }
 
-/** Проверяет, что всех пользователей из списка можно назначить исполнителями. */
-export async function assertCanAssign(userId: number, targetIds: number[]) {
-  const allowed = new Set((await getAssignableUsers(userId)).map((u) => u.id));
+/** Проверяет, что всех из списка можно назначить исполнителями задачи или просьбы. */
+export async function assertCanAssign(userId: number, targetIds: number[], kind: TaskKind = 'task') {
+  if (!targetIds.length) return;
+  const users = await getAssignableUsers(userId);
+  const allowed = new Set(users.filter((u) => KIND_RELATIONS[kind].includes(u.relation)).map((u) => u.id));
   const denied = targetIds.filter((id) => !allowed.has(id));
-  if (denied.length > 0) {
-    throw forbidden('Задачу можно поставить только себе, подчинённым или коллегам своего уровня');
+  if (!denied.length) return;
+  if (kind === 'task' && denied.every((id) => users.some((u) => u.id === id && u.relation === 'colleague'))) {
+    throw forbidden('Коллегам своего уровня задачу поставить нельзя — отправьте им просьбу');
   }
+  throw forbidden(
+    kind === 'task'
+      ? 'Задачу можно поставить только себе и своим подчинённым'
+      : 'Просьбу можно отправить себе, коллегам своего уровня и подчинённым',
+  );
 }
 
 /** Является ли target подчинённым manager (строго ниже по дереву). */
@@ -157,10 +180,12 @@ export type ChatPermission = 'change_info' | 'delete_messages' | 'ban_users' | '
 
 /**
  * Права в групповом чате. Создатель может всё. Администратор — то, что ему выдали.
- * Обычный участник (так было договорено с заказчиком) может всё, кроме назначения
- * администраторов. Не участник не может ничего.
+ * Обычный участник — как в Telegram по умолчанию: приглашать людей и закреплять
+ * сообщения, а в обычной группе (без тем) ещё менять название и фото.
+ * Не участник не может ничего.
  */
 const MEMBER_PERMISSIONS: ChatPermission[] = ['add_users', 'pin_messages'];
+const BASIC_GROUP_MEMBER_PERMISSIONS: ChatPermission[] = [...MEMBER_PERMISSIONS, 'change_info'];
 
 export async function getChatRights(chatId: number, userId: number) {
   const { rows } = await pool.query(
@@ -180,11 +205,13 @@ export async function getChatRights(chatId: number, userId: number) {
     if (!isMember) return false;
     if (isCreator) return true;
     if (isAdmin) return (r.permissions as string[]).includes(perm);
-    // Обычный участник (как в Telegram по умолчанию): приглашать людей и
-    // закреплять сообщения. Исключать, удалять чужие сообщения, менять
-    // название/фото/темы и назначать админов — только владелец и админы.
-    return MEMBER_PERMISSIONS.includes(perm);
+    // Исключать, удалять чужие сообщения и назначать админов — только
+    // владелец и админы. Название и фото обычной группы меняет любой участник,
+    // в группе с темами — только владелец и админы.
+    return (r.type === 'group' && !r.is_supergroup ? BASIC_GROUP_MEMBER_PERMISSIONS : MEMBER_PERMISSIONS).includes(perm);
   };
+  /** Включать и выключать темы — только владелец и админы с правом на изменение группы. */
+  const canManageTopics = isMember && (isCreator || (isAdmin && (r.permissions as string[]).includes('change_info')));
   return {
     isMember,
     isCreator,
@@ -194,6 +221,7 @@ export async function getChatRights(chatId: number, userId: number) {
     isSupergroup: !!r.is_supergroup,
     createdBy: r.created_by as number,
     can,
+    canManageTopics,
   };
 }
 

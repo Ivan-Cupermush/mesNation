@@ -21,7 +21,7 @@ interface AuthValue {
   login: (login: string, password: string) => Promise<void>;
   /** Вход по QR-коду: телефон подтвердил, сервер выдал токен. */
   loginWithToken: (token: string) => Promise<void>;
-  setupCompany: (data: { company_name: string; username: string; email: string; password: string; display_name?: string }) => Promise<void>;
+  setupCompany: (data: { company_name: string; username: string; email: string; password: string; first_name?: string; last_name?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   retry: () => void;

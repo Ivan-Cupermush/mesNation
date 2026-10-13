@@ -6,10 +6,12 @@ import { useAuth, useMe } from '../auth/AuthProvider';
 import { isManager } from '../auth/roles';
 import { api, uploadFile } from '../../lib/http';
 import { displayName } from '../../lib/format';
+import type { Profile } from '../../lib/types';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
 import { Modal } from '../../ui/Modal';
-import { TextField } from '../../ui/Field';
+import { NameFields, TextField } from '../../ui/Field';
+import { nameParts } from '../../lib/names';
 import { Page, PageBody, PageHeader } from '../../ui/Page';
 import { Spinner } from '../../ui/Spinner';
 import { SettingsRow, SettingsSection } from '../../ui/SettingsList';
@@ -24,7 +26,8 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const { toast, confirm } = useFeedback();
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState('');
+  const [first, setFirst] = useState('');
+  const [last, setLast] = useState('');
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -32,17 +35,23 @@ export default function ProfilePage() {
   const photo = useRef<HTMLInputElement>(null);
 
   const startEdit = () => {
-    setName(me.display_name || '');
+    const parts = nameParts(me);
+    setFirst(parts.first);
+    setLast(parts.last);
     setEmail(me.email || '');
     setEditing(true);
   };
 
   const save = async () => {
-    if (!name.trim()) return;
+    if (!first.trim()) return;
     setSaving(true);
     try {
-      await api.patch('/api/auth/profile', { display_name: name.trim(), ...(email.trim() ? { email: email.trim() } : {}) });
-      patchUser({ display_name: name.trim(), email: email.trim() || me.email });
+      const updated = await api.patch<Profile>('/api/auth/profile', {
+        first_name: first.trim(),
+        last_name: last.trim(),
+        ...(email.trim() ? { email: email.trim() } : {}),
+      });
+      patchUser({ display_name: updated.display_name, first_name: updated.first_name, last_name: updated.last_name, email: updated.email });
       setEditing(false);
       toast.success('Профиль обновлён');
     } catch (e) {
@@ -189,7 +198,7 @@ export default function ProfilePage() {
             <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving}>
               Отмена
             </Button>
-            <Button onClick={save} loading={saving} disabled={!name.trim()}>
+            <Button onClick={save} loading={saving} disabled={!first.trim()}>
               Сохранить
             </Button>
           </>
@@ -202,7 +211,7 @@ export default function ProfilePage() {
             save();
           }}
         >
-          <TextField label="Имя" value={name} onChange={(e) => setName(e.target.value)} maxLength={255} autoFocus error={!name.trim() ? 'Имя не может быть пустым' : null} />
+          <NameFields first={first} last={last} onFirst={setFirst} onLast={setLast} autoFocus error={!first.trim() ? 'Имя не может быть пустым' : null} />
           <TextField label="Почта" type="email" icon={<AtSign size={16} />} value={email} onChange={(e) => setEmail(e.target.value)} maxLength={255} />
           <button type="submit" hidden />
         </form>

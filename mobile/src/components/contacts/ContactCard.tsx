@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, ActivityIndicator } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { MessageCircle, UserRound, AtSign, Contact, QrCode } from 'lucide-react-native';
@@ -9,6 +10,7 @@ import { withAlpha } from '../../theme/palettes';
 import { request } from '../../services/http';
 import { contactName, useContactNames } from '../../services/contacts';
 import UserAvatar from '../ui/UserAvatar';
+import { showError } from '../ui/toast';
 
 /**
  * Контакт в чате, как в Telegram: карточка сотрудника в сообщении.
@@ -98,7 +100,7 @@ export function ContactSheet({
         params: { chatId: String(chat.id), chatName: alias || realName(contact) },
       });
     } catch (e: any) {
-      Alert.alert('Не удалось открыть чат', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть чат');
     } finally {
       setBusy(false);
     }

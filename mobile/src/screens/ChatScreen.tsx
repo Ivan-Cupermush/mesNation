@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   ActivityIndicator,
   Alert,
-  Modal,
   Image,
   Linking,
   Pressable,
@@ -21,6 +20,7 @@ import {
   Animated,
   ScrollView,
 } from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused, useRoute, RouteProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -89,6 +89,8 @@ import { seekVoice, setVoiceStartHandler, stopVoice, toggleVoice } from '../comp
 import { copyText, saveMessagesToDevice } from '../components/chat/saveToDevice';
 import { clearChatNotification } from '../notifications/display';
 import SafeBottom from '../components/ui/SafeBottom';
+import { firstNameOf } from '../utils/names';
+import { showError, showSuccess, showInfo } from '../components/ui/toast';
 type ChatRouteProp = RouteProp<
   { params: { chatId: string; chatName: string; topicId?: number | null; messageId?: number } },
   'params'
@@ -440,12 +442,12 @@ export default function ChatScreen({ navigation }: any) {
       }),
       subscribe('removed_from_chat', (e: any) => {
         if (!sameChat(e.chatId)) return;
-        Alert.alert('Вы больше не участник', 'Вас исключили из этого чата.');
+        showInfo('Вас исключили из этого чата.', 'Вы больше не участник');
         navigation.goBack();
       }),
       subscribe('chat_deleted', (e: any) => {
         if (!sameChat(e.chatId)) return;
-        Alert.alert('Чат удалён', 'Владелец удалил эту группу.');
+        showInfo('Владелец удалил эту группу.', 'Чат удалён');
         navigation.goBack();
       }),
     ];
@@ -621,7 +623,7 @@ export default function ChatScreen({ navigation }: any) {
       setPendingJump(id);
       loadUntil(id).catch(() => {
         setPendingJump(null);
-        Alert.alert('Сообщение', 'Не удалось загрузить историю — проверьте связь.');
+        showError('Не удалось загрузить историю — проверьте связь.', 'Сообщение');
       });
       return;
     }
@@ -641,7 +643,7 @@ export default function ChatScreen({ navigation }: any) {
       setTimeout(() => scrollToMessage(id), 120);
     } else if (!hasOlder) {
       setPendingJump(null);
-      Alert.alert('Сообщение', 'Сообщение удалено или недоступно.');
+      showError('Сообщение удалено или недоступно.', 'Сообщение');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, pendingJump, hasOlder]);
@@ -721,7 +723,7 @@ export default function ChatScreen({ navigation }: any) {
     } catch (e) {
       if (e instanceof UploadCancelled) return; // сообщение уже убрано
       setMessages((prev) => prev.map((m) => (m.client_id === local.client_id ? { ...m, status: 'failed' } : m)));
-      if (e instanceof ApiError && e.status === 413) Alert.alert('Файл слишком большой', 'Максимальный размер — 200 МБ');
+      if (e instanceof ApiError && e.status === 413) showError('Максимальный размер — 200 МБ', 'Файл слишком большой');
     }
   };
 
@@ -750,7 +752,7 @@ export default function ChatScreen({ navigation }: any) {
         setEditingMessage(null);
         setText('');
       } catch (e: any) {
-        Alert.alert('Не удалось изменить', e?.message || 'Попробуйте ещё раз');
+        showError(e?.message || 'Попробуйте ещё раз', 'Не удалось изменить');
       }
       return;
     }
@@ -854,7 +856,7 @@ export default function ChatScreen({ navigation }: any) {
     try {
       await api.shareNote(noteId, { chat_id: Number(chatId), topic_id: topicId, comment: caption || undefined, reply_to_message_id: reply });
     } catch (e: any) {
-      Alert.alert('Не удалось отправить заметку', e?.message || '');
+      showError(e?.message || '', 'Не удалось отправить заметку');
     }
   };
 
@@ -865,7 +867,7 @@ export default function ChatScreen({ navigation }: any) {
     try {
       showToast(await requestNoteVersion(share.id, share.sender_name));
     } catch (e: any) {
-      Alert.alert('Не удалось отправить запрос', e?.message || '');
+      showError(e?.message || '', 'Не удалось отправить запрос');
     }
   };
 
@@ -893,9 +895,9 @@ export default function ChatScreen({ navigation }: any) {
       setReplyTo(null);
       clearDraft();
       loadScheduled();
-      Alert.alert('Запланировано', `Сообщение будет отправлено ${sendAt.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`);
+      showSuccess(`Сообщение будет отправлено ${sendAt.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`, 'Запланировано');
     } catch (e: any) {
-      Alert.alert('Не удалось запланировать', e?.message || 'Попробуйте ещё раз');
+      showError(e?.message || 'Попробуйте ещё раз', 'Не удалось запланировать');
     }
   };
 
@@ -904,7 +906,7 @@ export default function ChatScreen({ navigation }: any) {
       await request(`/api/scheduled/${id}`, { method: 'DELETE' });
       loadScheduled();
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось отменить');
+      showError(e?.message || 'Не удалось отменить', 'Ошибка');
     }
   };
 
@@ -913,7 +915,7 @@ export default function ChatScreen({ navigation }: any) {
       await request(`/api/scheduled/${id}/send-now`, { method: 'POST' });
       loadScheduled();
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось отправить');
+      showError(e?.message || 'Не удалось отправить', 'Ошибка');
     }
   };
 
@@ -927,7 +929,7 @@ export default function ChatScreen({ navigation }: any) {
       const ids = new Set(targets.map((t) => t.id));
       setMessages((prev) => prev.filter((m) => !ids.has(m.id)));
     } catch (e: any) {
-      Alert.alert('Не удалось удалить', e?.message || 'Попробуйте ещё раз');
+      showError(e?.message || 'Попробуйте ещё раз', 'Не удалось удалить');
     }
   };
 
@@ -951,7 +953,7 @@ export default function ChatScreen({ navigation }: any) {
       setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, pinned: !target.pinned } : m)));
       loadPinned();
     } catch (e: any) {
-      Alert.alert('Не удалось', e?.message || 'Попробуйте ещё раз');
+      showError(e?.message || 'Попробуйте ещё раз', 'Не удалось');
     }
   };
 
@@ -1032,7 +1034,7 @@ export default function ChatScreen({ navigation }: any) {
             const r = await saveMessagesToDevice(rowMessages(row), senderNameOf);
             if (r.gallery || r.files) showToast(r.gallery ? 'Сохранено в галерею' : 'Файл сохранён');
           } catch (e: any) {
-            Alert.alert('Не удалось сохранить', e?.message || '');
+            showError(e?.message || '', 'Не удалось сохранить');
           }
         },
       });
@@ -1082,7 +1084,7 @@ export default function ChatScreen({ navigation }: any) {
         label: 'Отменить голос',
         icon: <Undo2 size={20} color={C.text} />,
         onPress: () =>
-          request(`/api/polls/${main.poll_id}/vote`, { method: 'DELETE' }).catch((e) => Alert.alert('Ошибка', e?.message || '')),
+          request(`/api/polls/${main.poll_id}/vote`, { method: 'DELETE' }).catch((e) => showError(e?.message || '', 'Ошибка')),
       });
     }
     if (main.poll && !main.poll.is_closed && main.poll.creator_id === currentUserId) {
@@ -1131,7 +1133,7 @@ export default function ChatScreen({ navigation }: any) {
       // Файлы чатов защищены: открываем по подписанной ссылке на 10 минут.
       await Linking.openURL(await signedFileUrl(m.file_url));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 
@@ -1167,7 +1169,7 @@ export default function ChatScreen({ navigation }: any) {
 
   const onPlayVoice = useCallback(
     (msg: any) => {
-      toggleVoice(msg, voicesAfter(msg)).catch((e: any) => Alert.alert('Не удалось воспроизвести', e?.message || ''));
+      toggleVoice(msg, voicesAfter(msg)).catch((e: any) => showError(e?.message || '', 'Не удалось воспроизвести'));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [messages],
@@ -1434,7 +1436,7 @@ export default function ChatScreen({ navigation }: any) {
       ].filter(Boolean);
       if (parts.length) showToast(parts.join(' · '));
     } catch (e: any) {
-      Alert.alert('Не удалось сохранить', e?.message || '');
+      showError(e?.message || '', 'Не удалось сохранить');
     }
   };
 
@@ -1461,7 +1463,7 @@ export default function ChatScreen({ navigation }: any) {
         setMessages((prev) => prev.filter((m) => !ids.has(m.id)));
         loadPinned();
       } catch (e: any) {
-        Alert.alert('Не удалось удалить', e?.message || 'Попробуйте ещё раз');
+        showError(e?.message || 'Попробуйте ещё раз', 'Не удалось удалить');
       }
     };
     Alert.alert(`Удалить ${what}?`, canAll ? 'Можно удалить только у себя или у всех участников.' : 'Сообщения исчезнут только у вас.', [
@@ -1477,7 +1479,7 @@ export default function ChatScreen({ navigation }: any) {
     else navigation.navigate('ChatInfo', { chatId });
   };
 
-  const typingNames = Object.values(typing).map((t) => t.name.split(' ')[0]);
+  const typingNames = Object.values(typing).map((t) => firstNameOf(t.name));
   const subtitle = (() => {
     if (typingNames.length) {
       if (!isGroup) return 'печатает…';

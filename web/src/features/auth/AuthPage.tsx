@@ -6,7 +6,7 @@ import { request } from '../../lib/http';
 import { errorText } from '../../lib/format';
 import { BrandMark } from '../../ui/BrandMark';
 import { Button } from '../../ui/Button';
-import { TextField } from '../../ui/Field';
+import { NameFields, TextField } from '../../ui/Field';
 import { Spinner } from '../../ui/Spinner';
 import s from './AuthPage.module.css';
 
@@ -156,7 +156,7 @@ function LoginForm({ companyName, onQr }: { companyName: string | null; onQr: ()
 
 function SetupForm({ onBack }: { onBack: () => void }) {
   const { setupCompany } = useAuth();
-  const [form, setForm] = useState({ company_name: '', display_name: '', username: '', email: '', password: '', password2: '' });
+  const [form, setForm] = useState({ company_name: '', first_name: '', last_name: '', username: '', email: '', password: '', password2: '' });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -164,6 +164,7 @@ function SetupForm({ onBack }: { onBack: () => void }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.company_name.trim()) return setError('Укажите название компании');
+    if (!form.first_name.trim()) return setError('Укажите ваше имя');
     if (!form.username.trim() || !form.email.trim()) return setError('Укажите логин и email');
     if (form.password.length < 8) return setError('Пароль должен быть не короче 8 символов');
     if (form.password !== form.password2) return setError('Пароли не совпадают');
@@ -172,7 +173,8 @@ function SetupForm({ onBack }: { onBack: () => void }) {
     try {
       await setupCompany({
         company_name: form.company_name.trim(),
-        display_name: form.display_name.trim() || undefined,
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
         username: form.username.trim(),
         email: form.email.trim(),
         password: form.password,
@@ -196,7 +198,12 @@ function SetupForm({ onBack }: { onBack: () => void }) {
         </div>
       )}
       <TextField label="Название компании" placeholder="Например: ООО Ромашка" value={form.company_name} onChange={set('company_name')} icon={<Building2 size={18} />} autoFocus />
-      <TextField label="Ваше имя" placeholder="Иван Петров" value={form.display_name} onChange={set('display_name')} icon={<User size={18} />} autoComplete="name" />
+      <NameFields
+        first={form.first_name}
+        last={form.last_name}
+        onFirst={(v) => setForm((f) => ({ ...f, first_name: v }))}
+        onLast={(v) => setForm((f) => ({ ...f, last_name: v }))}
+      />
       <TextField label="Логин" placeholder="ivan.petrov" value={form.username} onChange={set('username')} autoCapitalize="none" autoComplete="username" hint="Латиница, цифры, точка, дефис" />
       <TextField label="Email" type="email" placeholder="ivan@company.ru" value={form.email} onChange={set('email')} icon={<Mail size={18} />} autoComplete="email" />
       <TextField label="Пароль" type="password" value={form.password} onChange={set('password')} icon={<Lock size={18} />} autoComplete="new-password" hint="Не короче 8 символов" />

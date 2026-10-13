@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, AlertTriangle, Info } from 'lucide-react';
+import { Check, AlertCircle, Info } from 'lucide-react';
 import { Modal } from './Modal';
 import { Button } from './Button';
 import { errorText } from '../lib/format';
@@ -17,7 +17,10 @@ type ToastKind = 'success' | 'error' | 'info';
 interface ToastItem {
   id: number;
   kind: ToastKind;
+  /** Что не получилось (у ошибки), текст — почему. */
+  title?: string;
   text: string;
+  leaving?: boolean;
 }
 
 interface ConfirmOptions {
@@ -61,16 +64,34 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [value, setValue] = useState('');
   const seq = useRef(0);
 
-  const push = useCallback((text: string, kind: ToastKind = 'info') => {
-    const id = ++seq.current;
-    setToasts((prev) => [...prev.slice(-3), { id, kind, text }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), kind === 'error' ? 5500 : 3200);
+  const dismiss = useCallback((id: number) => {
+    // Сначала плавно уезжает, потом убираем.
+    setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 200);
   }, []);
+
+  const push = useCallback(
+    (text: string, kind: ToastKind = 'info', title?: string) => {
+      const id = ++seq.current;
+      setToasts((prev) => {
+        // Такое же уже на экране — не дублируем.
+        if (prev.some((t) => !t.leaving && t.text === text && t.kind === kind)) return prev;
+        return [...prev.slice(-2), { id, kind, text, title }];
+      });
+      setTimeout(() => dismiss(id), kind === 'error' ? 5500 : Math.min(5000, 2400 + text.length * 25));
+    },
+    [dismiss],
+  );
 
   const api = useMemo<FeedbackValue>(() => {
     const toast = ((text: string, kind?: ToastKind) => push(text, kind)) as ToastFn;
     toast.success = (text) => push(text, 'success');
-    toast.error = (e, fallback) => push(errorText(e, fallback), 'error');
+    toast.error = (e, fallback) => {
+      // Есть причина от сервера — заголовок «что не получилось», ниже «почему».
+      const reason = errorText(e, '');
+      if (fallback && reason && reason !== fallback) push(reason, 'error', fallback);
+      else push(reason || fallback || 'Что-то пошло не так', 'error');
+    };
     return {
       toast,
       confirm: (opts) => new Promise<boolean>((resolve) => setDialog({ type: 'confirm', opts, resolve })),
@@ -97,9 +118,19 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       {createPortal(
         <div className={s.toasts} aria-live="polite">
           {toasts.map((t) => (
-            <div key={t.id} className={[s.toast, s[t.kind]].join(' ')} role={t.kind === 'error' ? 'alert' : 'status'}>
-              {t.kind === 'success' ? <CheckCircle2 size={18} /> : t.kind === 'error' ? <AlertTriangle size={18} /> : <Info size={18} />}
-              <span>{t.text}</span>
+            <div
+              key={t.id}
+              className={[s.toast, s[t.kind], t.leaving && s.leaving].filter(Boolean).join(' ')}
+              role={t.kind === 'error' ? 'alert' : 'status'}
+              onClick={() => dismiss(t.id)}
+            >
+              <span className={s.toastIcon}>
+                {t.kind === 'success' ? <Check size={14} strokeWidth={3} /> : t.kind === 'error' ? <AlertCircle size={15} strokeWidth={2.6} /> : <Info size={15} strokeWidth={2.6} />}
+              </span>
+              <span className={s.toastBody}>
+                {t.title && <b>{t.title}</b>}
+                <span>{t.text}</span>
+              </span>
             </div>
           ))}
         </div>,

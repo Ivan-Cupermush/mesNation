@@ -8,47 +8,140 @@
 .hero {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 22px 22px 20px;
-  border-radius: 26px;
-  background: linear-gradient(135deg, var(--c-accent-muted), var(--c-card) 85%);
+  gap: 14px;
+  padding: 18px 22px 20px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, var(--c-accent-muted), var(--c-card) 90%);
   box-shadow: var(--shadow-sm);
 }
 
 .heroTop {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 
+.dayIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--c-card);
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+
 .date {
-  font-size: 13px;
+  flex: 1;
+  font-size: 13.5px;
   font-weight: 650;
   color: var(--c-text-secondary);
 }
 
 .hero h1 {
-  font-size: 26px;
-  font-weight: 850;
-  line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   letter-spacing: -0.01em;
+}
+
+.hello {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--c-text-secondary);
+}
+
+.name {
+  font-size: 32px;
+  font-weight: 850;
+  line-height: 1.15;
+  color: var(--c-text-primary);
 }
 
 .phrase {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  max-width: 720px;
-  font-size: 15.5px;
+  max-width: 760px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--c-card);
+  font-size: 15px;
   line-height: 1.45;
   color: var(--c-text-primary);
 }
 
 .phrase svg {
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--c-accent);
+  fill: currentColor;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 14px;
+  background: var(--c-card);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.chip svg {
+  color: var(--c-accent);
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.chipDanger {
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+}
+
+.chipDanger svg {
+  color: var(--c-danger);
+}
+
+.chipKpi svg {
+  color: var(--c-warning);
+}
+
+/* Блоки появляются по очереди — один раз при входе. */
+.rise {
+  animation: rise 0.36s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
 }
 
 .section {
@@ -72,11 +165,86 @@
   white-space: nowrap;
 }
 
-.earned {
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12.5px;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--c-text-secondary);
-  text-align: right;
+}
+
+.earned {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.earned:hover {
+  background: var(--c-input-bg);
+}
+
+.earnedIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--c-success-soft);
+  color: var(--c-success);
+}
+
+.earnedBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.earnedBody small {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+}
+
+.earnedBody b {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.earnedBody em {
+  font-style: normal;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+}
+
+.barGood span {
+  background: var(--c-success);
+}
+
+.who {
+  margin-top: -3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
 }
 
 .note {
@@ -216,6 +384,12 @@
   border-radius: 50%;
 }
 
+.reqIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--c-violet);
+}
+
 .chevron {
   flex-shrink: 0;
   color: var(--c-text-muted);
@@ -253,18 +427,16 @@
     flex-wrap: wrap;
   }
 
-  .earned {
-    flex-basis: 100%;
-    margin-top: -6px;
-    text-align: left;
-  }
-
   .hero {
     padding: 18px 16px;
   }
 
-  .hero h1 {
-    font-size: 22px;
+  .name {
+    font-size: 27px;
+  }
+
+  .hello {
+    font-size: 18px;
   }
 
   .phrase {

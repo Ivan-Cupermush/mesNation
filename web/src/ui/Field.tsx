@@ -30,6 +30,48 @@ export const TextField = forwardRef<HTMLInputElement, FieldProps & InputHTMLAttr
   },
 );
 
+/** Имя и фамилия рядом, как в Telegram: порядок слов больше не угадываем. */
+export function NameFields({
+  first,
+  last,
+  onFirst,
+  onLast,
+  autoFocus,
+  error,
+}: {
+  first: string;
+  last: string;
+  onFirst: (v: string) => void;
+  onLast: (v: string) => void;
+  autoFocus?: boolean;
+  error?: string | null;
+}) {
+  return (
+    <div className={s.pair}>
+      <TextField
+        label="Имя"
+        placeholder="Иван"
+        value={first}
+        onChange={(e) => onFirst(e.target.value)}
+        autoComplete="given-name"
+        autoCapitalize="words"
+        maxLength={100}
+        autoFocus={autoFocus}
+        error={error}
+      />
+      <TextField
+        label="Фамилия"
+        placeholder="Петров"
+        value={last}
+        onChange={(e) => onLast(e.target.value)}
+        autoComplete="family-name"
+        autoCapitalize="words"
+        maxLength={100}
+      />
+    </div>
+  );
+}
+
 /** Многострочное поле, растущее по мере ввода (до maxRows строк). */
 export const TextArea = forwardRef<HTMLTextAreaElement, FieldProps & TextareaHTMLAttributes<HTMLTextAreaElement> & { maxRows?: number }>(
   function TextArea({ label, hint, error, className, id, maxRows = 12, value, ...rest }, ref) {

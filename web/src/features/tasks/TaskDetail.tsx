@@ -19,7 +19,8 @@ import {
   Trash2,
   User,
   Users,
-  Wrench, Send } from 'lucide-react';
+  Wrench, Send, HandHeart, Heart } from 'lucide-react';
+import { isRequest, RequestBadge } from './kind';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError } from '../../lib/http';
 import { displayName, formatDate } from '../../lib/format';
@@ -80,6 +81,8 @@ function TaskView({ task }: { task: TaskDetailData }) {
   const isAssignee = task.is_assignee ?? task.assignees.some((a) => a.id === me.id);
   const isWatcher = task.is_watcher ?? task.watchers.some((w) => w.id === me.id);
   const archived = task.status_new === 'archived';
+  const request = isRequest(task);
+  const noun = request ? 'Просьба' : 'Задача';
   const priority = priorityOf(task.importance);
   const deadline = finalDeadline(task);
   const creatorName = task.creator ? displayName(task.creator) : task.creator_name || 'Неизвестно';
@@ -105,24 +108,35 @@ function TaskView({ task }: { task: TaskDetailData }) {
   };
 
   const unarchive = async () => {
-    if (await confirm({ title: 'Вернуть задачу из архива?', text: 'Задача вернётся в статус, в котором была до архивации.', confirmText: 'Разархивировать' })) {
-      run(() => api.post(`/api/tasks/${task.id}/unarchive`), 'Не удалось разархивировать');
-    }
+    const ok = await confirm(
+      request
+        ? { title: 'Вернуть просьбу из архива?', text: 'Просьба вернётся в статус, в котором была до архива.', confirmText: 'Вернуть' }
+        : { title: 'Вернуть задачу из архива?', text: 'Задача вернётся в статус, в котором была до архивации.', confirmText: 'Разархивировать' },
+    );
+    if (ok) run(() => api.post(`/api/tasks/${task.id}/unarchive`), 'Не удалось вернуть из архива');
   };
 
   const remove = async () => {
     const reason = await prompt({
-      title: 'Удалить задачу?',
-      text: 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
+      title: request ? 'Отменить просьбу?' : 'Удалить задачу?',
+      text: request ? 'Просьба уйдёт в архив с пометкой «отменена». Её можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
       label: 'Причина (необязательно)',
-      placeholder: 'Например: задача больше не актуальна',
+      placeholder: request ? 'Например: уже не нужно, справился сам' : 'Например: задача больше не актуальна',
       multiline: true,
       maxLength: 2000,
-      confirmText: 'Удалить',
+      confirmText: request ? 'Отменить просьбу' : 'Удалить',
       danger: true,
     });
     if (reason === null) return;
-    run(() => api.delete(`/api/tasks/${task.id}`, reason ? { reason } : undefined), 'Не удалось удалить задачу');
+    run(() => api.delete(`/api/tasks/${task.id}`, reason ? { reason } : undefined), request ? 'Не удалось отменить просьбу' : 'Не удалось удалить задачу');
+  };
+
+  const thank = async () => {
+    const ok = await run(() => api.post(`/api/tasks/${task.id}/thanks`), 'Не удалось отправить благодарность');
+    if (ok) {
+      qc.invalidateQueries({ queryKey: taskKeys.comments(task.id) });
+      toast.success(task.assignees.length === 1 ? `${displayName(task.assignees[0])} получит ваше «спасибо» 🙏` : 'Спасибо отправлено 🙏');
+    }
   };
 
   const [sendToChat, setSendToChat] = useState(false);
@@ -138,13 +152,13 @@ function TaskView({ task }: { task: TaskDetailData }) {
   const menuItems: MenuItem[] = [
     ...(isCreator && !archived
       ? [
-          { key: 'edit', label: 'Редактировать задачу', icon: <Pencil size={19} />, onSelect: () => navigate(`/tasks/${task.id}/edit`) },
+          { key: 'edit', label: request ? 'Редактировать просьбу' : 'Редактировать задачу', icon: <Pencil size={19} />, onSelect: () => navigate(`/tasks/${task.id}/edit`) },
           { key: 'deadline', label: 'Перенести срок', icon: <CalendarClock size={19} />, onSelect: () => setMoveDeadline(true) },
         ]
       : []),
     { key: 'send', label: 'Отправить в чат', icon: <Send size={19} />, onSelect: () => setSendToChat(true) },
     { key: 'link', label: 'Скопировать ссылку', icon: <Link2 size={19} />, onSelect: copyLink },
-    ...(isCreator && !archived ? [{ key: 'delete', label: 'Удалить (в архив)', danger: true, icon: <Trash2 size={19} />, onSelect: remove }] : []),
+    ...(isCreator && !archived ? [{ key: 'delete', label: request ? 'Отменить просьбу' : 'Удалить (в архив)', danger: true, icon: <Trash2 size={19} />, onSelect: remove }] : []),
   ];
 
   const listOf = (p: TaskPerson[]) => (p.length === 1 ? displayName(p[0]) : `${p.length} чел.`);
@@ -157,7 +171,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
             <ChevronLeft size={26} />
           </IconButton>
         )}
-        <div className={s.headerTitle}>Задача</div>
+        <div className={s.headerTitle}>{noun}</div>
         <IconButton label="Действия с задачей" onClick={(e) => setMenu(anchorFrom(e.currentTarget))}>
           <MoreHorizontal size={22} />
         </IconButton>
@@ -166,12 +180,15 @@ function TaskView({ task }: { task: TaskDetailData }) {
       <div className={s.scroll}>
         <div className={s.inner}>
           {/* ===== Заголовок и статус ===== */}
-          <section className={s.hero}>
+          <section className={[s.hero, request && s.heroRequest].filter(Boolean).join(' ')}>
             <div className={s.heroTop}>
-              <StatusPill status={task.status_new} overdue={task.is_overdue} />
-              <span className={s.priority} style={{ color: priority.color, background: priority.soft }}>
-                <Flag size={13} strokeWidth={2.2} /> {priority.long}
-              </span>
+              {request && <RequestBadge large />}
+              <StatusPill status={task.status_new} overdue={task.is_overdue} kind={task.kind} />
+              {!request && (
+                <span className={s.priority} style={{ color: priority.color, background: priority.soft }}>
+                  <Flag size={13} strokeWidth={2.2} /> {priority.long}
+                </span>
+              )}
             </div>
             {task.is_overdue && (
               <div className={s.overdue}>
@@ -179,7 +196,17 @@ function TaskView({ task }: { task: TaskDetailData }) {
               </div>
             )}
             <h1 className={s.title}>{task.title}</h1>
-            {(isCreator || isAssignee || isWatcher || task.is_supervisor) && (
+            {request && (
+              <div className={s.asks}>
+                <HandHeart size={15} />
+                {isCreator && isAssignee && task.assignees.length === 1
+                  ? 'Просьба себе — как напоминание'
+                  : isCreator
+                    ? `Вы попросили: ${task.assignees.map((a) => displayName(a)).join(', ') || '—'}`
+                    : `${creatorName} просит ${isAssignee ? 'вас' : task.assignees.map((a) => displayName(a)).join(', ')} помочь`}
+              </div>
+            )}
+            {(isCreator || isAssignee || isWatcher || task.is_supervisor) && !request && (
               <div className={s.myRoles}>
                 <span className={s.myRolesLabel}>Вы:</span>
                 {isCreator && <RoleChip icon={<Monitor size={12} />} color="var(--c-info)" text="создатель" />}
@@ -211,15 +238,15 @@ function TaskView({ task }: { task: TaskDetailData }) {
               <span className={s.cellIcon}>
                 <User size={18} />
               </span>
-              <span className={s.cellLabel}>Создатель</span>
+              <span className={s.cellLabel}>{request ? 'Просит' : 'Создатель'}</span>
               <span className={s.cellValue}>{creatorName}</span>
             </button>
             <div className={s.cell}>
               <span className={s.cellIcon}>
                 <CalendarDays size={18} />
               </span>
-              <span className={s.cellLabel}>Дедлайн</span>
-              <span className={s.cellValue}>{deadline ? formatDate(deadline, true) : 'Не указан'}</span>
+              <span className={s.cellLabel}>{request ? 'Когда нужно' : 'Дедлайн'}</span>
+              <span className={s.cellValue}>{deadline ? formatDate(deadline, true) : request ? 'Когда получится' : 'Не указан'}</span>
               {deadline && !archived && task.status_new !== 'done' && (
                 <span className={[s.cellHint, task.is_overdue && s.late].filter(Boolean).join(' ')}>{timeLeft(deadline)}</span>
               )}
@@ -228,7 +255,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
               <span className={s.cellIcon}>
                 <Users size={18} />
               </span>
-              <span className={s.cellLabel}>Исполнители</span>
+              <span className={s.cellLabel}>{request ? 'Кого попросили' : 'Исполнители'}</span>
               <span className={s.cellPeople}>
                 {task.assignees.length ? (
                   <span className={s.stack}>
@@ -243,19 +270,29 @@ function TaskView({ task }: { task: TaskDetailData }) {
                 <ChevronRight size={16} className={s.chevron} />
               </span>
             </button>
-            <button type="button" className={s.cell} onClick={() => setPeople('watchers')}>
-              <span className={s.cellIcon}>
-                <Eye size={18} />
-              </span>
-              <span className={s.cellLabel}>Наблюдатели</span>
-              <span className={s.cellPeople}>
-                <span className={s.cellValue}>{task.watchers.length ? listOf(task.watchers) : 'Создатель'}</span>
-                <ChevronRight size={16} className={s.chevron} />
-              </span>
-            </button>
+            {request ? (
+              <div className={s.cell}>
+                <span className={s.cellIcon}>
+                  <Clock size={18} />
+                </span>
+                <span className={s.cellLabel}>Попросили</span>
+                <span className={s.cellValue}>{formatDate(task.created_at, true)}</span>
+              </div>
+            ) : (
+              <button type="button" className={s.cell} onClick={() => setPeople('watchers')}>
+                <span className={s.cellIcon}>
+                  <Eye size={18} />
+                </span>
+                <span className={s.cellLabel}>Наблюдатели</span>
+                <span className={s.cellPeople}>
+                  <span className={s.cellValue}>{task.watchers.length ? listOf(task.watchers) : 'Создатель'}</span>
+                  <ChevronRight size={16} className={s.chevron} />
+                </span>
+              </button>
+            )}
           </section>
 
-          {task.reviewer_deadline && (
+          {!request && task.reviewer_deadline && (
             <section className={s.review}>
               <Clock size={16} />
               <span>
@@ -268,8 +305,28 @@ function TaskView({ task }: { task: TaskDetailData }) {
           {/* ===== Статус и действия ===== */}
           {!archived ? (
             <section className={s.card}>
-              <StatusTrack status={task.status_new} />
-              <div className={s.hint}>{nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee, watcher: isWatcher })}</div>
+              <StatusTrack status={task.status_new} kind={task.kind} />
+              <div className={s.hint}>{nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee, watcher: isWatcher }, task.kind, !!task.thanked_at)}</div>
+              {request && isCreator && task.status_new === 'done' && !(isAssignee && task.assignees.length === 1) && (
+                task.thanked_at ? (
+                  <div className={s.thanked}>
+                    <Heart size={16} fill="currentColor" /> Вы сказали спасибо
+                  </div>
+                ) : (
+                  <button type="button" className={s.thanks} onClick={thank} disabled={busy}>
+                    <span className={s.thanksEmoji}>🙏</span>
+                    <span>
+                      <b>Сказать спасибо</b>
+                      <small>{task.assignees.length === 1 ? `${displayName(task.assignees[0])} получит уведомление` : 'Все, кого вы попросили, получат уведомление'}</small>
+                    </span>
+                  </button>
+                )
+              )}
+              {request && isAssignee && !isCreator && task.thanked_at && (
+                <div className={s.thanked}>
+                  <Heart size={16} fill="currentColor" /> {creatorName} говорит вам спасибо
+                </div>
+              )}
               {task.available_transitions.length > 0 ? (
                 <div className={s.actions}>
                   {task.available_transitions.map((t) => (
@@ -279,13 +336,20 @@ function TaskView({ task }: { task: TaskDetailData }) {
                       disabled={busy}
                       onClick={() => setTransition(t)}
                       block
+                      className={request && t.style === 'primary' ? s.requestAction : undefined}
                     >
                       {t.action}
                     </Button>
                   ))}
                 </div>
               ) : (
-                !isCreator && !isAssignee && !isWatcher && <div className={s.readOnly}>Вы видите задачу как руководитель участника — менять её статус могут создатель, исполнители и наблюдатели.</div>
+                !isCreator && !isAssignee && !isWatcher && (
+                  <div className={s.readOnly}>
+                    {request
+                      ? 'Вы видите просьбу как руководитель участника — отмечать её могут те, кого попросили.'
+                      : 'Вы видите задачу как руководитель участника — менять её статус могут создатель, исполнители и наблюдатели.'}
+                  </div>
+                )
               )}
             </section>
           ) : (
@@ -294,18 +358,18 @@ function TaskView({ task }: { task: TaskDetailData }) {
                 <Archive size={20} />
               </span>
               <span className={s.archivedBody}>
-                <b>{task.archived_as === 'deleted' ? 'Задача удалена' : 'Задача в архиве'}</b>
+                <b>{task.archived_as === 'deleted' ? (request ? 'Просьба отменена' : 'Задача удалена') : `${noun} в архиве`}</b>
                 <small>{task.archived_at ? formatDate(task.archived_at, true) : ''}</small>
               </span>
               {isCreator && (
                 <Button icon={<ArchiveRestore size={18} />} onClick={unarchive} loading={busy}>
-                  Разархивировать
+                  {request ? 'Вернуть' : 'Разархивировать'}
                 </Button>
               )}
             </section>
           )}
 
-          <Checkpoints task={task} isCreator={isCreator} isWatcher={isWatcher} onChanged={refresh} />
+          <Checkpoints task={task} isCreator={isCreator} isWatcher={isWatcher || (request && isAssignee)} onChanged={refresh} />
           <RoleComments task={task} isCreator={isCreator} isAssignee={isAssignee} isWatcher={isWatcher} onChanged={refresh} />
           <Files task={task} meId={me.id} isCreator={isCreator} canUpload={isCreator || isAssignee || isWatcher} onChanged={refresh} />
           <History taskId={task.id} />
@@ -318,19 +382,19 @@ function TaskView({ task }: { task: TaskDetailData }) {
       <ActionMenu open={!!menu} anchor={menu} items={menuItems} onClose={() => setMenu(null)} />
       <ChatPicker
         open={sendToChat}
-        title="Отправить задачу в чат"
+        title={request ? 'Отправить просьбу в чат' : 'Отправить задачу в чат'}
         commentPlaceholder="Комментарий (необязательно)"
         onClose={() => setSendToChat(false)}
         preview={
           <span className={s.sharePreview}>
-            <b>📋 {task.title}</b>
+            <b>{request ? '🤝' : '📋'} {task.title}</b>
             <span>Участники чата откроют задачу по ссылке, если у них есть к ней доступ</span>
           </span>
         }
         onSend={async (chatId, topicId, comment) => {
-          const text = [comment, `📋 Задача «${task.title}»`, `${window.location.origin}/tasks/${task.id}`].filter(Boolean).join('\n');
+          const text = [comment, `${request ? '🤝 Просьба' : '📋 Задача'} «${task.title}»`, `${window.location.origin}/tasks/${task.id}`].filter(Boolean).join('\n');
           await api.post(`/api/chats/${chatId}/messages`, { text, topic_id: topicId ?? undefined });
-          toast.success('Задача отправлена в чат');
+          toast.success(request ? 'Просьба отправлена в чат' : 'Задача отправлена в чат');
         }}
       />
 
@@ -357,6 +421,8 @@ function TaskView({ task }: { task: TaskDetailData }) {
       </Modal>
 
       <TransitionDialog
+        request={request}
+        creatorName={creatorName}
         transition={transition}
         onClose={() => setTransition(null)}
         onConfirm={async (comment) => {
@@ -405,13 +471,26 @@ const TRANSITION_HINT: Record<string, string> = {
   rejected: 'Укажите причину — исполнитель увидит этот комментарий.',
 };
 
+const REQUEST_HINT = (to: string, creator?: string) =>
+  to === 'done'
+    ? `${creator || 'Коллега'} получит уведомление, что просьба выполнена.`
+    : to === 'in_progress'
+      ? 'Просьба будет отмечена «В работе».'
+      : to === 'archived'
+        ? 'Просьба переместится в архив. Её можно будет вернуть.'
+        : '';
+
 /** Подтверждение смены статуса; комментарий обязателен (отклонение) или по желанию. */
 function TransitionDialog({
+  request,
+  creatorName,
   transition,
   onClose,
   onConfirm,
   busy,
 }: {
+  request?: boolean;
+  creatorName?: string;
   transition: TaskTransition | null;
   onClose: () => void;
   onConfirm: (comment: string) => void;
@@ -450,16 +529,18 @@ function TransitionDialog({
       }
     >
       <p className={s.dialogText}>
-        {transition?.to === 'in_progress' && transition.action === 'Вернуть на доработку'
-          ? 'Напишите, что нужно доработать. Комментарий попадёт в историю задачи.'
-          : TRANSITION_HINT[transition?.to || ''] || ''}
+        {request
+          ? REQUEST_HINT(transition?.to || '', creatorName)
+          : transition?.to === 'in_progress' && transition.action === 'Вернуть на доработку'
+            ? 'Напишите, что нужно доработать. Комментарий попадёт в историю задачи.'
+            : TRANSITION_HINT[transition?.to || ''] || ''}
       </p>
       {withComment && (
         <textarea
           className={s.dialogInput}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder={required ? (danger ? 'Например: не соответствует ТЗ, нужно переделать…' : 'Что нужно доработать…') : 'Комментарий (необязательно)'}
+          placeholder={required ? (danger ? 'Например: не соответствует ТЗ, нужно переделать…' : 'Что нужно доработать…') : request ? 'Пара слов о результате (необязательно)' : 'Комментарий (необязательно)'}
           maxLength={5000}
           rows={4}
           autoFocus

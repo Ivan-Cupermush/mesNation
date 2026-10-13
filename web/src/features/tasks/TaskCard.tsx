@@ -3,6 +3,8 @@ import { CalendarDays, Eye, Flag, MessageCircle, Monitor, Paperclip, Users, Wren
 import { displayName } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
 import { priorityOf, shortDate, stageDeadline, StatusPill, StatusSegments } from './status';
+import { isRequest, RequestBadge } from './kind';
+import { firstNameOf } from '../../lib/names';
 import type { Task } from './types';
 import s from './TaskCard.module.css';
 
@@ -30,26 +32,43 @@ interface Props {
   onOpen: (task: Task) => void;
 }
 
-/** Карточка задачи в списке — как в приложении. */
+/** Кто просит и кого: «Просит Иван», «Вы попросили Анну», «Иван → Анна». */
+function requestLine(task: Task): string {
+  const from = task.creator_name ? firstNameOf(task.creator_name) : 'Коллега';
+  const to = (task.assignees || []).map((a) => firstNameOf(a));
+  const toText = to.length > 2 ? `${to.slice(0, 2).join(', ')} и ещё ${to.length - 2}` : to.join(', ');
+  if (task.is_creator && task.is_assignee && to.length === 1) return 'Напоминание себе';
+  if (task.is_creator) return toText ? `Вы попросили: ${toText}` : 'Вы попросили';
+  if (task.is_assignee) return `Просит ${from}`;
+  return toText ? `${from} просит: ${toText}` : `Просит ${from}`;
+}
+
+/** Карточка задачи в списке — как в приложении. У просьбы — фиолетовая полоска и «кто просит». */
 function TaskCard({ task, active, onOpen }: Props) {
+  const request = isRequest(task);
   const priority = priorityOf(task.importance);
   const due = stageDeadline(task);
   const assignees = task.assignees || [];
   return (
-    <button type="button" className={[s.card, active && s.active].filter(Boolean).join(' ')} onClick={() => onOpen(task)}>
+    <button type="button" className={[s.card, request && s.request, active && s.active].filter(Boolean).join(' ')} onClick={() => onOpen(task)}>
       <span className={s.head}>
-        <span className={s.priority} style={{ color: priority.color }}>
-          <Flag size={15} strokeWidth={2.2} />
-          {priority.label}
-        </span>
+        {request ? (
+          <RequestBadge />
+        ) : (
+          <span className={s.priority} style={{ color: priority.color }}>
+            <Flag size={15} strokeWidth={2.2} />
+            {priority.label}
+          </span>
+        )}
         {task.is_overdue && <span className={s.overdue}>просрочена</span>}
         {task.archived_as === 'deleted' && <span className={s.deleted}>удалена</span>}
         <RoleIcons task={task} />
       </span>
       <span className={s.title}>{task.title}</span>
+      {request && <span className={s.from}>{requestLine(task)}</span>}
       <span className={s.progress}>
-        <StatusPill status={task.status_new} overdue={task.is_overdue} />
-        <StatusSegments status={task.status_new} />
+        <StatusPill status={task.status_new} overdue={task.is_overdue} kind={task.kind} />
+        <StatusSegments status={task.status_new} kind={task.kind} />
       </span>
       {task.description && <span className={s.description}>{task.description}</span>}
       <span className={s.footer}>

@@ -179,17 +179,60 @@
   min-height: 0;
 }
 
+/* Плашка «Нет связи» — плавает сверху, не сдвигает экран. */
 .offline {
+  position: fixed;
+  z-index: 1900;
+  top: calc(10px + var(--safe-top));
+  left: 50%;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 7px 12px;
-  background: var(--c-warning-soft);
-  color: var(--c-warning);
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: rgba(24, 24, 27, 0.92);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  color: #fff;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -48px);
+  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1), opacity 0.2s;
+}
+
+.offline svg {
   flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.offlineShown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.offlineBack svg {
+  color: #34c759;
+  opacity: 1;
+}
+
+.offlineSpinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ---------- Нижние вкладки (телефон) ---------- */

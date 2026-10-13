@@ -19,6 +19,7 @@ import { TopicIcon } from './topicIcons';
 import TopicEditor from './TopicEditor';
 import type { LastMessage, Message, Topic } from './types';
 import s from './TopicList.module.css';
+import { firstNameOf } from '../../lib/names';
 
 /**
  * Группа с темами (как форумы в Telegram): сверху «Общий», ниже темы
@@ -188,5 +189,5 @@ export default function TopicList() {
 function lastSender(m: LastMessage | Message): string {
   if (m.content_type === 'service') return '';
   const name = ('sender_display_name' in m && m.sender_display_name) || m.sender_name;
-  return name ? name.split(' ')[0] : '';
+  return name ? firstNameOf(name) : '';
 }

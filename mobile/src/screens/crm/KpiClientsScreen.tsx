@@ -5,6 +5,7 @@ import { pick } from '@react-native-documents/picker';
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, Sparkles, Trash2 } from 'lucide-react-native';
 import { T, themed } from '../../theme/runtime';
 import { ClientLists, errorText, kpiApi, moneyShort, monthKey, monthTitle, ReportClient, shiftMonth } from '../../services/kpi';
+import { showError, showToast } from '../../components/ui/toast';
 
 type Kind = 'ep' | 'akb_merge';
 
@@ -47,9 +48,9 @@ export default function KpiClientsScreen({ navigation }: any) {
       setLists(r.lists);
       setText('');
       loadClients();
-      Alert.alert('Готово', r.added ? `Добавлено: ${r.added}. KPI пересчитан.` : 'Эти клиенты уже в списке');
+      showToast(r.added ? `Добавлено: ${r.added}. KPI пересчитан.` : 'Эти клиенты уже в списке');
     } catch (e) {
-      Alert.alert('Ошибка', errorText(e, 'Не удалось добавить'));
+      showError(errorText(e, 'Не удалось добавить'), 'Ошибка');
     } finally {
       setBusy(false);
     }
@@ -63,9 +64,9 @@ export default function KpiClientsScreen({ navigation }: any) {
       const r = await kpiApi.importList(kind, { uri: f.uri, name: f.name || 'list.xlsx', type: f.type || 'application/octet-stream' });
       setLists(r.lists);
       loadClients();
-      Alert.alert('Готово', `В файле названий: ${r.found}, добавлено: ${r.added}. KPI пересчитан.`);
+      showToast(`В файле названий: ${r.found}, добавлено: ${r.added}. KPI пересчитан.`);
     } catch (e: any) {
-      if (e?.code !== 'DOCUMENT_PICKER_CANCELED' && e?.code !== 'OPERATION_CANCELED') Alert.alert('Ошибка', errorText(e, 'Не удалось загрузить список'));
+      if (e?.code !== 'DOCUMENT_PICKER_CANCELED' && e?.code !== 'OPERATION_CANCELED') showError(errorText(e, 'Не удалось загрузить список'), 'Ошибка');
     } finally {
       setBusy(false);
     }

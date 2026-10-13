@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, Switch, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, Switch, ActivityIndicator, TouchableOpacity, } from 'react-native';
 import { T, themed } from '../theme/runtime';
 import { api, PermissionItem, PermissionKey } from '../services/api';
+import { showError } from './ui/toast';
 
 /** Функции, которые руководитель включает или отключает сотруднику (как на сервере, services/permissions.ts). */
 export const PERMISSIONS: { key: PermissionKey; label: string; hint: string }[] = [
@@ -89,7 +90,7 @@ export function UserPermissions({ userId, editable, flat }: { userId: number; ed
     try {
       setData(await api.setUserPermissions(userId, { [p.key]: v === p.default ? null : v }));
     } catch (e: any) {
-      Alert.alert('Функции', e?.message || 'Не удалось изменить функцию');
+      showError(e?.message || 'Не удалось изменить функцию', 'Функции');
     } finally {
       setBusy(false);
     }

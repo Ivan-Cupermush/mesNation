@@ -1,0 +1,99 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  background: var(--c-violet-soft);
+  color: var(--c-violet);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.large {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.choice {
+  --tone: var(--c-accent);
+  --tone-soft: var(--c-accent-muted);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1.5px solid color-mix(in srgb, var(--tone) 22%, transparent);
+  background: linear-gradient(110deg, color-mix(in srgb, var(--tone) 8%, var(--c-card)), var(--c-card) 70%);
+  text-align: left;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.choice:hover {
+  transform: translateY(-1px);
+  border-color: var(--tone);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+.choiceRequest {
+  --tone: var(--c-violet);
+  --tone-soft: var(--c-violet-soft);
+}
+
+.choiceTask {
+  --tone: var(--c-accent);
+  --tone-soft: var(--c-accent-muted);
+}
+
+.choiceIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
+  background: var(--tone-soft);
+  color: var(--tone);
+}
+
+.choiceBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.choiceBody b {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.choiceBody span {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--c-text-secondary);
+}
+
+.choiceBody small {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--tone);
+}
+
+.choiceArrow {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}

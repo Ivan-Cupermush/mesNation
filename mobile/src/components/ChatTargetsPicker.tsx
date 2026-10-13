@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, ScrollView, Modal, Pressable, Alert, KeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, ScrollView, Pressable, KeyboardAvoidingView } from 'react-native';
+import Modal from './ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Search, Send, Check, Users, Hash, ChevronRight } from 'lucide-react-native';
 import { request } from '../services/http';
@@ -9,6 +10,7 @@ import { plural } from './chat/chatUtils';
 import UserAvatar from './ui/UserAvatar';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { showError } from './ui/toast';
 
 /**
  * Выбор нескольких чатов, как в Telegram при пересылке и «Поделиться»:
@@ -60,7 +62,7 @@ export default function ChatTargetsPicker({ header, preselectChatId, caption, on
       })
       .catch((e) => {
         setChats([]);
-        Alert.alert('Не удалось загрузить чаты', e?.message || '');
+        showError(e?.message || '', 'Не удалось загрузить чаты');
       });
   }, [preselectChatId]);
 

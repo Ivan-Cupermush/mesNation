@@ -4,29 +4,46 @@
   display: flex;
 }
 
+/* Дерево — во всю доступную площадь, как «доска» в приложении. */
 .treePane {
+  position: relative;
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
-  padding: 14px 12px 60px;
-}
-
-.split .treePane {
-  flex: 0 0 min(460px, 45%);
-  border-right: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .detailPane {
-  flex: 1;
+  flex: 0 0 min(420px, 42%);
   min-width: 0;
   overflow-y: auto;
   padding: 20px 24px 60px;
+  border-left: 1px solid var(--c-border);
+  background: var(--c-card);
 }
 
 .readOnly {
-  margin: 0 8px 10px;
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--c-card);
+  box-shadow: var(--shadow-sm);
   font-size: 13px;
-  color: var(--c-text-muted);
+  color: var(--c-text-secondary);
+}
+
+.pickerGraph {
+  display: flex;
+  height: min(62vh, 560px);
+  margin: 0 -4px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
 }
 
 .detail {

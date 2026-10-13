@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CalendarClock, ClipboardCheck, MessageCircle, RefreshCw, Check, X } from 'lucide-react-native';
+import { CalendarClock, ClipboardCheck, HandHeart, MessageCircle, RefreshCw, Check, X } from 'lucide-react-native';
 import { SERVER_URL } from '../config';
 import { request } from '../services/http';
 import { openChat, openNote, openNoteRequest, openTask } from '../navigation/ref';
 import { Banner, onBanner } from '../notifications/state';
-import { IMPORTANCE, NOTE_COLOR, TASK_KIND_TITLE, noteRequestText, shortDeadline, taskActorLine } from '../notifications/model';
+import { NOTE_COLOR, TASK_KIND_TITLE, noteRequestText, shortDeadline, taskActorLine, taskTone } from '../notifications/model';
 import { hashColor, initials } from './chat/chatUtils';
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
@@ -165,17 +165,17 @@ function NoteRequestCard({ banner, onOpen, onLater }: { banner: Extract<Banner, 
 
 function TaskCard({ banner, onOpen, onTake, busy }: { banner: Extract<Banner, { kind: 'task' }>; onOpen: () => void; onTake: () => void; busy: boolean }) {
   const t = banner.data;
-  const imp = IMPORTANCE[t.importance];
+  const imp = taskTone(t);
   const deadline = shortDeadline(t.deadline);
   const actor = taskActorLine(t);
-  const canTake = t.kind === 'assigned' || t.kind === 'rejected' || t.kind === 'returned';
+  const canTake = t.kind === 'assigned' || t.kind === 'rejected' || t.kind === 'returned' || t.kind === 'request';
   return (
     <TouchableOpacity activeOpacity={0.92} onPress={onOpen} style={[styles.card, styles.taskCard]} accessibilityRole="button">
       <View style={[styles.stripe, { backgroundColor: imp.color }]} />
       <View style={styles.taskInner}>
         <View style={styles.taskHead}>
           <View style={[styles.taskIcon, { backgroundColor: withAlpha(imp.color, 0.15) }]}>
-            <ClipboardCheck size={18} color={imp.color} strokeWidth={2.2} />
+            {t.isRequest ? <HandHeart size={18} color={imp.color} strokeWidth={2.2} /> : <ClipboardCheck size={18} color={imp.color} strokeWidth={2.2} />}
           </View>
           <Text style={[styles.taskKind, { color: imp.color }]} numberOfLines={1}>
             {TASK_KIND_TITLE[t.kind].toUpperCase()}

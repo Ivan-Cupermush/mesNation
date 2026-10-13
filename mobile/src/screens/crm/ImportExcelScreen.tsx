@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator,
-  Alert, ScrollView, StatusBar, Platform
+  ScrollView, StatusBar, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pick } from '@react-native-documents/picker';
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react-native';
 
 import { T, themed } from '../../theme/runtime';
+import { showError } from '../../components/ui/toast';
 type Step = 'pick' | 'preview' | 'importing' | 'done';
 
 export default function ImportExcelScreen({ navigation }: any) {
@@ -57,7 +58,7 @@ export default function ImportExcelScreen({ navigation }: any) {
       setImportResult(result);
       setStep('done');
     } catch (err: any) {
-      Alert.alert('Ошибка импорта', err.message || 'Не удалось сохранить данные');
+      showError(err.message || 'Не удалось сохранить данные', 'Ошибка импорта');
       setStep('preview');
     }
   };

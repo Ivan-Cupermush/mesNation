@@ -25,11 +25,14 @@ export interface MessagePush {
   mediaKind: string;
 }
 
-export type TaskKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned';
+export type TaskKind = 'assigned' | 'review' | 'rejected' | 'done' | 'returned' | 'request' | 'request_done' | 'thanks';
+const TASK_KINDS: TaskKind[] = ['assigned', 'review', 'rejected', 'done', 'returned', 'request', 'request_done', 'thanks'];
 
 export interface TaskPush {
   type: 'task';
   kind: TaskKind;
+  /** Просьба (а не задача): своё оформление — фиолетовое, без важности. */
+  isRequest: boolean;
   taskId: number;
   title: string;
   description: string;
@@ -91,7 +94,8 @@ export function parsePush(data: Record<string, any> | undefined | null): PushPay
   if (data.type === 'task' && data.task_id) {
     return {
       type: 'task',
-      kind: (['assigned', 'review', 'rejected', 'done', 'returned'].includes(data.kind) ? data.kind : 'assigned') as TaskKind,
+      kind: (TASK_KINDS.includes(data.kind) ? data.kind : 'assigned') as TaskKind,
+      isRequest: data.task_type === 'request' || ['request', 'request_done', 'thanks'].includes(data.kind),
       taskId: num(data.task_id),
       title: data.title || 'Задача',
       description: data.description || '',
@@ -180,7 +184,19 @@ export const TASK_KIND_TITLE: Record<TaskKind, string> = {
   rejected: 'Задачу вернули на доработку',
   done: 'Задача принята',
   returned: 'Задачу снова открыли',
+  request: 'Вас просят помочь',
+  request_done: 'Ваша просьба выполнена',
+  thanks: 'Вам сказали спасибо',
 };
+
+/** Фиолетовый — цвет просьб (как на сайте и в списке задач). */
+export const REQUEST_COLOR = '#7C5CFA';
+
+/** Цвет и подпись уведомления: у задачи — важность, у просьбы — «Просьба». */
+export function taskTone(t: TaskPush): { label: string; color: string } {
+  if (t.isRequest) return { label: 'Просьба', color: REQUEST_COLOR };
+  return IMPORTANCE[t.importance] || IMPORTANCE.yellow;
+}
 
 /** «12 окт, 18:00» для срока задачи. */
 export function shortDeadline(iso: string): string {
@@ -204,6 +220,12 @@ export function taskActorLine(t: TaskPush): string {
       return who ? `Принял(а): ${who}` : '';
     case 'returned':
       return who ? `Открыл(а) снова: ${who}` : '';
+    case 'request':
+      return who ? `Просит: ${who}` : '';
+    case 'request_done':
+      return who ? `Выполнил(а): ${who}` : '';
+    case 'thanks':
+      return who ? `${who} благодарит за помощь 🙏` : 'Вас благодарят за помощь 🙏';
   }
 }
 

@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Modal,
   FlatList,
   ActivityIndicator,
   Animated,
@@ -12,6 +11,7 @@ import {
   Pressable,
   StyleSheet,
 } from 'react-native';
+import Modal from '../ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Search, NotebookPen, Star, Paperclip, SendHorizonal, Info } from 'lucide-react-native';
 import { request } from '../../services/http';

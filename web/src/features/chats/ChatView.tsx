@@ -70,6 +70,7 @@ import s from './ChatView.module.css';
 import { useChatWallpaper, wallpaperStyle } from '../../theme/wallpapers';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useContactNames } from '../contacts/names';
+import { firstNameOf } from '../../lib/names';
 
 type Typing = Record<number, { name: string; at: number }>;
 
@@ -877,7 +878,7 @@ export default function ChatView() {
   };
 
   // ===== Шапка =====
-  const typingNames = Object.values(typing).map((t) => t.name.split(' ')[0]);
+  const typingNames = Object.values(typing).map((t) => firstNameOf(t.name));
   const subtitle = (() => {
     if (typingNames.length) {
       if (!isGroup) return 'печатает…';

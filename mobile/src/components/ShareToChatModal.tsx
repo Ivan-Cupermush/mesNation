@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Alert } from 'react-native';
+import { View, } from 'react-native';
 import { ChatTargetsModal, ChatTarget } from './ChatTargetsPicker';
 import { plural } from './chat/chatUtils';
 import { themed } from '../theme/runtime';
+import { showError } from './ui/toast';
 
 /**
  * Отправка в чаты (заметка, контакт, QR-контакт) — тот же выбор, что при
@@ -43,7 +44,7 @@ export default function ShareToChatModal({ visible, title, onClose, onSend, onDo
     }
     setProgress(null);
     if (failed.length) {
-      Alert.alert('Не всё отправилось', failed.join('\n'));
+      showError(failed.join('\n'), 'Не всё отправилось');
       return;
     }
     onDone?.(targets.length, targets);

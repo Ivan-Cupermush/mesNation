@@ -7,15 +7,15 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
-  Modal,
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   Linking,
   StatusBar,
-  BackHandler
+  BackHandler,
 } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import {
@@ -57,15 +57,21 @@ import {
 } from 'lucide-react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import ShareToChatModal, { sentToLabel } from '../../components/ShareToChatModal';
-import { showToast } from '../../components/ui/toast';
+import { showToast, showError } from '../../components/ui/toast';
 import { SERVER_URL } from '../../config';
 import TaskFilesBar, { FileThumb } from '../../components/tasks/TaskFilesBar';
 import { clearTaskNotification } from '../../notifications/display';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
-import { request, signedFileUrl } from '../../services/http';
+import { request as httpRequest, signedFileUrl } from '../../services/http';
+
+/** «Спасибо» за выполненную просьбу. */
+const request_thanks = (taskId: number) => httpRequest(`/api/tasks/${taskId}/thanks`, { method: 'POST' });
 import DateTimePickerModal from '../../components/DateTimePickerModal';
 import { StatusPill, StatusTrack, TASK_STATUS, nextStepHint, statusMeta } from '../../components/tasks/taskStatus';
+import { isRequest, RequestBadge } from '../../components/tasks/kind';
+import { withAlpha } from '../../theme/palettes';
+import { HandHeart, Heart } from 'lucide-react-native';
 
 import { T, themed } from '../../theme/runtime';
 import SafeBottom from '../../components/ui/SafeBottom';
@@ -130,7 +136,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setComments(commentsData);
       setCurrentUser(user);
     } catch (e: any) {
-      Alert.alert('Ошибка загрузки', e.message || 'Не удалось загрузить задачу');
+      showError(e.message || 'Не удалось загрузить задачу', 'Ошибка загрузки');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -154,6 +160,23 @@ export default function TaskDetailScreen({ navigation }: any) {
   const isCreator = task?.is_creator ?? task?.creator_id === currentUser?.id;
   const isAssignee = task?.is_assignee ?? (task?.assignees?.some((a: any) => a.id === currentUser?.id) || false);
   const isWatcher = task?.is_watcher ?? (task?.watchers?.some((w: any) => w.id === currentUser?.id) || false);
+  const request = isRequest(task);
+  const creatorName = task?.creator?.display_name || task?.creator_name || 'Коллега';
+
+  /** «Спасибо» за выполненную просьбу: комментарий и уведомление исполнителям. */
+  const handleThanks = async () => {
+    setTransitioning(true);
+    try {
+      await request_thanks(taskId);
+      const one = task?.assignees?.length === 1 ? task.assignees[0] : null;
+      showToast(one ? `${one.display_name || one.username} получит ваше «спасибо» 🙏` : 'Спасибо отправлено 🙏');
+      loadData();
+    } catch (e: any) {
+      showError(e?.message || 'Не удалось отправить благодарность', 'Не получилось');
+    } finally {
+      setTransitioning(false);
+    }
+  };
 
   const handleTransition = async (toStatus: string, comment?: string) => {
     setTransitioning(true);
@@ -161,7 +184,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       await api.transitionTask(taskId, toStatus, comment);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
+      showError(e.message || 'Не удалось изменить статус', 'Ошибка');
     } finally {
       setTransitioning(false);
     }
@@ -170,7 +193,7 @@ export default function TaskDetailScreen({ navigation }: any) {
   const submitReject = async () => {
     const target = commentTarget || { to: 'rejected', action: 'Отклонить', required: true };
     if (target.required && !rejectComment.trim()) {
-      Alert.alert('Комментарий', target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий');
+      showError(target.to === 'rejected' ? 'Укажите причину отклонения' : 'Добавьте комментарий', 'Комментарий');
       return;
     }
     setTransitioning(true);
@@ -181,7 +204,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setCommentTarget(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить статус');
+      showError(e.message || 'Не удалось изменить статус', 'Ошибка');
     } finally {
       setTransitioning(false);
     }
@@ -194,12 +217,18 @@ export default function TaskDetailScreen({ navigation }: any) {
       setShowRejectModal(true);
       return;
     }
-    const hint: Record<string, string> = {
-      in_progress: 'Задача перейдёт в статус «В работе».',
-      on_review: 'Создатель получит задачу на проверку.',
-      done: 'Задача будет отмечена как выполненная.',
-      archived: 'Задача переместится в архив. Её можно будет вернуть.',
-    };
+    const hint: Record<string, string> = request
+      ? {
+          in_progress: 'Просьба будет отмечена «В работе».',
+          done: `${creatorName} получит уведомление, что просьба выполнена.`,
+          archived: 'Просьба переместится в архив. Её можно будет вернуть.',
+        }
+      : {
+          in_progress: 'Задача перейдёт в статус «В работе».',
+          on_review: 'Создатель получит задачу на проверку.',
+          done: 'Задача будет отмечена как выполненная.',
+          archived: 'Задача переместится в архив. Её можно будет вернуть.',
+        };
     Alert.alert(`${t.action}?`, hint[t.to] || '', [
       { text: 'Отмена', style: 'cancel' },
       ...(t.comment === 'optional'
@@ -219,10 +248,10 @@ export default function TaskDetailScreen({ navigation }: any) {
 
   // ===== Разархивация (п. 13): задача возвращается в статус, где была до архива =====
   const handleUnarchive = () => {
-    Alert.alert('Вернуть задачу из архива?', 'Задача вернётся в статус, в котором была до архивации.', [
+    Alert.alert(request ? 'Вернуть просьбу из архива?' : 'Вернуть задачу из архива?', request ? 'Просьба вернётся в статус, в котором была до архива.' : 'Задача вернётся в статус, в котором была до архивации.', [
       { text: 'Отмена', style: 'cancel' },
       {
-        text: 'Разархивировать',
+        text: request ? 'Вернуть' : 'Разархивировать',
         onPress: async () => {
           setTransitioning(true);
           try {
@@ -241,21 +270,25 @@ export default function TaskDetailScreen({ navigation }: any) {
   // ===== Удаление (по ТЗ — в архив с пометкой «удалена», можно вернуть) =====
   const handleDelete = () => {
     setShowMenu(false);
-    Alert.alert('Удалить задачу?', 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.', [
-      { text: 'Отмена', style: 'cancel' },
+    Alert.alert(
+      request ? 'Отменить просьбу?' : 'Удалить задачу?',
+      request ? 'Просьба уйдёт в архив с пометкой «отменена». Её можно будет вернуть.' : 'Задача уйдёт в архив с пометкой «удалена». Её можно будет вернуть.',
+      [
+      { text: 'Не надо', style: 'cancel' },
       {
-        text: 'Удалить',
+        text: request ? 'Отменить просьбу' : 'Удалить',
         style: 'destructive',
         onPress: async () => {
           try {
             await api.deleteTask(taskId);
             loadData();
           } catch (e: any) {
-            Alert.alert('Ошибка', e.message || 'Не удалось удалить задачу');
+            Alert.alert('Ошибка', e.message || (request ? 'Не удалось отменить просьбу' : 'Не удалось удалить задачу'));
           }
         },
       },
-    ]);
+      ],
+    );
   };
 
   const handleEdit = () => {
@@ -276,14 +309,14 @@ export default function TaskDetailScreen({ navigation }: any) {
       setRoleCommentField(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось сохранить');
+      showError(e.message || 'Не удалось сохранить', 'Ошибка');
     }
   };
 
   // ===== Контрольные точки =====
   const addCheckpoint = async () => {
     if (!newCheckpointTitle.trim() || !newCheckpointDate) {
-      Alert.alert('Контрольная точка', 'Укажите название и дату');
+      showError('Укажите название и дату', 'Контрольная точка');
       return;
     }
     try {
@@ -292,7 +325,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setNewCheckpointDate(null);
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось добавить');
+      showError(e.message || 'Не удалось добавить', 'Ошибка');
     }
   };
 
@@ -301,7 +334,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       await api.updateCheckpoint(taskId, cpId, { status });
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось изменить');
+      showError(e.message || 'Не удалось изменить', 'Ошибка');
     }
   };
 
@@ -332,7 +365,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       Keyboard.dismiss();
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось отправить комментарий');
+      showError(e.message || 'Не удалось отправить комментарий', 'Ошибка');
     } finally {
       setSendingComment(false);
     }
@@ -351,7 +384,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       setEditingText('');
       loadData();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось обновить комментарий');
+      showError(e.message || 'Не удалось обновить комментарий', 'Ошибка');
     }
   };
 
@@ -408,13 +441,13 @@ export default function TaskDetailScreen({ navigation }: any) {
           }
         }
         loadData();
-        if (failed.length) Alert.alert('Не всё загрузилось', failed.join('\n'));
+        if (failed.length) showError(failed.join('\n'), 'Не всё загрузилось');
       } finally {
         setUploadingFile(false);
       }
     } catch (e: any) {
       if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
-        Alert.alert('Ошибка', 'Не удалось выбрать файл');
+        showError('Не удалось выбрать файл', 'Ошибка');
       }
     }
   };
@@ -424,7 +457,7 @@ export default function TaskDetailScreen({ navigation }: any) {
       // Файлы задач доступны только участникам: открываем по подписанной ссылке.
       await Linking.openURL(await signedFileUrl(fileUrl));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 
@@ -549,7 +582,7 @@ export default function TaskDetailScreen({ navigation }: any) {
           <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerLabel}>ДЕТАЛИ ЗАДАЧИ</Text>
+          <Text style={styles.headerLabel}>{request ? 'ПРОСЬБА' : 'ДЕТАЛИ ЗАДАЧИ'}</Text>
         </View>
         {/* ⋯ — у всех участников: отправить в чат, ссылка; у создателя ещё правка и архив. */}
         <TouchableOpacity onPress={() => setShowMenu(true)} style={styles.headerBackBtn} activeOpacity={0.7} accessibilityLabel="Действия с задачей">
@@ -576,20 +609,24 @@ export default function TaskDetailScreen({ navigation }: any) {
           showsVerticalScrollIndicator={false}
         >
           {/* ===== ГЛАВНЫЙ БЛОК: ЗАГОЛОВОК + СТАТУС ===== */}
-          <View style={styles.heroCard}>
-            {/* Приоритет + статус */}
+          <View style={[styles.heroCard, request && styles.heroRequest]}>
+            {request && <View style={styles.heroStripe} />}
+            {/* Приоритет (у просьбы — метка «Просьба») + статус */}
             <View style={styles.heroBadges}>
-              <StatusPill status={task.status_new} overdue={task.is_overdue} />
-              <View
-                style={[styles.importanceBadge, { backgroundColor: importanceConf.bg }]}
-              >
-                <Flag size={14} color={importanceConf.color} strokeWidth={2} />
-                <Text
-                  style={[styles.importanceBadgeText, { color: importanceConf.color }]}
+              {request && <RequestBadge large />}
+              <StatusPill status={task.status_new} overdue={task.is_overdue} kind={task.kind} />
+              {!request && (
+                <View
+                  style={[styles.importanceBadge, { backgroundColor: importanceConf.bg }]}
                 >
-                  {importanceConf.label}
-                </Text>
-              </View>
+                  <Flag size={14} color={importanceConf.color} strokeWidth={2} />
+                  <Text
+                    style={[styles.importanceBadgeText, { color: importanceConf.color }]}
+                  >
+                    {importanceConf.label}
+                  </Text>
+                </View>
+              )}
             </View>
 
             {task.is_overdue && (
@@ -602,7 +639,20 @@ export default function TaskDetailScreen({ navigation }: any) {
             {/* Большой заголовок */}
             <Text style={styles.heroTitle}>{task.title}</Text>
 
-            {(isCreator || isAssignee || isWatcher || task.is_supervisor) && (
+            {request && (
+              <View style={styles.asksRow}>
+                <HandHeart size={15} color={T.violet} strokeWidth={2.2} />
+                <Text style={styles.asksText}>
+                  {isCreator && isAssignee && (task.assignees || []).length === 1
+                    ? 'Просьба себе — как напоминание'
+                    : isCreator
+                      ? `Вы попросили: ${(task.assignees || []).map((a: any) => a.display_name || a.username).join(', ') || '—'}`
+                      : `${creatorName} просит ${isAssignee ? 'вас' : (task.assignees || []).map((a: any) => a.display_name || a.username).join(', ')} помочь`}
+                </Text>
+              </View>
+            )}
+
+            {!request && (isCreator || isAssignee || isWatcher || task.is_supervisor) && (
               <View style={styles.myRolesRow}>
                 <Text style={styles.myRolesLabel}>Вы:</Text>
                 {isCreator && (
@@ -647,7 +697,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               <View style={styles.infoIconWrap}>
                 <User size={18} color={T.accent} strokeWidth={2} />
               </View>
-              <Text style={styles.infoLabel}>Создатель</Text>
+              <Text style={styles.infoLabel}>{request ? 'Просит' : 'Создатель'}</Text>
               <Text style={styles.infoValue} numberOfLines={1}>
                 {task.creator?.display_name || 'Неизвестно'}
               </Text>
@@ -658,9 +708,9 @@ export default function TaskDetailScreen({ navigation }: any) {
               <View style={styles.infoIconWrap}>
                 <CalendarDays size={18} color={T.accent} strokeWidth={2} />
               </View>
-              <Text style={styles.infoLabel}>Дедлайн выполнения</Text>
+              <Text style={styles.infoLabel}>{request ? 'Когда нужно' : 'Дедлайн выполнения'}</Text>
               <Text style={styles.infoValue} numberOfLines={1}>
-                {deadline ? formatDate(deadline, false) : 'Не указан'}
+                {deadline ? formatDate(deadline, false) : request ? 'Когда получится' : 'Не указан'}
               </Text>
             </View>
 
@@ -673,7 +723,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               <View style={styles.infoIconWrap}>
                 <Users size={18} color={T.accent} strokeWidth={2} />
               </View>
-              <Text style={styles.infoLabel}>Исполнители</Text>
+              <Text style={styles.infoLabel}>{request ? 'Кого попросили' : 'Исполнители'}</Text>
               <View style={styles.infoValueRow}>
                 {task.assignees && task.assignees.length > 0 ? (
                   <View style={styles.assigneesAvatars}>
@@ -715,7 +765,18 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             </TouchableOpacity>
 
-            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает */}
+            {/* Наблюдатели (п. 12): по тапу — кто именно наблюдает. У просьбы их нет — когда попросили. */}
+            {request ? (
+              <View style={styles.infoCard}>
+                <View style={styles.infoIconWrap}>
+                  <Clock size={18} color={T.accent} strokeWidth={2} />
+                </View>
+                <Text style={styles.infoLabel}>Попросили</Text>
+                <Text style={styles.infoValue} numberOfLines={1}>
+                  {formatDate((task as any).created_at, false)}
+                </Text>
+              </View>
+            ) : (
             <TouchableOpacity style={styles.infoCard} onPress={() => setPeopleModal('watchers')} activeOpacity={0.7}>
               <View style={styles.infoIconWrap}>
                 <Eye size={18} color={T.accent} strokeWidth={2} />
@@ -732,10 +793,11 @@ export default function TaskDetailScreen({ navigation }: any) {
                 <ChevronRight size={16} color={T.textMuted} strokeWidth={2} />
               </View>
             </TouchableOpacity>
+            )}
           </View>
 
           {/* Дедлайн проверки — промежуточный срок до общего: к нему работа сдана и проверена. */}
-          {task.reviewer_deadline && (
+          {!request && task.reviewer_deadline && (
             <View style={styles.reviewDeadlineCard}>
               <Clock size={16} color={T.warning} strokeWidth={2} />
               <View style={{ flex: 1 }}>
@@ -755,17 +817,43 @@ export default function TaskDetailScreen({ navigation }: any) {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>СТАТУС</Text>
               <View style={styles.statusCard}>
-                <StatusTrack status={task.status_new} />
-                <View style={[styles.hintBox, { backgroundColor: statusMeta(task.status_new).soft }]}>
-                  <Text style={[styles.hintText, { color: statusMeta(task.status_new).color }]}>
-                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee, watcher: isWatcher })}
+                <StatusTrack status={task.status_new} kind={task.kind} />
+                <View style={[styles.hintBox, { backgroundColor: statusMeta(task.status_new, task.kind).soft }]}>
+                  <Text style={[styles.hintText, { color: statusMeta(task.status_new, task.kind).color }]}>
+                    {nextStepHint(task.status_new, { creator: isCreator, assignee: isAssignee, watcher: isWatcher }, task.kind, !!task.thanked_at)}
                   </Text>
                 </View>
+                {request && isCreator && task.status_new === 'done' && !(isAssignee && (task.assignees || []).length === 1) ? (
+                  task.thanked_at ? (
+                    <View style={styles.thanked}>
+                      <Heart size={15} color={T.violet} fill={T.violet} />
+                      <Text style={styles.thankedText}>Вы сказали спасибо</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={handleThanks} disabled={transitioning} style={styles.thanksBtn} activeOpacity={0.85}>
+                      <Text style={styles.thanksEmoji}>🙏</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.thanksTitle}>Сказать спасибо</Text>
+                        <Text style={styles.thanksSub}>
+                          {(task.assignees || []).length === 1
+                            ? `${task.assignees![0].display_name || task.assignees![0].username} получит уведомление`
+                            : 'Все, кого вы попросили, получат уведомление'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                ) : null}
+                {request && isAssignee && !isCreator && task.thanked_at ? (
+                  <View style={styles.thanked}>
+                    <Heart size={15} color={T.violet} fill={T.violet} />
+                    <Text style={styles.thankedText}>{creatorName} говорит вам спасибо</Text>
+                  </View>
+                ) : null}
                 {(task.available_transitions || []).length > 0 ? (
                   <View style={styles.transitionList}>
                     {(task.available_transitions || []).map((t) => {
                       const tone =
-                        t.style === 'success' ? T.success : t.style === 'danger' ? T.danger : t.style === 'primary' ? T.accent : null;
+                        t.style === 'success' ? T.success : t.style === 'danger' ? T.danger : t.style === 'primary' ? (request ? T.violet : T.accent) : null;
                       return (
                         <TouchableOpacity
                           key={t.to}
@@ -781,7 +869,13 @@ export default function TaskDetailScreen({ navigation }: any) {
                   </View>
                 ) : (
                   !isCreator &&
-                  !isAssignee && <Text style={styles.noActionsText}>Вы наблюдаете за задачей — менять статус могут создатель и исполнители.</Text>
+                  !isAssignee && (
+                    <Text style={styles.noActionsText}>
+                      {request
+                        ? 'Вы видите просьбу как руководитель участника — отмечать её могут те, кого попросили.'
+                        : 'Вы наблюдаете за задачей — менять статус могут создатель и исполнители.'}
+                    </Text>
+                  )
                 )}
               </View>
             </View>
@@ -797,7 +891,7 @@ export default function TaskDetailScreen({ navigation }: any) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.archiveTitle}>
-                    {task.archived_as === 'deleted' ? 'Задача удалена' : 'Задача в архиве'}
+                    {task.archived_as === 'deleted' ? (request ? 'Просьба отменена' : 'Задача удалена') : request ? 'Просьба в архиве' : 'Задача в архиве'}
                   </Text>
                   <Text style={styles.archiveSubtitle}>
                     {task.archived_at ? formatDate(task.archived_at) : ''}
@@ -807,7 +901,7 @@ export default function TaskDetailScreen({ navigation }: any) {
               {isCreator && (
                 <TouchableOpacity onPress={handleUnarchive} disabled={transitioning} style={styles.actionBtnPrimary} activeOpacity={0.85}>
                   <Archive size={20} color={T.onAccent} strokeWidth={2} />
-                  <Text style={styles.actionBtnPrimaryText}>Разархивировать</Text>
+                  <Text style={styles.actionBtnPrimaryText}>{request ? 'Вернуть из архива' : 'Разархивировать'}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -826,7 +920,8 @@ export default function TaskDetailScreen({ navigation }: any) {
                 const done = cp.status === 'completed';
                 const missed = cp.status === 'missed';
                 const late = !done && !missed && new Date(cp.deadline) < new Date();
-                const canMark = (isCreator || isWatcher) && task.status_new !== 'archived';
+                // В просьбе (наблюдателей нет) точки отмечает и тот, кого попросили.
+                const canMark = (isCreator || isWatcher || (request && isAssignee)) && task.status_new !== 'archived';
                 return (
                   <View key={cp.id} style={styles.checkpointRow}>
                     <TouchableOpacity
@@ -883,13 +978,13 @@ export default function TaskDetailScreen({ navigation }: any) {
           )}
 
           {/* ===== КОММЕНТАРИИ ИСПОЛНИТЕЛЯ И НАБЛЮДАТЕЛЯ ===== */}
-          {(['executor_comment', 'watcher_comment'] as const).map((field) => {
+          {(request ? (['executor_comment'] as const) : (['executor_comment', 'watcher_comment'] as const)).map((field) => {
             const canEdit =
               task.status_new !== 'archived' &&
               (isCreator || (field === 'executor_comment' ? isAssignee : isWatcher));
             const value = (task as any)[field] as string | null;
             if (!value && !canEdit) return null;
-            const title = field === 'executor_comment' ? 'КОММЕНТАРИЙ ИСПОЛНИТЕЛЯ' : 'КОММЕНТАРИЙ НАБЛЮДАТЕЛЯ';
+            const title = field === 'executor_comment' ? (request ? 'ОТВЕТ КОЛЛЕГИ' : 'КОММЕНТАРИЙ ИСПОЛНИТЕЛЯ') : 'КОММЕНТАРИЙ НАБЛЮДАТЕЛЯ';
             return (
               <View key={field} style={styles.section}>
                 <Text style={styles.sectionTitle}>{title}</Text>
@@ -1414,11 +1509,11 @@ export default function TaskDetailScreen({ navigation }: any) {
               <>
                 <TouchableOpacity style={assigneeStyles.row} onPress={handleEdit} activeOpacity={0.7}>
                   <Pencil size={20} color={T.accent} strokeWidth={2} />
-                  <Text style={assigneeStyles.name}>Редактировать задачу</Text>
+                  <Text style={assigneeStyles.name}>{request ? 'Редактировать просьбу' : 'Редактировать задачу'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={assigneeStyles.row} onPress={handleDelete} activeOpacity={0.7}>
                   <Trash2 size={20} color={T.danger} strokeWidth={2} />
-                  <Text style={[assigneeStyles.name, { color: T.danger }]}>Удалить (в архив)</Text>
+                  <Text style={[assigneeStyles.name, { color: T.danger }]}>{request ? 'Отменить просьбу' : 'Удалить (в архив)'}</Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -1435,15 +1530,15 @@ export default function TaskDetailScreen({ navigation }: any) {
         preview={
           <View style={styles.sharePreview}>
             <Text style={styles.sharePreviewTitle} numberOfLines={2}>
-              📋 {task.title}
+              {request ? '🤝' : '📋'} {task.title}
             </Text>
             <Text style={styles.sharePreviewHint}>Участники чата откроют задачу по ссылке, если у них есть доступ</Text>
           </View>
         }
         onSend={(chatId, comment, topicId) =>
-          request(`/api/chats/${chatId}/messages`, {
+          httpRequest(`/api/chats/${chatId}/messages`, {
             method: 'POST',
-            body: { text: [comment, `📋 Задача «${task.title}»`, `${SERVER_URL}/tasks/${task.id}`].filter(Boolean).join('\n'), topic_id: topicId ?? undefined },
+            body: { text: [comment, `${request ? '🤝 Просьба' : '📋 Задача'} «${task.title}»`, `${SERVER_URL}/tasks/${task.id}`].filter(Boolean).join('\n'), topic_id: topicId ?? undefined },
           }).then(() => undefined)
         }
         onDone={(n) => {
@@ -1621,6 +1716,17 @@ const styles = themed(() => ({
   },
 
   // ===== HERO CARD =====
+  // Просьба: фиолетовая полоска и обводка, «кто просит», «спасибо».
+  heroRequest: { borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.28), overflow: 'hidden' },
+  heroStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: T.violet },
+  asksRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
+  asksText: { flex: 1, fontSize: 14, fontWeight: '700', color: T.violet },
+  thanksBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: T.violetSoft, borderWidth: 1.5, borderColor: withAlpha(T.violet, 0.3) },
+  thanksEmoji: { fontSize: 26 },
+  thanksTitle: { fontSize: 15.5, fontWeight: '800', color: T.violet },
+  thanksSub: { fontSize: 12.5, color: T.textSecondary, marginTop: 1 },
+  thanked: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: T.violetSoft, alignSelf: 'flex-start' },
+  thankedText: { fontSize: 13.5, fontWeight: '800', color: T.violet },
   heroCard: {
     backgroundColor: T.card,
     borderRadius: 22,

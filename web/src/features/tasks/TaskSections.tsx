@@ -213,12 +213,16 @@ export function RoleComments({
 
   return (
     <>
-      {(['executor_comment', 'watcher_comment'] as const).map((field) => {
+      {(task.kind === 'request' ? (['executor_comment'] as const) : (['executor_comment', 'watcher_comment'] as const)).map((field) => {
         const canEdit = !archived && (isCreator || (field === 'executor_comment' ? isAssignee : isWatcher));
         const value = task[field];
         if (!value && !canEdit) return null;
         return (
-          <Section key={field} icon={<MessageCircle size={17} />} title={field === 'executor_comment' ? 'Комментарий исполнителя' : 'Комментарий наблюдателя'}>
+          <Section
+            key={field}
+            icon={<MessageCircle size={17} />}
+            title={field === 'executor_comment' ? (task.kind === 'request' ? 'Ответ коллеги' : 'Комментарий исполнителя') : 'Комментарий наблюдателя'}
+          >
             {editing === field ? (
               <div className={s.roleEdit}>
                 <textarea

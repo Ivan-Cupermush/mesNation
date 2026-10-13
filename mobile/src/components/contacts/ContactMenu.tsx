@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, TextInput, FlatList, ActivityIndicator, Alert, KeyboardAvoidingView, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, FlatList, ActivityIndicator, Alert, KeyboardAvoidingView, Pressable } from 'react-native';
+import Modal from '../ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageCircle, Share2, UserPen, UserPlus, X, Check, Search, Users, QrCode } from 'lucide-react-native';
 import { openQrProfile } from '../../navigation/ref';
@@ -12,6 +13,8 @@ import ActionSheet, { SheetAction } from '../chat/ActionSheet';
 import ShareToChatModal, { sentToLabel } from '../ShareToChatModal';
 import UserAvatar from '../ui/UserAvatar';
 import { ContactCard, SharedContact } from './ContactCard';
+import { splitFullName } from '../../utils/names';
+import { showError } from '../ui/toast';
 
 /**
  * Меню ⋯ в профиле сотрудника и в информации о личном чате — как в Telegram:
@@ -81,7 +84,7 @@ function EditContactModal({ user, onClose, onSaved }: { user: SharedContact; onC
   const insets = useSafeAreaInsets();
   const rec = contactRecord(user.id);
   const real = user.display_name || user.username;
-  const [first, setFirst] = useState(rec?.first_name ?? real.split(' ')[0] ?? '');
+  const [first, setFirst] = useState(rec?.first_name ?? splitFullName(real).first);
   const [last, setLast] = useState(rec?.last_name ?? real.split(' ').slice(1).join(' '));
   const [busy, setBusy] = useState(false);
 
@@ -92,7 +95,7 @@ function EditContactModal({ user, onClose, onSaved }: { user: SharedContact; onC
       onClose();
       onSaved(f.trim() || l.trim() ? 'Имя контакта сохранено' : 'Показывается настоящее имя');
     } catch (e: any) {
-      Alert.alert('Не удалось сохранить', e?.message || '');
+      showError(e?.message || '', 'Не удалось сохранить');
     } finally {
       setBusy(false);
     }
@@ -160,7 +163,7 @@ function AddToGroupModal({ user, onClose, onAdded }: { user: SharedContact; onCl
       .then(setList)
       .catch((e) => {
         setList([]);
-        Alert.alert('Не удалось загрузить группы', e?.message || '');
+        showError(e?.message || '', 'Не удалось загрузить группы');
       });
   }, [user.id]);
 

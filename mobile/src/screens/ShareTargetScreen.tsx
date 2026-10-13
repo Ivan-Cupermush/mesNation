@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Image, KeyboardAvoidingView, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Image, KeyboardAvoidingView, ScrollView, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
 import { X, Check, FileText, Play, Link2, ImageOff, Info } from 'lucide-react-native';
@@ -7,7 +7,7 @@ import { CHAT_FILE_LIMIT, isMedia, sendFiles, sendText } from '../services/sendT
 import type { IncomingShare } from '../native/share';
 import { formatSize, plural } from '../components/chat/chatUtils';
 import ChatTargetsPicker, { ChatTarget } from '../components/ChatTargetsPicker';
-import { showToast } from '../components/ui/toast';
+import { showToast, showError } from '../components/ui/toast';
 import { openChat } from '../navigation/ref';
 import { T, themed } from '../theme/runtime';
 
@@ -55,7 +55,7 @@ export default function ShareTargetScreen({ navigation }: any) {
     }
     setProgress(null);
     if (failed.length) {
-      Alert.alert('Не всё отправилось', failed.join('\n'));
+      showError(failed.join('\n'), 'Не всё отправилось');
       return;
     }
     navigation.goBack();

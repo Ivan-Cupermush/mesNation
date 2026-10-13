@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, FlatList, ActivityIndicator, Alert } from 'react-native';
+import Modal from '../ui/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageSquarePlus, MessagesSquare, Trash2 } from 'lucide-react-native';
 import { api, ChatSession } from '../../services/api';

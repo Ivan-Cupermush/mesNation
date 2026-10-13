@@ -9,9 +9,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Modal,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
 } from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ChevronLeft,
@@ -44,6 +44,8 @@ import { upload } from '../services/http';
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
 import { UserPermissions } from '../components/PermissionToggles';
+import { nameParts } from '../utils/names';
+import { showError, showToast } from '../components/ui/toast';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -67,6 +69,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
   // Редактирование
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editLast, setEditLast] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -83,7 +86,7 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
         setProfile(data);
       }
     } catch {
-      Alert.alert('Ошибка', 'Не удалось загрузить профиль');
+      showError('Не удалось загрузить профиль', 'Ошибка');
     }
     setLoading(false);
   }, []);
@@ -132,28 +135,30 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
     setUploading(true);
     try {
       await upload('/api/auth/avatar', 'avatar', { uri: a.uri, name: a.fileName || 'avatar.jpg', type: a.type || 'image/jpeg' });
-      Alert.alert('Готово', 'Аватар обновлён');
+      showToast('Аватар обновлён');
       loadProfile();
     } catch (e: any) {
-      Alert.alert('Не удалось загрузить аватар', e?.message || 'Нет связи с сервером');
+      showError(e?.message || 'Нет связи с сервером', 'Не удалось загрузить аватар');
     } finally {
       setUploading(false);
     }
   };
 
   const openEditModal = () => {
-    setEditName(profile?.display_name || '');
+    const parts = nameParts(profile);
+    setEditName(parts.first);
+    setEditLast(parts.last);
     setEditEmail(profile?.email || '');
     setShowEditModal(true);
   };
 
   const handleSaveProfile = async () => {
     if (!editName.trim()) {
-      Alert.alert('Ошибка', 'Имя не может быть пустым');
+      showError('Имя не может быть пустым', 'Ошибка');
       return;
     }
     if (editEmail.trim() && !editEmail.includes('@')) {
-      Alert.alert('Ошибка', 'Введите корректный email');
+      showError('Введите корректный email', 'Ошибка');
       return;
     }
 
@@ -167,20 +172,21 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          display_name: editName.trim(),
-          email: editEmail.trim(),
+          first_name: editName.trim(),
+          last_name: editLast.trim(),
+          ...(editEmail.trim() ? { email: editEmail.trim() } : {}),
         }),
       });
       if (res.ok) {
         setShowEditModal(false);
-        Alert.alert('Готово', 'Профиль обновлён');
+        showToast('Профиль обновлён');
         loadProfile();
       } else {
         const data = await res.json();
-        Alert.alert('Ошибка', data.error || 'Не удалось обновить');
+        showError(data.error || 'Не удалось обновить', 'Ошибка');
       }
     } catch {
-      Alert.alert('Ошибка', 'Сервер недоступен');
+      showError('Сервер недоступен', 'Ошибка');
     } finally {
       setSaving(false);
     }
@@ -510,14 +516,27 @@ export default function ProfileScreen({ navigation, onLogout }: any) {
               </View>
 
               <View style={styles.modalBody}>
-                <Text style={styles.modalLabel}>Отображаемое имя</Text>
+                <Text style={styles.modalLabel}>Имя</Text>
                 <TextInput
                   style={styles.modalInput}
                   value={editName}
                   onChangeText={setEditName}
-                  placeholder="Ваше имя"
+                  placeholder="Иван"
                   placeholderTextColor={T.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
                   autoFocus
+                />
+
+                <Text style={styles.modalLabel}>Фамилия</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editLast}
+                  onChangeText={setEditLast}
+                  placeholder="Петров"
+                  placeholderTextColor={T.textMuted}
+                  autoCapitalize="words"
+                  maxLength={100}
                 />
 
                 <Text style={styles.modalLabel}>Email</Text>

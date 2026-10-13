@@ -2,12 +2,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, ActivityIndicator, StatusBar,
+  ScrollView, ActivityIndicator, StatusBar,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api, MetricType } from '../../services/api';
 
 import { themed } from '../../theme/runtime';
+import { showError } from '../../components/ui/toast';
 const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
   { id: 'quantity', label: 'Количество (шт)', unit: 'шт' },
   { id: 'amount', label: 'Сумма (рублей)', unit: '₽' },
@@ -26,12 +27,12 @@ export default function AddProductKpiScreen({ navigation }: any) {
 
   const handleCreate = async () => {
     if (!productName.trim()) {
-      Alert.alert('Ошибка', 'Введите название товара');
+      showError('Введите название товара', 'Ошибка');
       return;
     }
     const target = parseFloat(targetValue);
     if (!target || target <= 0) {
-      Alert.alert('Ошибка', 'Цель должна быть больше 0');
+      showError('Цель должна быть больше 0', 'Ошибка');
       return;
     }
 
@@ -46,7 +47,7 @@ export default function AddProductKpiScreen({ navigation }: any) {
       });
       navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось создать KPI');
+      showError(e.message || 'Не удалось создать KPI', 'Ошибка');
     } finally {
       setSaving(false);
     }

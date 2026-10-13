@@ -21,6 +21,7 @@ import { api, Note, DayWithNotes } from '../../services/api';
 
 import { T, themed } from '../../theme/runtime';
 import HeaderBell from '../../components/HeaderBell';
+import { showError } from '../../components/ui/toast';
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -172,7 +173,7 @@ export default function NotesScreen({ navigation }: any) {
           loadNotes();
           loadDaysWithNotes();
         } catch (e: any) {
-          Alert.alert('Ошибка', e?.message || 'Не удалось скопировать заметку');
+          showError(e?.message || 'Не удалось скопировать заметку', 'Ошибка');
         }
       },
     },

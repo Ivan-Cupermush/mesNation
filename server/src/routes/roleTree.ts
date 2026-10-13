@@ -10,6 +10,7 @@ import { emailSchema, usernameSchema } from './auth';
 import { hashPassword, passwordSchema } from '../lib/passwords';
 import { audit } from '../services/audit';
 import { permissionChangesSchema, setPermissions } from '../services/permissions';
+import { namesFromBody } from '../lib/names';
 
 /**
  * Дерево ролей (иерархия должностей). Монтируется на /api/role-tree.
@@ -208,6 +209,8 @@ const createUserSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   display_name: z.string().trim().max(255).optional(),
+  first_name: z.string().trim().max(100).optional(),
+  last_name: z.string().trim().max(100).optional(),
   role_node_id: id,
   /** Функции сверх должности или отключённые (см. services/permissions.ts). */
   permissions: permissionChangesSchema.optional(),
@@ -223,11 +226,12 @@ router.post('/users', requireDirector, validate(createUserSchema), async (req: A
       body.email,
     ]);
     if (dup.rows.length) throw conflict('Пользователь с таким логином или email уже существует');
+    const names = namesFromBody(body, body.username);
     const created = (
       await client.query(
-        `INSERT INTO users (username, email, password_hash, display_name, role_id, name)
-         VALUES ($1, $2, $3, $4, $5, $1) RETURNING id, username, email, display_name, avatar_url, is_active`,
-        [body.username, body.email, await hashPassword(body.password), body.display_name || body.username, body.role_node_id],
+        `INSERT INTO users (username, email, password_hash, display_name, first_name, last_name, role_id, name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $1) RETURNING id, username, email, display_name, first_name, last_name, avatar_url, is_active`,
+        [body.username, body.email, await hashPassword(body.password), names.display_name, names.first_name, names.last_name, body.role_node_id],
       )
     ).rows[0];
     await assignNode(client, created.id, body.role_node_id, req.userId!);

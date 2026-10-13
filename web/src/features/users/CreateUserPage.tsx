@@ -5,7 +5,7 @@ import { ChevronRight, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api } from '../../lib/http';
 import { Button, IconButton } from '../../ui/Button';
-import { TextField } from '../../ui/Field';
+import { NameFields, TextField } from '../../ui/Field';
 import { Modal } from '../../ui/Modal';
 import { EmptyState } from '../../ui/EmptyState';
 import { Page, PageBody, PageHeader } from '../../ui/Page';
@@ -41,7 +41,8 @@ export default function CreateUserPage() {
   const [nodeId, setNodeId] = useState<number | null>(Number(params.get('node')) || null);
   const [picking, setPicking] = useState(false);
   const [username, setUsername] = useState('');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState(() => generatePassword());
   const [showPassword, setShowPassword] = useState(true);
@@ -61,6 +62,7 @@ export default function CreateUserPage() {
   const validate = () => {
     const e: Record<string, string> = {};
     if (!node) e.role = 'Выберите роль';
+    if (!firstName.trim()) e.first_name = 'Как зовут сотрудника';
     if (!/^[a-zA-Z0-9._-]{2,50}$/.test(username.trim())) e.username = 'Латиница, цифры, точка, дефис или подчёркивание; 2–50 символов';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = 'Введите корректную почту';
     if (password.length < 8) e.password = 'Не короче 8 символов';
@@ -76,7 +78,8 @@ export default function CreateUserPage() {
         username: username.trim(),
         email: email.trim(),
         password,
-        display_name: name.trim() || username.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         role_node_id: node!.id,
         ...(Object.keys(permissions).length ? { permissions } : {}),
       });
@@ -96,7 +99,8 @@ export default function CreateUserPage() {
   const reset = () => {
     setCreated(null);
     setUsername('');
-    setName('');
+    setFirstName('');
+    setLastName('');
     setEmail('');
     setPassword(generatePassword());
     setPermissions({});
@@ -131,7 +135,7 @@ export default function CreateUserPage() {
             {errors.role ? <span className={s.error}>{errors.role}</span> : <span className={s.hint}>От роли зависит, кому сотрудник ставит задачи и чьи задачи видит.</span>}
           </div>
           <TextField label="Логин" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ivan" autoComplete="off" error={errors.username} maxLength={50} />
-          <TextField label="Имя и фамилия" value={name} onChange={(e) => setName(e.target.value)} placeholder="Иван Иванов" maxLength={255} />
+          <NameFields first={firstName} last={lastName} onFirst={setFirstName} onLast={setLastName} error={errors.first_name} />
           <TextField label="Почта" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ivan@company.ru" error={errors.email} maxLength={255} />
           <TextField
             label="Пароль"

@@ -28,13 +28,18 @@ export const TASK_STATUS: Record<string, StatusMeta> = {
   archived: { label: 'В архиве', color: T.textSecondary, soft: T.inputBg, icon: Archive, step: 3 }
 };
 
-export const statusMeta = (s?: string | null) => TASK_STATUS[s || 'new'] || TASK_STATUS.new;
+/** У просьбы нет проверки: «Принята» → «Выполнена», этапов три. */
+export const statusMeta = (s?: string | null, kind?: string | null): StatusMeta => {
+  const base = TASK_STATUS[s || 'new'] || TASK_STATUS.new;
+  return kind === 'request' && s === 'done' ? { ...base, label: 'Выполнена', step: 2 } : base;
+};
 
 const STEPS = ['Новая', 'В работе', 'Проверка', 'Принята'];
+const REQUEST_STEPS = ['Новая', 'В работе', 'Готово'];
 
 /** Компактная метка статуса для списков. */
-export function StatusPill({ status, overdue }: { status: string; overdue?: boolean }) {
-  const m = statusMeta(status);
+export function StatusPill({ status, overdue, kind }: { status: string; overdue?: boolean; kind?: string | null }) {
+  const m = statusMeta(status, kind);
   const late = overdue && status !== 'done' && status !== 'archived';
   const color = late ? T.danger : m.color;
   return (
@@ -48,12 +53,13 @@ export function StatusPill({ status, overdue }: { status: string; overdue?: bool
 }
 
 /** Мини-прогресс из 4 сегментов (для карточек). */
-export function StatusSegments({ status }: { status: string }) {
-  const m = statusMeta(status);
-  const filled = status === 'archived' ? 4 : m.step + 1;
+export function StatusSegments({ status, kind }: { status: string; kind?: string | null }) {
+  const m = statusMeta(status, kind);
+  const total = kind === 'request' ? 3 : 4;
+  const filled = status === 'archived' ? total : m.step + 1;
   return (
     <View style={styles.segments}>
-      {[0, 1, 2, 3].map((i) => (
+      {Array.from({ length: total }, (_, i) => i).map((i) => (
         <View key={i} style={[styles.segment, { backgroundColor: i < filled ? m.color : T.textMuted }]} />
       ))}
     </View>
@@ -65,15 +71,16 @@ export function StatusSegments({ status }: { status: string }) {
  * текущий — крупная иконка статуса. «На доработке» и «Просрочена»
  * отображаются на этапе «В работе» красным.
  */
-export function StatusTrack({ status }: { status: string }) {
-  const m = statusMeta(status);
+export function StatusTrack({ status, kind }: { status: string; kind?: string | null }) {
+  const m = statusMeta(status, kind);
   const archived = status === 'archived';
   const current = m.step;
   const Icon = m.icon;
+  const steps = kind === 'request' ? REQUEST_STEPS : STEPS;
   return (
     <View style={styles.track}>
-      {STEPS.map((label, i) => {
-        const done = archived || i < current || (status === 'done' && i === 3);
+      {steps.map((label, i) => {
+        const done = archived || i < current || (status === 'done' && i === steps.length - 1);
         const active = !archived && i === current && status !== 'done';
         const color = active ? m.color : done ? T.success : T.textMuted;
         return (
@@ -94,8 +101,33 @@ export function StatusTrack({ status }: { status: string }) {
   );
 }
 
+/** Что дальше по просьбе — тепло и по-человечески (как на сайте). */
+function requestHint(status: string, roles: { creator: boolean; assignee: boolean }, thanked?: boolean): string {
+  switch (status) {
+    case 'new':
+      return roles.assignee ? 'Вас попросили помочь. Возьмите в работу или сразу отметьте «Готово».' : 'Просьба отправлена — ждём, когда коллега возьмётся.';
+    case 'in_progress':
+      return roles.assignee ? 'Когда сделаете — нажмите «Готово». Проверки не будет.' : 'Коллега уже занимается вашей просьбой.';
+    case 'overdue':
+      return roles.assignee ? 'Срок вышел. Если всё сделано — отметьте «Готово».' : 'Срок вышел. Можно перенести его в меню «⋯» или напомнить в комментариях.';
+    case 'done':
+      if (roles.creator) return thanked ? 'Просьба выполнена — вы уже сказали спасибо.' : 'Просьба выполнена! Скажите коллеге спасибо — это приятно.';
+      return thanked ? 'Готово — вас поблагодарили. Так держать!' : 'Готово! Спасибо, что помогли коллеге.';
+    case 'archived':
+      return 'Просьба в архиве.';
+    default:
+      return '';
+  }
+}
+
 /** Подсказка «что дальше» с точки зрения текущего пользователя. */
-export function nextStepHint(status: string, roles: { creator: boolean; assignee: boolean; watcher?: boolean }): string {
+export function nextStepHint(
+  status: string,
+  roles: { creator: boolean; assignee: boolean; watcher?: boolean },
+  kind?: string | null,
+  thanked?: boolean,
+): string {
+  if (kind === 'request') return requestHint(status, roles, thanked);
   const self = roles.creator && roles.assignee;
   // Проверяют наблюдатели; у создателя всегда права наблюдателя.
   const reviewer = roles.creator || !!roles.watcher;

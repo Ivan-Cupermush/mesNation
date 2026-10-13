@@ -65,6 +65,8 @@ export interface SalesStats {
   workDays?: number;
   reports: number;
   uploadedAt: string;
+  /** Сумма по компании: сколько сотрудников с отчётами (у директора на приветственной странице). */
+  people?: number;
 }
 
 type Num = number | string;
@@ -121,6 +123,7 @@ export interface KpiPerson {
 /** Стартовая страница (GET /api/home). */
 export interface HomeTask {
   id: number;
+  kind?: 'task' | 'request';
   title: string;
   status: string;
   importance: string;
@@ -132,10 +135,14 @@ export interface HomeTask {
 export interface HomeData {
   greeting: string;
   name: string;
+  /** Как обратиться: имя без фамилии. */
+  first_name?: string;
   phrase: { id: number; text: string };
   month: string;
+  /** company — продажи и KPI суммарно по всей компании (у директора). */
+  scope?: 'company' | 'me';
   stats: SalesStats | null;
-  kpi: { count: number; totals: KpiMonth['totals'] | null; focus: KpiTarget[] };
+  kpi: { count: number; people?: number; totals: KpiMonth['totals'] | null; focus: (KpiTarget & { user_name?: string })[] };
   tasks: HomeTask[];
 }
 

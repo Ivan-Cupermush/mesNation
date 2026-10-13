@@ -29,7 +29,7 @@ import {
 import { openQrProfile } from '../navigation/ref';
 import ContactMenu from '../components/contacts/ContactMenu';
 import { contactName, useContactNames } from '../services/contacts';
-import { showToast } from '../components/ui/toast';
+import { showToast, showError } from '../components/ui/toast';
 import { api, CurrentUser } from '../services/api';
 import { UserPermissions } from '../components/PermissionToggles';
 import { publicFileUrl, request } from '../services/http';
@@ -98,7 +98,7 @@ export default function UserProfileScreen({ navigation }: any) {
         params: { chatId: String(chat.id), chatName: user.display_name || user.username },
       });
     } catch (e: any) {
-      Alert.alert('Не удалось открыть чат', e?.message || 'Попробуйте ещё раз');
+      showError(e?.message || 'Попробуйте ещё раз', 'Не удалось открыть чат');
     }
   };
 
@@ -139,14 +139,14 @@ export default function UserProfileScreen({ navigation }: any) {
   };
 
   const setManualPassword = async () => {
-    if (newPassword.length < 8) return Alert.alert('Слишком короткий пароль', 'Минимум 8 символов');
+    if (newPassword.length < 8) return showError('Минимум 8 символов', 'Слишком короткий пароль');
     setBusy(true);
     try {
       showNewPassword((await api.resetUserPassword(userId, newPassword)).password);
       setNewPassword('');
       setShowPasswordInput(false);
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось задать пароль');
+      showError(e?.message || 'Не удалось задать пароль', 'Ошибка');
     } finally {
       setBusy(false);
     }

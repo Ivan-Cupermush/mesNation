@@ -11,6 +11,7 @@ import AuthPage from './features/auth/AuthPage';
 import OfflinePage from './features/auth/OfflinePage';
 import AppShell from './app/AppShell';
 import { QrConfirmPage, UserByUsername } from './features/qr/QrPages';
+import { AFTER_WELCOME, useWelcomeShown } from './features/home/welcome';
 
 // Новые разделы
 const HomePage = lazy(() => import('./features/home/HomePage'));
@@ -46,6 +47,11 @@ const queryClient = new QueryClient({
 });
 
 /** Старый адрес карточки сотрудника (/employee/:id) ведёт на новый. */
+/** «/» — приветствие при входе, после перехода в любой раздел — задачи. */
+function WelcomeGate() {
+  return useWelcomeShown() ? <HomePage /> : <Navigate to={AFTER_WELCOME} replace />;
+}
+
 function EmployeeRedirect() {
   const { userId } = useParams();
   return <Navigate to={`/stats/employee/${userId}`} replace />;
@@ -67,7 +73,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route element={<AppShell />}>
-          <Route index element={<HomePage />} />
+          <Route index element={<WelcomeGate />} />
           <Route path="chats/*" element={<ChatsRoutes />} />
           <Route path="users/:id" element={<UserProfile />} />
           <Route path="u/:username" element={<UserByUsername />} />

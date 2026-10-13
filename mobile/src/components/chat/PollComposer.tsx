@@ -5,14 +5,13 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Modal,
   ScrollView,
   Switch,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Image,
-  } from 'react-native';
+} from 'react-native';
+import Modal from '../ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -20,6 +19,7 @@ import { X, Check, Lightbulb, ImagePlus, Paperclip, Play, FileText } from 'lucid
 import { C, fileBadge, formatSize, plural } from './chatUtils';
 
 import { T, themed } from '../../theme/runtime';
+import { showError } from '../ui/toast';
 /**
  * «Новый опрос» как в Telegram: вопрос, до 10 вариантов (новое поле
  * появляется само, когда заполняете последнее), анонимность, несколько
@@ -97,13 +97,13 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
       const [f] = await pick({ type: [types.allFiles] });
       if (!f?.uri) return;
       if ((f.size || 0) > 200 * 1024 * 1024) {
-        Alert.alert('Слишком большой файл', 'Максимальный размер — 200 МБ');
+        showError('Максимальный размер — 200 МБ', 'Слишком большой файл');
         return;
       }
       setMedia({ uri: f.uri, name: f.name || 'Файл', type: f.type || 'application/octet-stream', kind: 'file', size: f.size });
     } catch (err: any) {
       if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return;
-      Alert.alert('Не удалось выбрать файл', err?.message || '');
+      showError(err?.message || '', 'Не удалось выбрать файл');
     }
   };
 
@@ -132,9 +132,9 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
 
   const submit = async () => {
     if (!canSubmit) {
-      if (!question.trim()) Alert.alert('Опрос', 'Введите вопрос');
-      else if (filled.length < 2) Alert.alert('Опрос', 'Нужно хотя бы два варианта ответа');
-      else if (quiz) Alert.alert('Викторина', 'Отметьте правильный ответ — нажмите на кружок слева от варианта');
+      if (!question.trim()) showError('Введите вопрос', 'Опрос');
+      else if (filled.length < 2) showError('Нужно хотя бы два варианта ответа', 'Опрос');
+      else if (quiz) showError('Отметьте правильный ответ — нажмите на кружок слева от варианта', 'Викторина');
       return;
     }
     // Пустые поля пропускаем, индекс правильного ответа пересчитываем.
@@ -158,7 +158,7 @@ export default function PollComposer({ visible, onClose, onSubmit }: Props) {
       }, media);
       onClose();
     } catch (e: any) {
-      Alert.alert('Не удалось создать опрос', e?.message || '');
+      showError(e?.message || '', 'Не удалось создать опрос');
     } finally {
       setSending(false);
     }

@@ -8,6 +8,7 @@ import { SearchField } from '../../ui/Field';
 import { Spinner } from '../../ui/Spinner';
 import { useUsers } from './queries';
 import s from './UserPicker.module.css';
+import { firstNameOf } from '../../lib/names';
 
 /** Кого можно выбрать: сотрудник с должностью (как в /api/users и /api/users/assignable). */
 export type PickableUser = UserShort & { role_name?: string | null; role_color?: string | null };
@@ -55,7 +56,7 @@ export function UserPicker({ users: own, loading, meId, exclude = [], multiple, 
           {chosen.map((u) => (
             <button key={u.id} type="button" className={s.chip} onClick={() => onToggle?.(u.id)} aria-label={`Убрать ${displayName(u)}`}>
               <Avatar name={displayName(u)} src={u.avatar_url} size={24} />
-              <span>{displayName(u).split(' ')[0]}</span>
+              <span>{firstNameOf(u)}</span>
               <X size={14} />
             </button>
           ))}

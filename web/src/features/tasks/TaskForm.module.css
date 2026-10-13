@@ -308,3 +308,83 @@
   text-align: center;
   color: var(--c-text-secondary);
 }
+
+/* ===== Задача или просьба ===== */
+.kindSwitch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 16px;
+  background: var(--c-input-bg);
+}
+
+.kindTab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 750;
+  color: var(--c-text-secondary);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.kindTabOn {
+  background: var(--c-card);
+  color: var(--c-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.kindTabRequest.kindTabOn {
+  color: var(--c-violet);
+}
+
+.requestIntro {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: linear-gradient(110deg, var(--c-violet-soft), var(--c-card) 85%);
+  border: 1.5px solid color-mix(in srgb, var(--c-violet) 22%, transparent);
+}
+
+.requestIntro b {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.requestIntro small {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--c-text-secondary);
+}
+
+.requestIntroIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: var(--c-card);
+  color: var(--c-violet);
+}
+
+.requestBtn.requestBtn,
+.requestBtn.requestBtn:hover {
+  background: var(--c-violet);
+  border-color: var(--c-violet);
+  color: #fff;
+}
+
+.requestPage .card {
+  border: 1px solid color-mix(in srgb, var(--c-violet) 10%, transparent);
+}

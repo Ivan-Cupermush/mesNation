@@ -5,16 +5,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Modal,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
-  } from 'react-native';
+} from 'react-native';
+import Modal from './ui/AppModal';
 import { Eye, EyeOff, KeyRound } from 'lucide-react-native';
 import { api } from '../services/api';
 import { setToken } from '../services/http';
 
 import { T, themed } from '../theme/runtime';
+import { showError, showSuccess } from './ui/toast';
 /** Смена своего пароля. Другие устройства после смены выходят из аккаунта. */
 export default function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
@@ -46,9 +46,9 @@ export default function ChangePasswordModal({ visible, onClose }: { visible: boo
         refreshPushRegistration();
       }
       onClose();
-      Alert.alert('Пароль изменён', 'На других устройствах нужно будет войти заново.');
+      showSuccess('На других устройствах нужно будет войти заново.', 'Пароль изменён');
     } catch (e: any) {
-      Alert.alert('Не удалось сменить пароль', e?.message || '');
+      showError(e?.message || '', 'Не удалось сменить пароль');
     } finally {
       setSaving(false);
     }

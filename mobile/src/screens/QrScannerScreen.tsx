@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { Camera } from 'react-native-vision-camera';
+import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { useBarcodeScannerOutput, createBarcodeScanner } from 'react-native-vision-camera-barcode-scanner';
 import { loadImage } from 'react-native-nitro-image';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -28,6 +28,7 @@ export default function QrScannerScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const focused = useIsFocused();
+  const backDevice = useCameraDevice('back');
   const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   const [torch, setTorch] = useState(false);
   const [found, setFound] = useState(false);
@@ -159,7 +160,9 @@ export default function QrScannerScreen({ navigation }: any) {
           outputs={[scanner]}
           implementationMode="compatible"
           resizeMode="cover"
-          torchMode={torch && cameraOn ? 'on' : 'off'}
+          // Фонарик — только если он есть у камеры (иначе камера отвечает ошибкой).
+          torchMode={backDevice?.hasTorch ? (torch && cameraOn ? 'on' : 'off') : undefined}
+          onError={() => undefined}
         />
       ) : null}
 
@@ -185,9 +188,13 @@ export default function QrScannerScreen({ navigation }: any) {
           <X size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.title}>Сканировать QR-код</Text>
-        <TouchableOpacity style={[styles.glassBtn, torch && styles.glassOn]} onPress={() => setTorch((v) => !v)} accessibilityLabel={torch ? 'Выключить фонарик' : 'Включить фонарик'}>
-          {torch ? <Flashlight size={20} color="#111" /> : <FlashlightOff size={20} color="#FFFFFF" />}
-        </TouchableOpacity>
+        {backDevice?.hasTorch !== false ? (
+          <TouchableOpacity style={[styles.glassBtn, torch && styles.glassOn]} onPress={() => setTorch((v) => !v)} accessibilityLabel={torch ? 'Выключить фонарик' : 'Включить фонарик'}>
+            {torch ? <Flashlight size={20} color="#111" /> : <FlashlightOff size={20} color="#FFFFFF" />}
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 42 }} />
+        )}
       </View>
 
       <Text style={[styles.hint, { top: boxTop + box + 22 }]}>

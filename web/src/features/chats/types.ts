@@ -60,6 +60,8 @@ export interface ChatRights {
   is_creator: boolean;
   is_admin: boolean;
   can_change_info: boolean;
+  /** Включать и выключать темы (нет у старого сервера). */
+  can_manage_topics?: boolean;
   can_add_users: boolean;
   can_ban_users: boolean;
   can_delete_messages: boolean;

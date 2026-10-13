@@ -8,6 +8,7 @@ import { withAlpha } from '../theme/palettes';
 import { NotifySettings, DEFAULT_SETTINGS, IMPORTANCE, NOTE_COLOR, getNotifySettings, setNotifySettings } from '../notifications/model';
 import { CHANNEL_MESSAGES, CHANNEL_NOTES, CHANNEL_TASKS, showMessageNotification, showNoteRequestNotification, showTaskNotification } from '../notifications/display';
 import { getPushMode } from '../notifications';
+import { showError } from '../components/ui/toast';
 
 /**
  * Уведомления: как они выглядят, что присылать и как звучать.
@@ -85,6 +86,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         await showTaskNotification({
           type: 'task',
           kind: 'assigned',
+          isRequest: false,
           taskId: 0,
           title: 'Подготовить коммерческое предложение',
           description: 'Для клиента «Север», с расчётом скидки',
@@ -97,7 +99,7 @@ export default function NotificationSettingsScreen({ navigation }: any) {
         });
       }
     } catch (e: any) {
-      Alert.alert('Не удалось показать', e?.message || '');
+      showError(e?.message || '', 'Не удалось показать');
     }
   };
 

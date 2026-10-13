@@ -8,10 +8,12 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
-  Modal,
   Switch,
   Image,
-  Pressable, KeyboardAvoidingView } from 'react-native';
+  Pressable,
+  KeyboardAvoidingView,
+} from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -47,7 +49,7 @@ import { subscribe } from '../services/socket';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import ContactMenu from '../components/contacts/ContactMenu';
 import { contactName, useContactNames } from '../services/contacts';
-import { showToast } from '../components/ui/toast';
+import { showToast, showError } from '../components/ui/toast';
 import { MUTE_OPTIONS, isMuted, muteLabel, setChatMute } from '../notifications/mute';
 import { C, hashColor, initials, lastSeenLabel, plural } from '../components/chat/chatUtils';
 
@@ -98,7 +100,7 @@ export default function ChatInfoScreen({ navigation }: any) {
       const until = await setChatMute(chatId, ms);
       setChat((c: any) => (c ? { ...c, muted_until: until } : c));
     } catch (e: any) {
-      Alert.alert('Не удалось', e?.message || '');
+      showError(e?.message || '', 'Не удалось');
     }
   };
   const [admins, setAdmins] = useState<any[]>([]);
@@ -135,7 +137,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         setOnline(Object.fromEntries(pres.map((p) => [p.user_id, p])));
       }
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось загрузить информацию');
+      showError(e?.message || 'Не удалось загрузить информацию', 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -182,7 +184,7 @@ export default function ChatInfoScreen({ navigation }: any) {
       setRenameOpen(false);
       load();
     } catch (e: any) {
-      Alert.alert('Не удалось переименовать', e?.message || '');
+      showError(e?.message || '', 'Не удалось переименовать');
     }
   };
 
@@ -196,7 +198,7 @@ export default function ChatInfoScreen({ navigation }: any) {
       await upload(`/api/chats/${chatId}/avatar`, 'avatar', { uri: a.uri, name: a.fileName || 'avatar.jpg', type: a.type || 'image/jpeg' });
       load();
     } catch (e: any) {
-      Alert.alert('Не удалось загрузить фото', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить фото');
     } finally {
       setUploadingAvatar(false);
     }
@@ -232,7 +234,7 @@ export default function ChatInfoScreen({ navigation }: any) {
       await request(`/api/chats/${chatId}`, { method: 'PATCH', body: { is_supergroup: false, keep_topic_id: keep, merge } });
       navigation.reset({ index: 1, routes: [{ name: 'ChatList' }, { name: 'Chat', params: { chatId, chatName: name } }] });
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || '');
+      showError(e?.message || '', 'Ошибка');
     }
   };
 
@@ -255,7 +257,7 @@ export default function ChatInfoScreen({ navigation }: any) {
       setAdminEditor(null);
       load();
     } catch (e: any) {
-      Alert.alert('Не удалось сохранить', e?.message || '');
+      showError(e?.message || '', 'Не удалось сохранить');
     }
   };
 
@@ -322,7 +324,7 @@ export default function ChatInfoScreen({ navigation }: any) {
             const c = await request<any>('/api/chats', { method: 'POST', body: { type: 'private', user_ids: [m.id] } });
             navigation.push('Chat', { chatId: String(c.id), chatName: c.name });
           } catch (e: any) {
-            Alert.alert('Ошибка', e?.message || '');
+            showError(e?.message || '', 'Ошибка');
           }
         },
       },
@@ -458,7 +460,7 @@ export default function ChatInfoScreen({ navigation }: any) {
         </View>
 
         {/* ===== ТЕМЫ ===== */}
-        {isGroup && rights.can_change_info && (
+        {isGroup && (rights.can_manage_topics ?? rights.can_change_info) && (
           <View style={styles.card}>
             <View style={styles.row}>
               <View style={[styles.rowIcon, { backgroundColor: C.accentSoft }]}>

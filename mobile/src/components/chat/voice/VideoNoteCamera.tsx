@@ -203,10 +203,17 @@ export default function VideoNoteCamera({ rec }: { rec: ChatRecorder }) {
             implementationMode="compatible"
             resizeMode="cover"
             mirrorMode="auto"
-            zoom={zoom}
-            torchMode={flash && torchAvailable ? 'on' : 'off'}
+            // Зум и фонарик передаём, только когда камера их умеет и человек ими воспользовался:
+            // у фронтальной камеры нет фонарика — torchMode="off" давал ошибку, и кружочек
+            // закрывался через секунду после открытия.
+            zoom={device && zoom > minZoom ? zoom : undefined}
+            torchMode={torchAvailable ? (flash ? 'on' : 'off') : undefined}
             onPreviewStarted={startRecording}
-            onError={() => recRef.current.onVideoFinished(null)}
+            onError={(e: any) => {
+              // Не получилось включить фонарик или зум — запись продолжается без них.
+              if (/torch|flash|zoom/i.test(String(e?.message || e?.code || ''))) return;
+              recRef.current.onVideoFinished(null);
+            }}
           />
         </View>
         <Svg width={D + 20} height={D + 20} style={styles.ringSvg} pointerEvents="none">

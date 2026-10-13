@@ -88,6 +88,7 @@ jest.mock('react-native-vision-camera', () => ({
   Camera: () => null,
   CommonResolutions: { VGA_4_3: { width: 480, height: 640 } },
   useVideoOutput: () => ({ createRecorder: jest.fn() }),
+  useCameraDevice: () => null,
 }));
 jest.mock('react-native-nitro-sound', () => {
   const sound = () => ({

@@ -7,9 +7,11 @@ import {
   Platform,
   Alert,
   Image,
-  Modal,
   TextInput,
-  ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+  ActivityIndicator,
+  KeyboardAvoidingView,
+} from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   FileSpreadsheet,
@@ -31,6 +33,7 @@ import { api } from '../services/api';
 import { SERVER_URL } from '../utils';
 
 import { T, themed } from '../theme/runtime';
+import { showError } from '../components/ui/toast';
 const AVATAR_COLORS = [
   '#1F7A52', '#3B82F6', '#8B5CF6', '#EC4899',
   '#F59E0B', '#0EA5E9', '#14B8A6', '#EF4444',
@@ -59,7 +62,7 @@ export default function SettingsScreen({ navigation, onLogout }: any) {
       setCurrentUser((u: any) => ({ ...u, company_name: r.company_name }));
       setRenameOpen(false);
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось переименовать компанию');
+      showError(e?.message || 'Не удалось переименовать компанию', 'Ошибка');
     } finally {
       setRenaming(false);
     }

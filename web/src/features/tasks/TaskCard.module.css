@@ -23,6 +23,33 @@
   border-color: var(--c-accent);
 }
 
+/* Просьба: фиолетовая полоска слева и лёгкая обводка — сразу видно, что это не задача. */
+.request {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--c-violet) 28%, transparent);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--c-violet) 6%, var(--c-card)), var(--c-card) 60%);
+}
+
+.request::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--c-violet);
+}
+
+.request.active {
+  border-color: var(--c-violet);
+}
+
+.from {
+  margin: -4px 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--c-violet);
+}
+
 .head {
   display: flex;
   align-items: center;

@@ -9,6 +9,14 @@ import type { Task, TaskStatus } from './types';
 export type RoleFilter = 'all' | 'mine' | 'watching' | 'review' | 'team' | 'created' | 'overdue' | 'archived';
 export type StatusFilter = 'any' | Exclude<TaskStatus, 'archived'>;
 export type SortBy = 'deadline' | 'priority';
+/** Всё, только задачи или только просьбы. */
+export type KindFilter = 'all' | 'task' | 'request';
+
+export const KIND_FILTERS: { key: KindFilter; label: string }[] = [
+  { key: 'all', label: 'Всё' },
+  { key: 'task', label: 'Задачи' },
+  { key: 'request', label: 'Просьбы' },
+];
 
 /** Ролевые фильтры — как в приложении. */
 export const ROLE_FILTERS: { key: RoleFilter; label: string; managersOnly?: boolean }[] = [
@@ -34,6 +42,7 @@ export const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
 ];
 
 export interface TaskFilterState {
+  kind: KindFilter;
   filter: RoleFilter;
   status: StatusFilter;
   query: string;
@@ -82,6 +91,7 @@ export function useFilteredTasks(state: TaskFilterState) {
       default:
         list = list.filter((t) => t.status_new !== 'archived');
     }
+    if (state.kind !== 'all') list = list.filter((t) => (t.kind || 'task') === state.kind);
     if (state.status !== 'any') {
       list = list.filter((t) => (state.status === 'overdue' ? t.is_overdue || t.status_new === 'overdue' : t.status_new === state.status));
     }
@@ -97,12 +107,14 @@ export function useFilteredTasks(state: TaskFilterState) {
       return pA !== pB ? pA - pB : dA - dB;
     });
     return list;
-  }, [source.data, state.filter, state.status, state.query, state.sort, meId]);
+  }, [source.data, state.kind, state.filter, state.status, state.query, state.sort, meId]);
 
   /** Счётчики для чипов: сколько ждёт моей проверки, сколько просрочено. */
   const counts = useMemo(() => {
     const all = mine.data || [];
     return {
+      // Просьбы ко мне, за которые ещё никто не взялся.
+      requests: all.filter((t) => t.kind === 'request' && t.is_assignee && t.status_new === 'new').length,
       review: all.filter((t) => t.status_new === 'on_review' && (t.is_watcher || t.creator_id === meId)).length,
       overdue: all.filter((t) => t.status_new !== 'archived' && (t.is_overdue || t.status_new === 'overdue')).length,
     };

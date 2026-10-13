@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet, Platform, Pressable,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  Platform,
+  Pressable,
 } from 'react-native';
+import Modal from './ui/AppModal';
 import { ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react-native';
 
 import { T, themed } from '../theme/runtime';

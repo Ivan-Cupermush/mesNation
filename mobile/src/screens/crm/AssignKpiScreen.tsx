@@ -2,13 +2,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, ActivityIndicator, StatusBar, Switch,
+  ScrollView, ActivityIndicator, StatusBar, Switch,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { api, MetricType } from '../../services/api';
 import { kpiApi } from '../../services/kpi';
 
 import { themed } from '../../theme/runtime';
+import { showError, showSuccess } from '../../components/ui/toast';
 const METRIC_OPTIONS: { id: MetricType; label: string; unit: string }[] = [
   { id: 'quantity', label: 'Штуки', unit: 'шт' },
   { id: 'amount', label: 'Рубли', unit: '₽' },
@@ -44,7 +45,7 @@ export default function AssignKpiScreen({ navigation, route }: any) {
       // Кому можно назначить KPI (руководителю — своя команда).
       setSubordinates(await kpiApi.people('kpi_assign'));
     } catch {
-      Alert.alert('Ошибка', 'Не удалось загрузить список сотрудников');
+      showError('Не удалось загрузить список сотрудников', 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -52,16 +53,16 @@ export default function AssignKpiScreen({ navigation, route }: any) {
 
   const handleAssign = async () => {
     if (!selectedUser) {
-      Alert.alert('Ошибка', 'Выберите сотрудника');
+      showError('Выберите сотрудника', 'Ошибка');
       return;
     }
     if (!productName.trim()) {
-      Alert.alert('Ошибка', 'Введите название товара/услуги');
+      showError('Введите название товара/услуги', 'Ошибка');
       return;
     }
     const target = parseFloat(targetValue);
     if (!target || target <= 0) {
-      Alert.alert('Ошибка', 'Цель должна быть больше 0');
+      showError('Цель должна быть больше 0', 'Ошибка');
       return;
     }
 
@@ -75,10 +76,10 @@ export default function AssignKpiScreen({ navigation, route }: any) {
         description: description.trim() || undefined,
         from_report: fromReport,
       });
-      Alert.alert('KPI назначен', selectedUser.display_name || selectedUser.username || '');
+      showSuccess(selectedUser.display_name || selectedUser.username || '', 'KPI назначен');
       navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Ошибка', e.message || 'Не удалось назначить KPI');
+      showError(e.message || 'Не удалось назначить KPI', 'Ошибка');
     } finally {
       setSaving(false);
     }

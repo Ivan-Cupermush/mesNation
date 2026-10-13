@@ -8,7 +8,7 @@ import notifee, {
 } from '@notifee/react-native';
 import { SERVER_URL } from '../config';
 import {
-  IMPORTANCE,
+  taskTone,
   MessagePush,
   NOTE_COLOR,
   NoteRequestPush,
@@ -198,6 +198,10 @@ function taskActions(t: TaskPush): AndroidAction[] {
     case 'rejected':
     case 'returned':
       return [{ title: 'Взять в работу', pressAction: { id: 'task_take' } }, open];
+    case 'request':
+      return [{ title: 'Готово', pressAction: { id: 'task_done' } }, { title: 'Взять в работу', pressAction: { id: 'task_take' } }, open];
+    case 'request_done':
+      return [{ title: 'Сказать спасибо 🙏', pressAction: { id: 'task_thanks' } }, open];
     default:
       return [open];
   }
@@ -207,16 +211,16 @@ export async function showTaskNotification(t: TaskPush): Promise<void> {
   const settings = await getNotifySettings();
   if (!settings.tasks) return;
   await ensureChannels();
-  const imp = IMPORTANCE[t.importance];
+  const imp = taskTone(t);
   const deadline = shortDeadline(t.deadline);
   const review = shortDeadline(t.reviewDeadline);
   const lines = [
     `<b>${escapeHtml(t.title)}</b>`,
     taskActorLine(t),
-    deadline ? `Срок: ${deadline}` : '',
+    deadline ? `${t.isRequest ? 'Когда нужно' : 'Срок'}: ${deadline}` : '',
     review && (t.kind === 'assigned' || t.kind === 'review') ? `Проверка до: ${review}` : '',
     t.comment ? `«${escapeHtml(t.comment)}»` : '',
-    t.kind === 'assigned' && t.description ? escapeHtml(t.description) : '',
+    (t.kind === 'assigned' || t.kind === 'request') && t.description ? escapeHtml(t.description) : '',
   ].filter(Boolean);
 
   await notifee.displayNotification({

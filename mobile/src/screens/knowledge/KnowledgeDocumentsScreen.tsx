@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, Alert, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Pressable, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, Alert, RefreshControl, TextInput, KeyboardAvoidingView, Pressable, ScrollView } from 'react-native';
+import Modal from '../../components/ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { ChevronLeft, FileText, Upload, Trash2, RotateCcw, Clock, CheckCircle2, AlertCircle, Loader, Tag, X } from 'lucide-react-native';
 import { api, can, KnowledgeDocument, KnowledgeStats } from '../../services/api';
 import { formatSize, plural } from '../../components/chat/chatUtils';
-import { showToast } from '../../components/ui/toast';
+import { showToast, showError } from '../../components/ui/toast';
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
 
@@ -53,7 +54,7 @@ export default function KnowledgeDocumentsScreen({ navigation }: any) {
       setStats(st);
     } catch (e: any) {
       setDocs((prev) => prev ?? []);
-      Alert.alert('Не удалось загрузить документы', e?.message || '');
+      showError(e?.message || '', 'Не удалось загрузить документы');
     }
   }, []);
 
@@ -105,7 +106,7 @@ export default function KnowledgeDocumentsScreen({ navigation }: any) {
       showToast('Документ поставлен в очередь на обработку');
       load();
     } catch (e: any) {
-      Alert.alert('Не удалось запустить обработку', e?.message || '');
+      showError(e?.message || '', 'Не удалось запустить обработку');
     }
   };
 

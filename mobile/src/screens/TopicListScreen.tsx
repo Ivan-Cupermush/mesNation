@@ -6,14 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   TextInput,
-  Modal,
   Pressable,
   Image,
   ScrollView,
   KeyboardAvoidingView,
-  } from 'react-native';
+} from 'react-native';
+import Modal from '../components/ui/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, MessageSquare, Plus, Info, Check } from 'lucide-react-native';
@@ -25,6 +24,8 @@ import { C, hashColor, initials, messagePreview, plural } from '../components/ch
 
 import { T, themed } from '../theme/runtime';
 import SafeBottom from '../components/ui/SafeBottom';
+import { firstNameOf } from '../utils/names';
+import { showError } from '../components/ui/toast';
 /**
  * Группа с темами (как форумы в Telegram): сверху группа, ниже «Общий»
  * чат и темы с последним сообщением. Тему может создать любой участник;
@@ -74,7 +75,7 @@ export default function TopicListScreen({ navigation }: any) {
         navigation.replace('Chat', { chatId, chatName: c.name });
       }
     } catch (e: any) {
-      Alert.alert('Ошибка', e?.message || 'Не удалось загрузить темы');
+      showError(e?.message || 'Не удалось загрузить темы', 'Ошибка');
     } finally {
       setLoading(false);
     }
@@ -107,7 +108,7 @@ export default function TopicListScreen({ navigation }: any) {
       setTitle('');
       navigation.navigate('Chat', { chatId, chatName, topicId: t.id });
     } catch (e: any) {
-      Alert.alert('Не удалось создать тему', e?.message || '');
+      showError(e?.message || '', 'Не удалось создать тему');
     } finally {
       setCreating(false);
     }
@@ -142,7 +143,7 @@ export default function TopicListScreen({ navigation }: any) {
           <Text style={styles.preview} numberOfLines={1}>
             {lm ? (
               <>
-                {lm.sender_name || lm.sender_display_name ? <Text style={{ color: C.text }}>{(lm.sender_display_name || lm.sender_name).split(' ')[0]}: </Text> : null}
+                {lm.sender_name || lm.sender_display_name ? <Text style={{ color: C.text }}>{firstNameOf(lm.sender_display_name || lm.sender_name)}: </Text> : null}
                 {messagePreview(lm)}
               </>
             ) : item.id === null ? (

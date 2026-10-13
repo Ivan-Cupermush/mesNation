@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Alert, Linking, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Linking, Animated } from 'react-native';
+import Modal from './ui/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   NotebookPen,
@@ -21,6 +22,7 @@ import { withAlpha } from '../theme/palettes';
 import UserAvatar from './ui/UserAvatar';
 import ActionSheet, { SheetAction } from './chat/ActionSheet';
 import { fileBadge, formatSize, plural } from './chat/chatUtils';
+import { showError } from './ui/toast';
 
 /**
  * Заметка в чате — как файл в Telegram: карточка-«страница» с названием,
@@ -140,7 +142,7 @@ export default function NoteShareBubble({ card, mine, currentUserId, onAccepted,
       const created = await api.acceptSharedNote(card.id);
       onAccepted(created.id);
     } catch (e: any) {
-      Alert.alert('Не удалось добавить заметку', e?.message || '');
+      showError(e?.message || '', 'Не удалось добавить заметку');
     } finally {
       setBusy(false);
     }
@@ -228,7 +230,7 @@ function SharedNoteViewer({
       .then(setNote)
       .catch((e: any) => {
         onClose();
-        Alert.alert('Не удалось открыть заметку', e?.message || '');
+        showError(e?.message || '', 'Не удалось открыть заметку');
       });
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -253,7 +255,7 @@ function SharedNoteViewer({
       const created = await api.acceptSharedNote(note.id);
       onAccepted(created.id);
     } catch (e: any) {
-      Alert.alert('Не удалось добавить заметку', e?.message || '');
+      showError(e?.message || '', 'Не удалось добавить заметку');
     } finally {
       setAccepting(false);
     }
@@ -268,7 +270,7 @@ function SharedNoteViewer({
       if (fresh) setNote(fresh);
       showToast(msg);
     } catch (e: any) {
-      Alert.alert('Не удалось отправить запрос', e?.message || '');
+      showError(e?.message || '', 'Не удалось отправить запрос');
     } finally {
       setRequesting(false);
     }
@@ -278,7 +280,7 @@ function SharedNoteViewer({
     try {
       await Linking.openURL(await signedFileUrl(url));
     } catch (e: any) {
-      Alert.alert('Не удалось открыть файл', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть файл');
     }
   };
 

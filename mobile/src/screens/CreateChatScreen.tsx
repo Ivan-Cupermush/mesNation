@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TextInput,
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   Switch,
@@ -23,6 +22,8 @@ import { C, hashColor, initials, plural } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
+import { firstNameOf } from '../utils/names';
+import { showError } from '../components/ui/toast';
 /**
  * Новый чат как в Telegram:
  *  1. «Новое сообщение» — список сотрудников; нажатие сразу открывает
@@ -64,7 +65,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
         setMeId(me.id);
         setUsers(list);
       })
-      .catch((e) => Alert.alert('Ошибка', e?.message || 'Не удалось загрузить сотрудников'))
+      .catch((e) => showError(e?.message || 'Не удалось загрузить сотрудников', 'Ошибка'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -92,7 +93,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
       const chat = await request<any>('/api/chats', { method: 'POST', body: { type: 'private', user_ids: [user.id] } });
       navigation.replace('Chat', { chatId: String(chat.id), chatName: chat.name });
     } catch (e: any) {
-      Alert.alert('Не удалось открыть чат', e?.message || '');
+      showError(e?.message || '', 'Не удалось открыть чат');
     } finally {
       setBusy(false);
     }
@@ -109,7 +110,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
 
   const createGroup = async () => {
     if (!name.trim()) {
-      Alert.alert('Название', 'Введите название группы');
+      showError('Введите название группы', 'Название');
       return;
     }
     setBusy(true);
@@ -120,12 +121,12 @@ export default function CreateChatScreen({ navigation, route }: any) {
       });
       if (photo) {
         await upload(`/api/chats/${chat.id}/avatar`, 'avatar', { uri: photo.uri, name: photo.fileName || 'avatar.jpg', type: photo.type || 'image/jpeg' }).catch(
-          (e: any) => Alert.alert('Фото не загружено', `${e?.message || 'Нет связи с сервером'}. Группа создана — фото можно поставить в её настройках.`),
+          (e: any) => showError(`${e?.message || 'Нет связи с сервером'}. Группа создана — фото можно поставить в её настройках.`, 'Фото не загружено'),
         );
       }
       navigation.replace(withTopics ? 'TopicList' : 'Chat', { chatId: String(chat.id), chatName: chat.name });
     } catch (e: any) {
-      Alert.alert('Не удалось создать группу', e?.message || '');
+      showError(e?.message || '', 'Не удалось создать группу');
     } finally {
       setBusy(false);
     }
@@ -236,7 +237,7 @@ export default function CreateChatScreen({ navigation, route }: any) {
                 <TouchableOpacity key={u.id} style={styles.chip} onPress={() => toggle(u.id)} activeOpacity={0.7}>
                   <Avatar user={u} size={26} />
                   <Text style={styles.chipText} numberOfLines={1}>
-                    {(u.display_name || u.username).split(' ')[0]}
+                    {firstNameOf(u)}
                   </Text>
                   <X size={14} color={C.textMuted} />
                 </TouchableOpacity>

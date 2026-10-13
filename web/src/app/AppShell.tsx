@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQrState } from '../features/qr/qrStore';
-import { BookOpen, ChartColumn, House, ListTodo, MessageCircle, NotebookPen, Settings, WifiOff } from 'lucide-react';
+import { BookOpen, ChartColumn, ListTodo, MessageCircle, NotebookPen, Settings, Wifi } from 'lucide-react';
+import { dismissWelcome } from '../features/home/welcome';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useUnreadChatsCount } from '../features/chats/queries';
 import { useChatNotifications } from '../features/chats/notifications';
@@ -18,8 +19,8 @@ import s from './AppShell.module.css';
 // Окна QR (код, сканер с jsQR) грузятся, только когда их открыли.
 const QrHost = lazy(() => import('../features/qr/QrHost'));
 
+// Приветственной странице пункта нет: она встречает при входе и исчезает (features/home/welcome.ts).
 const NAV = [
-  { to: '/', label: 'Главная', icon: House },
   { to: '/tasks', label: 'Задачи', icon: ListTodo },
   { to: '/notes', label: 'Заметки', icon: NotebookPen },
   { to: '/stats', label: 'Статистика', icon: ChartColumn },
@@ -60,6 +61,11 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
+    // Перешли в любой раздел — приветствие больше не показываем.
+    if (location.pathname !== '/') dismissWelcome();
+  }, [location.pathname]);
+
+  useEffect(() => {
     document.title = unread > 0 ? `(${unread}) Offix` : 'Offix';
   }, [unread]);
 
@@ -75,7 +81,7 @@ export default function AppShell() {
         </div>
         <nav className={s.nav}>
           {items.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => [s.navItem, isActive && s.active].filter(Boolean).join(' ')} title={label}>
+            <NavLink key={to} to={to} className={({ isActive }) => [s.navItem, isActive && s.active].filter(Boolean).join(' ')} title={label}>
               <span className={s.navIcon}>
                 <Icon size={22} strokeWidth={2} />
                 {to === '/chats' && unread > 0 && <span className={s.badge}>{unread > 99 ? '99+' : unread}</span>}
@@ -97,11 +103,10 @@ export default function AppShell() {
       </aside>
 
       <div className={s.main}>
-        {offline && (
-          <div className={s.offline} role="status">
-            <WifiOff size={15} /> Нет связи с сервером — переподключаемся…
-          </div>
-        )}
+        <div className={[s.offline, offline !== 'ok' && s.offlineShown, offline === 'back' && s.offlineBack].filter(Boolean).join(' ')} role="status" aria-hidden={offline === 'ok'}>
+          {offline === 'back' ? <Wifi size={15} /> : <span className={s.offlineSpinner} />}
+          {offline === 'back' ? 'Связь восстановлена' : 'Нет связи — переподключаемся…'}
+        </div>
         <main className={s.content}>
           <ErrorBoundary key={location.pathname.split('/')[1]}>
             <Outlet />
@@ -111,7 +116,7 @@ export default function AppShell() {
 
       <nav className={s.tabbar} aria-label="Разделы">
         {items.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => [s.tab, isActive && s.tabActive].filter(Boolean).join(' ')}>
+          <NavLink key={to} to={to} className={({ isActive }) => [s.tab, isActive && s.tabActive].filter(Boolean).join(' ')}>
             <span className={s.navIcon}>
               <Icon size={23} strokeWidth={2} />
               {to === '/chats' && unread > 0 && <span className={s.badge}>{unread > 99 ? '99+' : unread}</span>}
@@ -129,15 +134,39 @@ export default function AppShell() {
   );
 }
 
-/** Полоса «нет связи» — только если соединение пропало дольше чем на 4 секунды (короткие обрывы не мигают). */
-function useOfflineBanner(): boolean {
-  const [offline, setOffline] = useState(false);
+/**
+ * Плашка «нет связи» — только если соединение с сервером пропало дольше
+ * чем на 4 секунды (короткие обрывы не мигают); после восстановления —
+ * на пару секунд «Связь восстановлена».
+ */
+function useOfflineBanner(): 'ok' | 'down' | 'back' {
+  const [state, setState] = useState<'ok' | 'down' | 'back'>('ok');
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let wasDown = false;
+    let pending = false;
     const update = (connected: boolean) => {
+      if (connected && navigator.onLine) {
+        if (timer) clearTimeout(timer);
+        pending = false;
+        if (wasDown) {
+          wasDown = false;
+          setState('back');
+          timer = setTimeout(() => setState('ok'), 2000);
+        } else setState('ok');
+        return;
+      }
+      // Попытки переподключения тоже сообщают «нет связи» — таймер не перезапускаем.
+      if (pending || wasDown) return;
       if (timer) clearTimeout(timer);
-      if (connected && navigator.onLine) setOffline(false);
-      else timer = setTimeout(() => setOffline(!isConnected() || !navigator.onLine), 4000);
+      pending = true;
+      timer = setTimeout(() => {
+        pending = false;
+        if (!isConnected() || !navigator.onLine) {
+          wasDown = true;
+          setState('down');
+        }
+      }, 4000);
     };
     const unsub = onConnectionChange(update);
     const onNet = () => update(isConnected());
@@ -150,5 +179,5 @@ function useOfflineBanner(): boolean {
       window.removeEventListener('offline', onNet);
     };
   }, []);
-  return offline;
+  return state;
 }

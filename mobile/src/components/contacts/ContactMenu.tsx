@@ -9,7 +9,7 @@ import { request } from '../../services/http';
 import { contactRecord, saveContactName } from '../../services/contacts';
 import { fuzzyMatch } from '../../utils/fuzzySearch';
 import ActionSheet, { SheetAction } from '../chat/ActionSheet';
-import ShareToChatModal from '../ShareToChatModal';
+import ShareToChatModal, { sentToLabel } from '../ShareToChatModal';
 import UserAvatar from '../ui/UserAvatar';
 import { ContactCard, SharedContact } from './ContactCard';
 
@@ -48,15 +48,8 @@ export default function ContactMenu({
     { key: 'group', label: 'Добавить в группу', icon: <UserPlus size={20} color={T.textPrimary} />, onPress: () => { onClose(); setGroups(true); } },
   ];
 
-  const sendContact = async (chatId: number, comment: string) => {
-    try {
-      await request(`/api/chats/${chatId}/contact`, { method: 'POST', body: { user_id: user.id, comment: comment || undefined } });
-      setShare(false);
-      onDone?.('Контакт отправлен');
-    } catch (e: any) {
-      Alert.alert('Не удалось отправить', e?.message || '');
-    }
-  };
+  const sendContact = (chatId: number, comment: string, topicId: number | null) =>
+    request(`/api/chats/${chatId}/contact`, { method: 'POST', body: { user_id: user.id, topic_id: topicId ?? undefined, comment: comment || undefined } }).then(() => undefined);
 
   return (
     <>
@@ -66,6 +59,10 @@ export default function ContactMenu({
         title="Поделиться контактом"
         onClose={() => setShare(false)}
         onSend={sendContact}
+        onDone={(n) => {
+          setShare(false);
+          onDone?.(n === 1 ? 'Контакт отправлен' : sentToLabel(n));
+        }}
         commentPlaceholder="Добавить подпись…"
         preview={
           <View style={styles.previewBubble}>

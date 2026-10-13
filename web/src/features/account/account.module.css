@@ -233,3 +233,7 @@
 .cornerRound {
   border-radius: 9px;
 }
+
+.wallpaperBox {
+  padding: 14px;
+}

@@ -66,6 +66,8 @@ import { seekVoice, setVoiceHandlers, toggleVoice } from './voice/voicePlayer';
 import type { Recording } from './voice/useRecorder';
 import type { Message, Reaction, ScheduledMessage } from './types';
 import s from './ChatView.module.css';
+import { useChatWallpaper, wallpaperStyle } from '../../theme/wallpapers';
+import { useTheme } from '../../theme/ThemeProvider';
 import { useContactNames } from '../contacts/names';
 
 type Typing = Record<number, { name: string; at: number }>;
@@ -111,6 +113,9 @@ export default function ChatView() {
   const { data: topics } = useTopics(chatId, { enabled: inTopicRoute });
   const topic = topicId ? (topics?.find((t) => t.id === topicId) ?? null) : null;
   const feed = useChatMessages(chatId, topicId, me.id);
+  // Фон ленты: свой для чата или общий (как в приложении).
+  const { wallpaper } = useChatWallpaper(chatId);
+  const { isDark } = useTheme();
   const { messages, loadUntil, loadOlder, hasOlder, loadingOlder, update: updateMessage } = feed;
   // Свежий список для обработчиков, которые не должны меняться при каждом сообщении (пузыри не перерисовываются).
   const messagesRef = useRef(messages);
@@ -1161,6 +1166,7 @@ export default function ChatView() {
 
       {/* ===== Лента ===== */}
       <div className={s.feedWrap}>
+        <div className={[s.wallpaper, wallpaper.type === 'image' && wallpaper.blur && s.wallpaperBlur].filter(Boolean).join(' ')} style={wallpaperStyle(wallpaper, isDark)} aria-hidden />
         <div ref={scrollRef} className={s.feed} onScroll={onScroll}>
           <div className={s.feedInner}>
             {feed.loadingOlder && (

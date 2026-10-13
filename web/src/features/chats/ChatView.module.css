@@ -462,3 +462,23 @@
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
+
+/* Фон ленты (обои чата) — отдельным слоем, чтобы размытие фото не задевало сообщения. */
+.wallpaper {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wallpaperBlur {
+  inset: -24px;
+  filter: blur(12px);
+}
+
+.feedWrap {
+  overflow: hidden;
+}
+
+.feed {
+  position: relative;
+}

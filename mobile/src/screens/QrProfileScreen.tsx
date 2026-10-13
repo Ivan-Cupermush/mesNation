@@ -16,7 +16,7 @@ import { T, themed } from '../theme/runtime';
 import QrCode from '../components/qr/QrCode';
 import { QR_THEMES, QrTheme, loadQrTheme, saveQrTheme } from '../components/qr/qrThemes';
 import UserAvatar from '../components/ui/UserAvatar';
-import ShareToChatModal from '../components/ShareToChatModal';
+import ShareToChatModal, { sentToLabel } from '../components/ShareToChatModal';
 import { ContactCard, SharedContact } from '../components/contacts/ContactCard';
 import { requestSavePermission } from '../components/chat/chatUtils';
 import { showToast } from '../components/ui/toast';
@@ -119,12 +119,8 @@ export default function QrProfileScreen({ navigation }: any) {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const sendContact = async (chatId: number, comment: string) => {
-    if (!user) return;
-    await request(`/api/chats/${chatId}/contact`, { method: 'POST', body: { user_id: user.id, comment: comment || undefined } });
-    setToChat(false);
-    showToast('Контакт отправлен');
-  };
+  const sendContact = (chatId: number, comment: string, topicId: number | null) =>
+    request(`/api/chats/${chatId}/contact`, { method: 'POST', body: { user_id: user!.id, topic_id: topicId ?? undefined, comment: comment || undefined } }).then(() => undefined);
 
   const t = theme || QR_THEMES[0];
 
@@ -261,6 +257,10 @@ export default function QrProfileScreen({ navigation }: any) {
           title={mine ? 'Отправить мой контакт' : 'Отправить контакт'}
           onClose={() => setToChat(false)}
           onSend={sendContact}
+          onDone={(n) => {
+            setToChat(false);
+            showToast(n === 1 ? 'Контакт отправлен' : sentToLabel(n));
+          }}
           commentPlaceholder="Добавить подпись…"
           preview={
             <View style={styles.previewBubble}>

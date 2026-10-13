@@ -296,3 +296,10 @@
   border-radius: 50%;
   border: 1.5px dashed var(--c-border);
 }
+
+.wallpaperBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 14px 14px;
+}

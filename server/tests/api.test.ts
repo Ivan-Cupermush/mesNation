@@ -275,6 +275,48 @@ describe('задачи', () => {
     expect(ok.status).toBe(200);
   });
 
+  it('вложения: выделить, удалить несколько, переслать в чат альбомом с подписью', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const up = async (who: Actor, name: string, data: Buffer) => (await as(who).upload(`/api/tasks/${taskId}/files`, 'file', data, name)).body;
+    const a = await up(c.mgr1, 'схема.png', png);
+    const b = await up(c.mgr1, 'фото.png', png);
+    const doc = await up(c.bk, 'акт.txt', Buffer.from('акт сверки'));
+    expect(a.id && b.id && doc.id).toBeTruthy();
+
+    // Пересылка в чат: два фото альбомом, документ отдельно, подпись — у первого фото.
+    const chat = (await as(c.mgr1).post('/api/chats', { type: 'private', user_ids: [c.mgr2.id] })).body;
+    const fwd = await as(c.mgr1).post(`/api/tasks/${taskId}/files/forward`, {
+      file_ids: [a.id, b.id, doc.id],
+      targets: [{ chat_id: chat.id }],
+      comment: 'Файлы по сверке',
+    });
+    expect(fwd.status).toBe(200);
+    expect(fwd.body.sent).toBe(3);
+    const msgs = (await as(c.mgr2).get(`/api/messages/${chat.id}`)).body as any[];
+    const forwarded = msgs.filter((m) => m.file_name && ['схема.png', 'фото.png', 'акт.txt'].includes(m.file_name));
+    expect(forwarded).toHaveLength(3);
+    const photos = forwarded.filter((m) => m.media_kind === 'photo');
+    expect(photos).toHaveLength(2);
+    expect(photos[0].media_group_id).toBeTruthy();
+    expect(photos[0].media_group_id).toBe(photos[1].media_group_id);
+    expect(forwarded.find((m) => m.text === 'Файлы по сверке')?.media_kind).toBe('photo');
+    // Файл в чате — копия: удаление вложения задачи его не трогает.
+    const copy = forwarded.find((m) => m.file_name === 'акт.txt');
+    expect((await as(c.mgr2).get(copy.file_url)).status).toBe(200);
+
+    // В чужой чат переслать нельзя.
+    const foreign = (await as(c.dir).post('/api/chats', { type: 'private', user_ids: [c.acc.id] })).body;
+    expect((await as(c.mgr1).post(`/api/tasks/${taskId}/files/forward`, { file_ids: [a.id], targets: [{ chat_id: foreign.id }] })).status).toBe(403);
+
+    // Удалить несколько: создатель задачи (mgr1) — любые; наблюдатель mgr2 — только свои.
+    const denied = await as(c.mgr2).post(`/api/tasks/${taskId}/files/bulk-delete`, { file_ids: [a.id, doc.id] });
+    expect(denied.status).toBe(403);
+    const del = await as(c.mgr1).post(`/api/tasks/${taskId}/files/bulk-delete`, { file_ids: [a.id, b.id, doc.id] });
+    expect(del.body.deleted.sort()).toEqual([a.id, b.id, doc.id].sort());
+    expect((await as(c.mgr1).get(`/api/tasks/${taskId}/files`)).body).toHaveLength(0);
+    expect((await as(c.mgr2).get(copy.file_url)).status).toBe(200);
+  });
+
   it('удаление = архив с пометкой, разархивация возвращает задачу', async () => {
     await as(c.bk).post(`/api/tasks/${taskId}/transition`, { to_status: 'in_progress' });
     expect((await as(c.mgr1).delete(`/api/tasks/${taskId}`)).body.archived_as).toBe('deleted');

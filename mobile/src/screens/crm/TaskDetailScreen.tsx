@@ -13,7 +13,8 @@ import {
   Platform,
   Keyboard,
   Linking,
-  StatusBar
+  StatusBar,
+  BackHandler
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -49,7 +50,10 @@ import {
   Sparkles,
   Monitor,
   Wrench,
+  Check,
+  ListChecks,
 } from 'lucide-react-native';
+import TaskFilesBar, { FileThumb } from '../../components/tasks/TaskFilesBar';
 import { clearTaskNotification } from '../../notifications/display';
 import { api, Task, TaskHistoryItem, TaskCanvasPost } from '../../services/api';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
@@ -89,6 +93,8 @@ export default function TaskDetailScreen({ navigation }: any) {
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
+  // Выделение вложений, как в чате: null — обычный режим.
+  const [fileSel, setFileSel] = useState<number[] | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -360,24 +366,42 @@ export default function TaskDetailScreen({ navigation }: any) {
     ]);
   };
 
+  // Системная «Назад» в режиме выделения — сначала снять выделение.
+  useEffect(() => {
+    if (!fileSel) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setFileSel(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [fileSel]);
+
+  const toggleFile = (id: number) =>
+    setFileSel((prev) => {
+      const cur = prev || [];
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return next.length ? next : null;
+    });
+
   const handlePickFile = async () => {
     try {
-      const result = await pick({ type: [types.allFiles], allowMultiSelection: false });
-      const file = result[0];
-      if (!file || !file.uri) return;
+      // Можно выбрать сразу несколько файлов — загрузятся по очереди.
+      const result = await pick({ type: [types.allFiles], allowMultiSelection: true });
+      const picked = result.filter((f) => f?.uri);
+      if (!picked.length) return;
 
       setUploadingFile(true);
+      const failed: string[] = [];
       try {
-        await api.uploadTaskFile(
-          taskId,
-          file.uri,
-          file.name || 'file',
-          file.type || 'application/octet-stream',
-          file.size || 0,
-        );
+        for (const file of picked) {
+          try {
+            await api.uploadTaskFile(taskId, file.uri, file.name || 'file', file.type || 'application/octet-stream', file.size || 0);
+          } catch (e: any) {
+            failed.push(`${file.name || 'файл'}: ${e?.message || 'ошибка'}`);
+          }
+        }
         loadData();
-      } catch (e: any) {
-        Alert.alert('Ошибка', e.message || 'Не удалось загрузить файл');
+        if (failed.length) Alert.alert('Не всё загрузилось', failed.join('\n'));
       } finally {
         setUploadingFile(false);
       }
@@ -386,28 +410,6 @@ export default function TaskDetailScreen({ navigation }: any) {
         Alert.alert('Ошибка', 'Не удалось выбрать файл');
       }
     }
-  };
-
-  const handleDeleteFile = (fileId: number, fileName: string) => {
-    Alert.alert(
-      'Удалить файл?',
-      `«${fileName}» будет удалён без возможности восстановления`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Удалить',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.deleteTaskFile(taskId, fileId);
-              loadData();
-            } catch (e: any) {
-              Alert.alert('Ошибка', e.message || 'Не удалось удалить файл');
-            }
-          },
-        },
-      ],
-    );
   };
 
   const handleOpenFile = async (fileUrl: string) => {
@@ -930,10 +932,33 @@ export default function TaskDetailScreen({ navigation }: any) {
               <Text style={styles.sectionTitle}>ВЛОЖЕНИЯ</Text>
               <View style={styles.sectionBadge}>
                 <Text style={styles.sectionBadgeText}>
-                  {(task.files || []).length}
+                  {fileSel ? `${fileSel.length} из ${(task.files || []).length}` : (task.files || []).length}
                 </Text>
               </View>
+              <View style={{ flex: 1 }} />
+              {(task.files || []).length > 0 &&
+                (fileSel ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setFileSel(fileSel.length === (task.files || []).length ? null : (task.files || []).map((f: any) => f.id))
+                      }
+                      style={styles.selectBtn}
+                    >
+                      <Text style={styles.selectBtnText}>{fileSel.length === (task.files || []).length ? 'Снять все' : 'Все'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setFileSel(null)} style={styles.selectBtn}>
+                      <Text style={styles.selectBtnText}>Готово</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity onPress={() => setFileSel([])} style={styles.selectBtn} accessibilityLabel="Выбрать файлы">
+                    <ListChecks size={16} color={T.accent} strokeWidth={2.2} />
+                    <Text style={styles.selectBtnText}>Выбрать</Text>
+                  </TouchableOpacity>
+                ))}
             </View>
+            {fileSel && fileSel.length === 0 ? <Text style={styles.selectHint}>Нажмите на файлы, чтобы выбрать их</Text> : null}
 
             {(task.files || []).length === 0 ? (
               <View style={styles.emptyCard}>
@@ -945,25 +970,28 @@ export default function TaskDetailScreen({ navigation }: any) {
               </View>
             ) : (
               (task.files || []).map((file: any) => {
-                const isOwnFile = file.uploaded_by === currentUser?.id;
-                const isTaskCreator = task.creator_id === currentUser?.id;
                 const fileIconData = getFileIconData(file.mime_type, file.file_name);
                 const FileIcon = fileIconData.icon;
+                const selecting = fileSel !== null;
+                const checked = !!fileSel?.includes(file.id);
                 return (
                   <TouchableOpacity
                     key={file.id}
-                    onPress={() => handleOpenFile(file.file_url)}
+                    onPress={() => (selecting ? toggleFile(file.id) : handleOpenFile(file.file_url))}
+                    onLongPress={() => toggleFile(file.id)}
+                    delayLongPress={300}
                     activeOpacity={0.7}
-                    style={styles.fileCard}
+                    style={[styles.fileCard, checked && styles.fileCardChecked]}
                   >
-                    <View
-                      style={[
-                        styles.fileIconWrap,
-                        { backgroundColor: fileIconData.bg },
-                      ]}
-                    >
-                      <FileIcon size={24} color={fileIconData.color} strokeWidth={2} />
-                    </View>
+                    <FileThumb
+                      file={file}
+                      size={48}
+                      fallback={
+                        <View style={[styles.fileIconWrap, { backgroundColor: fileIconData.bg }]}>
+                          <FileIcon size={24} color={fileIconData.color} strokeWidth={2} />
+                        </View>
+                      }
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.fileName} numberOfLines={1}>
                         {file.file_name || 'Без имени'}
@@ -972,15 +1000,11 @@ export default function TaskDetailScreen({ navigation }: any) {
                         {formatFileSize(file.file_size)} · {formatDate(file.uploaded_at, false)}
                       </Text>
                     </View>
-                    {(isOwnFile || isTaskCreator) && (
-                      <TouchableOpacity
-                        onPress={() => handleDeleteFile(file.id, file.file_name)}
-                        style={styles.fileDeleteBtn}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Trash2 size={16} color={T.danger} strokeWidth={2} />
-                      </TouchableOpacity>
-                    )}
+                    {selecting ? (
+                      <View style={[styles.fileCheck, checked && styles.fileCheckOn]}>
+                        {checked ? <Check size={15} color={T.onAccent} strokeWidth={3} /> : null}
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })
@@ -1266,6 +1290,21 @@ export default function TaskDetailScreen({ navigation }: any) {
           <View style={{ height: 20 }} />
         </ScrollView>
 
+        {/* ===== Выделены вложения — панель действий вместо поля комментария ===== */}
+        {fileSel !== null ? (
+          <TaskFilesBar
+            taskId={taskId}
+            taskTitle={task.title}
+            files={(task.files || []) as any}
+            selected={fileSel}
+            canDelete={(f) => f.uploaded_by === currentUser?.id || task.creator_id === currentUser?.id}
+            onDone={(reload) => {
+              setFileSel(null);
+              if (reload) loadData();
+            }}
+          />
+        ) : (
+        <>
         {/* ===== INPUT BAR (комментарии) ===== */}
         <View style={styles.inputBar}>
           <TextInput
@@ -1295,6 +1334,8 @@ export default function TaskDetailScreen({ navigation }: any) {
             )}
           </TouchableOpacity>
         </View>
+        </>
+        )}
       </KeyboardAvoidingView>
 
       {/* ===== СПИСОК ИСПОЛНИТЕЛЕЙ (bottom-sheet) ===== */}
@@ -1884,6 +1925,41 @@ const styles = themed(() => ({
   },
   fileDeleteBtn: {
     padding: 8,
+  },
+  fileCardChecked: {
+    backgroundColor: T.accentMuted,
+  },
+  fileCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: T.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileCheckOn: {
+    backgroundColor: T.accent,
+    borderColor: T.accent,
+  },
+  selectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: T.accentMuted,
+  },
+  selectBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: T.accent,
+  },
+  selectHint: {
+    fontSize: 13,
+    color: T.textSecondary,
+    marginTop: -4,
   },
   attachBtn: {
     flexDirection: 'row',

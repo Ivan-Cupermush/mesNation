@@ -5,7 +5,12 @@ import pool, { withTransaction } from '../db/pool';
 import { AuthRequest } from '../middleware/auth';
 import { id, paramId, validate } from '../lib/validate';
 import { badRequest, forbidden, notFound } from '../lib/errors';
-import { UPLOAD_DIRS, makeUploader, removeFile, urlToDiskPath } from '../lib/uploads';
+import fs from 'fs';
+import path from 'path';
+import { UPLOAD_DIRS, makeUploader, randomFileName, removeFile, urlToDiskPath } from '../lib/uploads';
+import { assertChatMember } from '../services/access';
+import { createMessage } from '../services/messages';
+import { processUpload } from '../services/media';
 import { assertCanAssign, assertCanViewTask, getTaskRoles, getUserNode, getSubtreeNodeIds, isDirector } from '../services/access';
 import { checkOverdueTasks } from '../services/deadlineChecker';
 import { emitToUser } from '../realtime/socket';
@@ -725,6 +730,94 @@ router.delete('/:id/files/:fileId', async (req: AuthRequest, res: Response) => {
   removeFile(urlToDiskPath(file.file_url));
   await notifyParticipants(taskId);
   res.json({ success: true });
+});
+
+// ---------- Выделение вложений: удалить сразу несколько, переслать в чаты ----------
+
+const fileIdsSchema = z.object({ file_ids: z.array(id).min(1, 'Выберите файлы').max(100) });
+
+/** Удалить выбранные: свои файлы может удалить автор, любые — создатель задачи. */
+router.post('/:id/files/bulk-delete', validate(fileIdsSchema), async (req: AuthRequest, res: Response) => {
+  const taskId = paramId(req);
+  const roles = await assertCanViewTask(taskId, req.userId!);
+  const { file_ids } = req.body as z.infer<typeof fileIdsSchema>;
+  const { rows } = await pool.query('SELECT * FROM task_files WHERE task_id = $1 AND id = ANY($2::int[])', [taskId, file_ids]);
+  const allowed = rows.filter((f) => roles.isCreator || f.uploaded_by === req.userId);
+  if (!allowed.length) throw forbidden('Удалить файл может его автор или создатель задачи');
+  await pool.query('DELETE FROM task_files WHERE id = ANY($1::int[])', [allowed.map((f) => f.id)]);
+  for (const f of allowed) removeFile(urlToDiskPath(f.file_url));
+  await notifyParticipants(taskId);
+  res.json({ deleted: allowed.map((f) => f.id), denied: rows.filter((f) => !allowed.includes(f)).map((f) => f.id) });
+});
+
+const forwardFilesSchema = fileIdsSchema.extend({
+  targets: z
+    .array(z.object({ chat_id: id, topic_id: id.nullish() }))
+    .min(1, 'Выберите чат')
+    .max(20),
+  comment: z.string().trim().max(4000).optional(),
+});
+
+/**
+ * Переслать вложения задачи в чаты, как в Telegram: файлы копируются в чат
+ * на сервере (с телефона ничего не скачивается и не загружается заново).
+ * Фото и видео — альбомом, документы — группой; подпись — у первого
+ * фото или у последнего документа.
+ */
+router.post('/:id/files/forward', validate(forwardFilesSchema), async (req: AuthRequest, res: Response) => {
+  const taskId = paramId(req);
+  const me = req.userId!;
+  await assertCanViewTask(taskId, me);
+  const { file_ids, targets, comment } = req.body as z.infer<typeof forwardFilesSchema>;
+  for (const t of targets) await assertChatMember(t.chat_id, me);
+  const { rows } = await pool.query('SELECT * FROM task_files WHERE task_id = $1 AND id = ANY($2::int[]) ORDER BY uploaded_at, id', [taskId, file_ids]);
+  if (!rows.length) throw notFound('Файлы не найдены');
+  const isMedia = (f: any) => /^(image|video)\//.test(f.mime_type || '');
+  const ordered = [...rows.filter(isMedia), ...rows.filter((f) => !isMedia(f))];
+  const firstMedia = ordered.findIndex(isMedia);
+  const lastDoc = ordered.length - 1 - [...ordered].reverse().findIndex((f) => !isMedia(f));
+  const captionAt = comment ? (firstMedia >= 0 ? firstMedia : lastDoc) : -1;
+  let sent = 0;
+  for (const t of targets) {
+    const mediaGroup = rows.filter(isMedia).length > 1 ? `t${taskId}m${Date.now()}${t.chat_id}` : null;
+    const docGroup = rows.filter((f) => !isMedia(f)).length > 1 ? `t${taskId}d${Date.now()}${t.chat_id}` : null;
+    for (let i = 0; i < ordered.length; i++) {
+      const f = ordered[i];
+      const src = urlToDiskPath(f.file_url);
+      if (!src || !fs.existsSync(src)) continue;
+      const filename = randomFileName(f.file_name || path.basename(src));
+      const dest = path.join(UPLOAD_DIRS.chat, filename);
+      await fs.promises.copyFile(src, dest);
+      try {
+        const media = await processUpload(
+          { path: dest, filename, originalname: f.file_name || filename, mimetype: f.mime_type || 'application/octet-stream', size: Number(f.file_size) || 0 } as Express.Multer.File,
+          !isMedia(f),
+        );
+        await createMessage({
+          chatId: t.chat_id,
+          senderId: me,
+          topicId: t.topic_id ?? null,
+          text: i === captionAt ? comment || null : null,
+          fileUrl: `/uploads/${filename}`,
+          fileName: f.file_name,
+          thumbUrl: media.thumbUrl,
+          contentType: media.kind === 'file' ? 'file' : media.kind,
+          mediaGroupId: isMedia(f) ? mediaGroup : docGroup,
+          mediaKind: media.kind,
+          mediaWidth: media.width,
+          mediaHeight: media.height,
+          mediaDuration: media.duration,
+          fileSize: Number(f.file_size) || null,
+          mimeType: f.mime_type,
+        });
+        sent++;
+      } catch (err) {
+        removeFile(dest);
+        throw err;
+      }
+    }
+  }
+  res.json({ sent });
 });
 
 export default router;

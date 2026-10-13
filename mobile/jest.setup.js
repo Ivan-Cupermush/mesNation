@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /* Моки нативных модулей для тестов (в Jest нет Android/iOS). */
 jest.mock('@react-native-async-storage/async-storage', () => {
   const store = new Map();

@@ -42,6 +42,7 @@ function TasksLayout() {
   const atIndex = /^\/tasks\/?$/.test(location.pathname);
   // Фильтры живут здесь: при переходе в задачу и обратно они не сбрасываются.
   const [state, setState] = useState<ListState>(() => ({
+    kind: 'all',
     filter: 'all',
     status: 'any',
     query: '',

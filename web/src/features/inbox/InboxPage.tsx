@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell as BellIcon, Check, ClipboardCheck, NotebookPen, RefreshCw, Trash2, X } from 'lucide-react';
+import { Bell as BellIcon, Check, ClipboardCheck, HandHeart, NotebookPen, RefreshCw, Trash2, X } from 'lucide-react';
 import { api } from '../../lib/http';
 import { Avatar } from '../../ui/Avatar';
 import { IconButton } from '../../ui/Button';
@@ -161,7 +161,10 @@ export default function InboxPage() {
 function Item({ n, fresh, onOpen }: { n: AppNotification; fresh: boolean; onOpen: () => void }) {
   const isTask = n.kind === 'task';
   const who = n.actor_name || 'Коллега';
-  const badge = isTask
+  const isRequest = isTask && n.data?.kind === 'request';
+  const badge = isRequest
+    ? { color: 'var(--c-violet)', Icon: HandHeart }
+    : isTask
     ? { color: IMPORTANCE[n.data?.importance] || IMPORTANCE.yellow, Icon: ClipboardCheck }
     : n.kind === 'note_request'
       ? { color: NOTE_COLOR, Icon: RefreshCw }

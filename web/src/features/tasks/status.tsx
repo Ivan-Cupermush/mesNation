@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { AlertCircle, Archive, Check, CheckCircle2, Eye, PlayCircle, Sparkles, XCircle, type LucideIcon } from 'lucide-react';
 import { plural } from '../../lib/format';
-import type { Importance, Task, TaskStatus } from './types';
+import type { Importance, Task, TaskKind, TaskStatus } from './types';
 import s from './status.module.css';
 
 /**
@@ -27,7 +27,15 @@ export const TASK_STATUS: Record<TaskStatus, StatusMeta> = {
   archived: { label: 'В архиве', color: 'var(--c-text-secondary)', soft: 'var(--c-input-bg)', icon: Archive, step: 3 },
 };
 
-export const statusMeta = (st?: string | null): StatusMeta => TASK_STATUS[(st as TaskStatus) || 'new'] || TASK_STATUS.new;
+/** У просьбы нет проверки: «Принята» → «Выполнена», этапов три. */
+const REQUEST_STATUS: Partial<Record<TaskStatus, Partial<StatusMeta>>> = {
+  done: { label: 'Выполнена', step: 2 },
+};
+
+export const statusMeta = (st?: string | null, kind?: TaskKind | null): StatusMeta => {
+  const base = TASK_STATUS[(st as TaskStatus) || 'new'] || TASK_STATUS.new;
+  return kind === 'request' ? { ...base, ...REQUEST_STATUS[(st as TaskStatus) || 'new'] } : base;
+};
 
 export const PRIORITY: Record<Importance, { label: string; long: string; color: string; soft: string; rank: number }> = {
   red: { label: 'Высокий', long: 'Высокий приоритет', color: 'var(--c-danger)', soft: 'var(--c-danger-soft)', rank: 0 },
@@ -78,8 +86,8 @@ export function timeLeft(iso: string | null | undefined): string {
 }
 
 /** Метка статуса для списков. */
-export function StatusPill({ status, overdue }: { status: TaskStatus; overdue?: boolean }) {
-  const m = statusMeta(status);
+export function StatusPill({ status, overdue, kind }: { status: TaskStatus; overdue?: boolean; kind?: TaskKind | null }) {
+  const m = statusMeta(status, kind);
   const late = !!overdue && status !== 'done' && status !== 'archived';
   const color = late ? 'var(--c-danger)' : m.color;
   return (
@@ -91,12 +99,13 @@ export function StatusPill({ status, overdue }: { status: TaskStatus; overdue?: 
 }
 
 /** Мини-прогресс из 4 сегментов (для карточек). */
-export function StatusSegments({ status }: { status: TaskStatus }) {
-  const m = statusMeta(status);
-  const filled = status === 'archived' ? 4 : m.step + 1;
+export function StatusSegments({ status, kind }: { status: TaskStatus; kind?: TaskKind | null }) {
+  const m = statusMeta(status, kind);
+  const total = kind === 'request' ? 3 : 4;
+  const filled = status === 'archived' ? total : m.step + 1;
   return (
     <span className={s.segments} aria-hidden>
-      {[0, 1, 2, 3].map((i) => (
+      {Array.from({ length: total }, (_, i) => i).map((i) => (
         <span key={i} className={s.segment} style={{ background: i < filled ? m.color : 'var(--c-surface-active)' }} />
       ))}
     </span>
@@ -104,17 +113,19 @@ export function StatusSegments({ status }: { status: TaskStatus }) {
 }
 
 const STEPS = ['Новая', 'В работе', 'Проверка', 'Принята'];
+const REQUEST_STEPS = ['Новая', 'В работе', 'Готово'];
 
 /** Шкала этапов: пройденные — галочки, текущий — иконка статуса. */
-export function StatusTrack({ status }: { status: TaskStatus }) {
-  const m = statusMeta(status);
+export function StatusTrack({ status, kind }: { status: TaskStatus; kind?: TaskKind | null }) {
+  const m = statusMeta(status, kind);
   const archived = status === 'archived';
   const current = m.step;
   const Icon = m.icon;
+  const steps = kind === 'request' ? REQUEST_STEPS : STEPS;
   return (
     <div className={s.track}>
-      {STEPS.map((label, i) => {
-        const done = archived || i < current || (status === 'done' && i === 3);
+      {steps.map((label, i) => {
+        const done = archived || i < current || (status === 'done' && i === steps.length - 1);
         const active = !archived && i === current && status !== 'done';
         const color = active ? m.color : done ? 'var(--c-success)' : 'var(--c-text-muted)';
         return (
@@ -135,8 +146,33 @@ export function StatusTrack({ status }: { status: TaskStatus }) {
   );
 }
 
+/** Что дальше по просьбе — тепло и по-человечески. */
+function requestHint(status: TaskStatus, roles: { creator: boolean; assignee: boolean }, thanked?: boolean): string {
+  switch (status) {
+    case 'new':
+      return roles.assignee ? 'Вас попросили помочь. Возьмите в работу или сразу отметьте «Готово».' : 'Просьба отправлена — ждём, когда коллега возьмётся.';
+    case 'in_progress':
+      return roles.assignee ? 'Когда сделаете — нажмите «Готово». Проверки не будет.' : 'Коллега уже занимается вашей просьбой.';
+    case 'overdue':
+      return roles.assignee ? 'Срок вышел. Если всё сделано — отметьте «Готово».' : 'Срок вышел. Можно перенести его в меню «⋯» или напомнить в комментариях.';
+    case 'done':
+      if (roles.creator) return thanked ? 'Просьба выполнена — вы уже сказали спасибо.' : 'Просьба выполнена! Скажите коллеге спасибо — это приятно.';
+      return thanked ? 'Готово — вас поблагодарили. Так держать!' : 'Готово! Спасибо, что помогли коллеге.';
+    case 'archived':
+      return 'Просьба в архиве.';
+    default:
+      return '';
+  }
+}
+
 /** Подсказка «что дальше» с точки зрения текущего пользователя. */
-export function nextStepHint(status: TaskStatus, roles: { creator: boolean; assignee: boolean; watcher?: boolean }): string {
+export function nextStepHint(
+  status: TaskStatus,
+  roles: { creator: boolean; assignee: boolean; watcher?: boolean },
+  kind?: TaskKind | null,
+  thanked?: boolean,
+): string {
+  if (kind === 'request') return requestHint(status, roles, thanked);
   const self = roles.creator && roles.assignee;
   const reviewer = roles.creator || !!roles.watcher;
   switch (status) {

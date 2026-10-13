@@ -8,7 +8,8 @@ import { EmptyState } from '../../ui/EmptyState';
 import { Modal } from '../../ui/Modal';
 import { Spinner } from '../../ui/Spinner';
 import TaskCard from './TaskCard';
-import { ROLE_FILTERS, STATUS_FILTERS, useFilteredTasks, type TaskFilterState } from './filters';
+import { KIND_FILTERS, ROLE_FILTERS, STATUS_FILTERS, useFilteredTasks, type TaskFilterState } from './filters';
+import { KindChooser } from './kind';
 import s from './TaskList.module.css';
 import ShellActions from '../inbox/ShellActions';
 
@@ -31,6 +32,7 @@ export default function TaskList({ state, onChange, children }: Props) {
   const activeId = Number(match?.params.id) || null;
   const { tasks, counts, manager, isLoading, error, refetch } = useFilteredTasks(state);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [choosing, setChoosing] = useState(false);
 
   const chips = ROLE_FILTERS.filter((f) => !f.managersOnly || manager).map((f) => ({
     key: f.key,
@@ -65,7 +67,7 @@ export default function TaskList({ state, onChange, children }: Props) {
           </button>
         </div>
         <ShellActions />
-        <IconButton label="Новая задача" tone="soft" size={42} onClick={() => navigate('/tasks/new')}>
+        <IconButton label="Создать задачу или просьбу" tone="soft" size={42} onClick={() => setChoosing(true)}>
           <Plus size={22} />
         </IconButton>
       </header>
@@ -75,6 +77,21 @@ export default function TaskList({ state, onChange, children }: Props) {
         <IconButton label="Сортировка и статус" active={tuned} onClick={() => setSettingsOpen(true)}>
           <SlidersHorizontal size={19} />
         </IconButton>
+      </div>
+      <div className={s.kinds} role="tablist" aria-label="Задачи и просьбы">
+        {KIND_FILTERS.map((k) => (
+          <button
+            key={k.key}
+            type="button"
+            role="tab"
+            aria-selected={state.kind === k.key}
+            className={[s.kind, state.kind === k.key && s.kindOn, k.key === 'request' && s.kindRequest].filter(Boolean).join(' ')}
+            onClick={() => onChange({ kind: k.key })}
+          >
+            {k.label}
+            {k.key === 'request' && counts.requests > 0 && <span className={[s.count, s.countRequest].join(' ')}>{counts.requests}</span>}
+          </button>
+        ))}
       </div>
       <Chips className={s.filters} value={state.filter} onChange={(filter) => onChange({ filter })} options={chips} />
       {state.status !== 'any' && (
@@ -98,8 +115,14 @@ export default function TaskList({ state, onChange, children }: Props) {
             <EmptyState
               compact
               icon={<ListTodo size={40} strokeWidth={1.5} />}
-              title={state.query.trim() ? 'Ничего не найдено' : 'Задач пока нет'}
-              text={state.query.trim() || state.filter !== 'all' || state.status !== 'any' ? 'Попробуйте изменить запрос или фильтр' : 'Нажмите «+», чтобы создать первую задачу'}
+              title={state.query.trim() ? 'Ничего не найдено' : state.kind === 'request' ? 'Просьб пока нет' : 'Задач пока нет'}
+              text={
+                state.query.trim() || state.filter !== 'all' || state.status !== 'any'
+                  ? 'Попробуйте изменить запрос или фильтр'
+                  : state.kind === 'request'
+                    ? 'Нужна помощь коллеги? Нажмите «+» и выберите «Просьба».'
+                    : 'Нажмите «+», чтобы создать первую задачу или просьбу'
+              }
             />
           ) : (
             <div className={s.cards}>
@@ -110,6 +133,15 @@ export default function TaskList({ state, onChange, children }: Props) {
           )}
         </div>
       )}
+
+      <KindChooser
+        open={choosing}
+        onClose={() => setChoosing(false)}
+        onPick={(kind) => {
+          setChoosing(false);
+          navigate(kind === 'request' ? '/tasks/new?kind=request' : '/tasks/new');
+        }}
+      />
 
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Сортировка и статус" size="sm">
         <div className={s.section}>Сортировка</div>

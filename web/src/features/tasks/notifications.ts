@@ -7,8 +7,13 @@ import type { Task, TaskStatus } from './types';
 
 /** Что сообщить мне о переходе задачи, или null — если меня это не касается. */
 function describe(t: Task, from: TaskStatus | undefined): string | null {
-  if (from === undefined) return t.is_assignee && !t.is_creator && t.status_new === 'new' ? 'Новая задача' : null;
+  const request = t.kind === 'request';
+  if (from === undefined) return t.is_assignee && !t.is_creator && t.status_new === 'new' ? (request ? 'Вас просят помочь' : 'Новая задача') : null;
   if (from === t.status_new) return null;
+  if (request) {
+    // Просьба: без проверки — просившему сообщаем, что её выполнили.
+    return t.status_new === 'done' && t.is_creator && !t.is_assignee ? 'Ваша просьба выполнена' : null;
+  }
   const reviewer = (t.is_creator || t.is_watcher) && !t.is_assignee;
   const worker = t.is_assignee && !t.is_creator;
   switch (t.status_new) {

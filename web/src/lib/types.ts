@@ -60,6 +60,14 @@ export interface AssignableUser extends UserShort {
   role_node_id: number | null;
   role_name: string | null;
   role_color: string | null;
+  role_icon?: string | null;
+  /** Кем приходится: я сам, подчинённый (ниже по дереву) или коллега своего уровня. */
+  relation?: 'self' | 'subordinate' | 'colleague';
+  /** Та же должность, что у меня. */
+  same_role?: boolean;
+  /** Задачу — себе и подчинённым, просьбу — ещё и коллегам. */
+  can_task?: boolean;
+  can_request?: boolean;
 }
 
 export interface Presence {

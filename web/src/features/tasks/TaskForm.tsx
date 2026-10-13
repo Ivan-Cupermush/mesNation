@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, Flag, Paperclip, Plus, Users, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, Flag, HandHeart, Paperclip, Plus, Users, X } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, upload } from '../../lib/http';
 import { displayName, formatDate, formatSize } from '../../lib/format';
@@ -13,10 +13,13 @@ import { PageLoader } from '../../ui/Spinner';
 import { DateTimeDialog } from '../../ui/DateTimeDialog';
 import { useFeedback } from '../../ui/feedback';
 import { UserPicker, type PickableUser } from '../users/UserPicker';
+import type { AssignableUser } from '../../lib/types';
+import { AssigneePicker } from './AssigneePicker';
+import { KindIcon } from './kind';
 import { useUsers } from '../users/queries';
 import { taskKeys, useAssignableUsers, useTask } from './queries';
 import { DEADLINE_PRESETS, PRIORITY, timeLeft } from './status';
-import type { Importance, Task } from './types';
+import type { Importance, Task, TaskKind } from './types';
 import s from './TaskForm.module.css';
 
 const MAX_TASK_FILE = 50 * 1024 * 1024;
@@ -27,9 +30,10 @@ interface DraftCheckpoint {
 }
 
 /**
- * Новая задача и редактирование — как в приложении: название, описание,
- * приоритет, срок выполнения и проверки, исполнители (кому можно ставить —
- * решает сервер), наблюдатели, файлы и контрольные точки.
+ * Новая задача или просьба и редактирование — как в приложении: название,
+ * описание, приоритет, срок выполнения и проверки, исполнители (кому можно —
+ * решает сервер), наблюдатели, файлы и контрольные точки. У просьбы нет
+ * приоритета, наблюдателей и проверки.
  */
 export default function TaskForm() {
   const { id } = useParams();
@@ -37,11 +41,12 @@ export default function TaskForm() {
   const { data: task, isLoading } = useTask(editId);
   if (editId && isLoading) return <PageLoader label="Загрузка задачи…" />;
   if (editId && !task) return <Blocked text="Задача не найдена или у вас нет к ней доступа." />;
+  const request = task?.kind === 'request';
   if (editId && task && !task.is_creator) {
-    return <Blocked text="Менять параметры задачи может только её создатель." />;
+    return <Blocked text={request ? 'Менять просьбу может только тот, кто её отправил.' : 'Менять параметры задачи может только её создатель.'} />;
   }
   if (editId && task?.status_new === 'archived') {
-    return <Blocked text="Задача в архиве. Сначала разархивируйте её." />;
+    return <Blocked text={request ? 'Просьба в архиве. Сначала верните её из архива.' : 'Задача в архиве. Сначала разархивируйте её.'} />;
   }
   return <Form key={editId || 'new'} task={editId ? (task ?? null) : null} />;
 }
@@ -64,6 +69,10 @@ function Form({ task }: { task: Task | null }) {
   const isEdit = !!task;
   const assignable = useAssignableUsers();
   const allUsers = useUsers();
+  const [params, setParams] = useSearchParams();
+  // Задача или просьба: при создании выбрали по «+», у сохранённой — её тип.
+  const [kind, setKindState] = useState<TaskKind>(task?.kind ?? (params.get('kind') === 'request' ? 'request' : 'task'));
+  const request = kind === 'request';
 
   // «Создать задачу» из сообщения чата: название и описание уже заполнены.
   const prefill = (useLocation().state as { prefill?: { title?: string; description?: string } } | null)?.prefill;
@@ -84,8 +93,27 @@ function Form({ task }: { task: Task | null }) {
   const [errors, setErrors] = useState<{ title?: string; assignees?: string }>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
+  /** Сменить тип при создании: задачу коллегам поставить нельзя — их убираем. */
+  const setKind = (next: TaskKind) => {
+    if (next === kind || isEdit) return;
+    if (next === 'task') {
+      const pool = (assignable.data || []) as AssignableUser[];
+      const removed = assignees.filter((u) => pool.find((p) => p.id === u.id)?.can_task === false);
+      if (removed.length) {
+        setAssignees((prev) => prev.filter((u) => !removed.some((r) => r.id === u.id)));
+        toast(`Коллегам задачу поставить нельзя — убрали: ${removed.map((u) => displayName(u)).join(', ')}`);
+      }
+    }
+    setKindState(next);
+    const p = new URLSearchParams(params);
+    if (next === 'request') p.set('kind', 'request');
+    else p.delete('kind');
+    setParams(p, { replace: true });
+  };
+
   // Несохранённые изменения: предупреждаем при закрытии вкладки и по «Отмена».
   const snapshot = JSON.stringify([title, description, importance, deadline, reviewDeadline, assignees.map((u) => u.id), watchers.map((u) => u.id), checkpoints.length, files.length]);
+  const reviewTooLateCheck = !request;
   const initial = useRef(snapshot);
   const dirty = snapshot !== initial.current;
   useEffect(() => {
@@ -95,18 +123,18 @@ function Form({ task }: { task: Task | null }) {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty]);
 
-  const reviewTooLate = !!(deadline && reviewDeadline && reviewDeadline > deadline);
+  const reviewTooLate = reviewTooLateCheck && !!(deadline && reviewDeadline && reviewDeadline > deadline);
   const selfOnly = assignees.length === 1 && assignees[0].id === me.id;
 
   const cancel = async () => {
-    if (dirty && !(await confirm({ title: isEdit ? 'Отменить изменения?' : 'Отменить создание задачи?', text: 'Введённые данные не сохранятся.', confirmText: 'Выйти', cancelText: 'Остаться', danger: true }))) return;
+    if (dirty && !(await confirm({ title: isEdit ? 'Отменить изменения?' : request ? 'Не отправлять просьбу?' : 'Отменить создание задачи?', text: 'Введённые данные не сохранятся.', confirmText: 'Выйти', cancelText: 'Остаться', danger: true }))) return;
     navigate(isEdit ? `/tasks/${task!.id}` : '/tasks');
   };
 
   const submit = async () => {
     const errs: typeof errors = {};
-    if (!title.trim()) errs.title = 'Введите название задачи';
-    if (!assignees.length) errs.assignees = 'Выберите хотя бы одного исполнителя';
+    if (!title.trim()) errs.title = request ? 'Напишите, о чём просите' : 'Введите название задачи';
+    if (!assignees.length) errs.assignees = request ? 'Выберите, кого попросить' : 'Выберите хотя бы одного исполнителя';
     setErrors(errs);
     if (Object.keys(errs).length) return;
     if (reviewTooLate) {
@@ -119,27 +147,36 @@ function Form({ task }: { task: Task | null }) {
         await api.patch(`/api/tasks/${task!.id}`, {
           title: title.trim(),
           description: description.trim() || null,
-          importance,
           executor_deadline: deadline ? deadline.toISOString() : null,
-          reviewer_deadline: reviewDeadline ? reviewDeadline.toISOString() : null,
           assignee_ids: assignees.map((u) => u.id),
-          watcher_ids: watchers.map((u) => u.id),
+          ...(request
+            ? {}
+            : {
+                importance,
+                reviewer_deadline: reviewDeadline ? reviewDeadline.toISOString() : null,
+                watcher_ids: watchers.map((u) => u.id),
+              }),
         });
         initial.current = snapshot;
         qc.invalidateQueries({ queryKey: taskKeys.all });
-        toast.success('Задача сохранена');
+        toast.success(request ? 'Просьба сохранена' : 'Задача сохранена');
         navigate(`/tasks/${task!.id}`, { replace: true });
         return;
       }
       const created = await api.post<Task>('/api/tasks', {
+        kind,
         title: title.trim(),
         description: description.trim() || undefined,
-        importance,
         assignee_ids: assignees.map((u) => u.id),
-        watcher_ids: watchers.length ? watchers.map((u) => u.id) : undefined,
         executor_deadline: deadline?.toISOString(),
-        reviewer_deadline: reviewDeadline?.toISOString(),
         checkpoints: checkpoints.map((c) => ({ title: c.title, deadline: c.deadline.toISOString() })),
+        ...(request
+          ? {}
+          : {
+              importance,
+              watcher_ids: watchers.length ? watchers.map((u) => u.id) : undefined,
+              reviewer_deadline: reviewDeadline?.toISOString(),
+            }),
       });
       initial.current = snapshot;
       // Файлы — после создания: ошибка одного файла не теряет задачу.
@@ -151,12 +188,13 @@ function Form({ task }: { task: Task | null }) {
           failed.push(f.name);
         }
       }
-      if (failed.length) toast.error(`Задача создана, но не прикрепились: ${failed.join(', ')}. Добавьте их в карточке задачи.`);
+      if (failed.length) toast.error(`${request ? 'Просьба отправлена' : 'Задача создана'}, но не прикрепились: ${failed.join(', ')}. Добавьте их в карточке.`);
+      else if (request) toast.success(assignees.length === 1 && assignees[0].id !== me.id ? `Просьба отправлена — ${displayName(assignees[0])} получит уведомление` : 'Просьба отправлена');
       else toast.success('Задача создана');
       qc.invalidateQueries({ queryKey: taskKeys.all });
       navigate(`/tasks/${created.id}`, { replace: true });
     } catch (e) {
-      toast.error(e, 'Не удалось сохранить задачу');
+      toast.error(e, request ? 'Не удалось отправить просьбу' : 'Не удалось сохранить задачу');
     } finally {
       setSaving(false);
     }
@@ -170,6 +208,10 @@ function Form({ task }: { task: Task | null }) {
 
   const pickerUsers = picker === 'assignees' ? assignable.data : allUsers.data;
   const selectedIds = useMemo(() => (picker === 'assignees' ? assignees : watchers).map((u) => u.id), [picker, assignees, watchers]);
+  const toggleAssignee = (u: AssignableUser) => {
+    setAssignees((prev) => (prev.some((x) => x.id === u.id) ? prev.filter((x) => x.id !== u.id) : [...prev, u]));
+    setErrors((e) => ({ ...e, assignees: undefined }));
+  };
   const toggle = (uid: number) => {
     const pool = (pickerUsers || []) as PickableUser[];
     const setter = picker === 'assignees' ? setAssignees : setWatchers;
@@ -178,14 +220,16 @@ function Form({ task }: { task: Task | null }) {
   };
 
   return (
-    <div className={s.page}>
+    <div className={[s.page, request && s.requestPage].filter(Boolean).join(' ')}>
       <header className={s.header}>
         <IconButton label="Назад" onClick={cancel}>
           <ChevronLeft size={26} />
         </IconButton>
-        <div className={s.headerTitle}>{isEdit ? 'Редактирование задачи' : 'Новая задача'}</div>
-        <Button onClick={submit} loading={saving}>
-          {isEdit ? 'Сохранить' : 'Создать'}
+        <div className={s.headerTitle}>
+          {isEdit ? (request ? 'Редактирование просьбы' : 'Редактирование задачи') : request ? 'Новая просьба' : 'Новая задача'}
+        </div>
+        <Button onClick={submit} loading={saving} className={request ? s.requestBtn : undefined}>
+          {isEdit ? 'Сохранить' : request ? 'Попросить' : 'Создать'}
         </Button>
       </header>
 
@@ -197,15 +241,44 @@ function Form({ task }: { task: Task | null }) {
             submit();
           }}
         >
+          {!isEdit && (
+            <div className={s.kindSwitch} role="tablist" aria-label="Что создаём">
+              {(['task', 'request'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={kind === k}
+                  className={[s.kindTab, kind === k && s.kindTabOn, k === 'request' && s.kindTabRequest].filter(Boolean).join(' ')}
+                  onClick={() => setKind(k)}
+                >
+                  <KindIcon kind={k} size={17} />
+                  {k === 'request' ? 'Просьба' : 'Задача'}
+                </button>
+              ))}
+            </div>
+          )}
+          {request && (
+            <div className={s.requestIntro}>
+              <span className={s.requestIntroIcon}>
+                <HandHeart size={20} />
+              </span>
+              <span>
+                <b>Попросите коллегу помочь</b>
+                <small>Без важности и проверки: коллега сделает и отметит «Готово», а вы сможете сказать спасибо.</small>
+              </span>
+            </div>
+          )}
+
           <section className={s.card}>
             <TextField
-              label="Название"
+              label={request ? 'О чём просите' : 'Название'}
               value={title}
               onChange={(e) => {
                 setTitle(e.target.value);
                 if (errors.title) setErrors((x) => ({ ...x, title: undefined }));
               }}
-              placeholder="Например: подготовить квартальный отчёт"
+              placeholder={request ? 'Например: подменить меня на звонке в 15:00' : 'Например: подготовить квартальный отчёт'}
               maxLength={255}
               error={errors.title}
               autoFocus={!isEdit}
@@ -214,12 +287,13 @@ function Form({ task }: { task: Task | null }) {
               label="Описание"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Детали задачи, ожидаемый результат…"
+              placeholder={request ? 'Подробности, чтобы коллеге было проще помочь…' : 'Детали задачи, ожидаемый результат…'}
               maxLength={10000}
               rows={4}
             />
           </section>
 
+          {!request && (
           <section className={s.card}>
             <div className={s.cardTitle}>
               <Flag size={17} /> Приоритет
@@ -241,15 +315,22 @@ function Form({ task }: { task: Task | null }) {
                 ))}
             </div>
           </section>
+          )}
 
           <section className={s.card}>
             <div className={s.cardTitle}>
               <Clock size={17} /> Сроки
             </div>
-            <DateRow label="Дедлайн выполнения" value={deadline} onPick={() => setDateFor('deadline')} onClear={() => setDeadline(null)} />
+            <DateRow label={request ? 'Когда нужно' : 'Дедлайн выполнения'} value={deadline} onPick={() => setDateFor('deadline')} onClear={() => setDeadline(null)} />
             {deadline && <div className={s.hint}>{timeLeft(deadline.toISOString())}</div>}
-            <DateRow label="Дедлайн проверки" value={reviewDeadline} onPick={() => setDateFor('review')} onClear={() => setReviewDeadline(null)} />
-            <div className={s.hint}>Необязательно. К этому сроку исполнители сдают работу, а наблюдатели её проверяют. Не позже дедлайна выполнения.</div>
+            {request ? (
+              !deadline && <div className={s.hint}>Необязательно — без срока коллега поможет, когда сможет.</div>
+            ) : (
+              <>
+                <DateRow label="Дедлайн проверки" value={reviewDeadline} onPick={() => setDateFor('review')} onClear={() => setReviewDeadline(null)} />
+                <div className={s.hint}>Необязательно. К этому сроку исполнители сдают работу, а наблюдатели её проверяют. Не позже дедлайна выполнения.</div>
+              </>
+            )}
             {reviewTooLate && (
               <div className={s.warn}>
                 <AlertTriangle size={15} /> Дедлайн проверки позже дедлайна выполнения
@@ -259,10 +340,10 @@ function Form({ task }: { task: Task | null }) {
 
           <section className={s.card}>
             <div className={s.cardTitle}>
-              <Users size={17} /> Участники
+              <Users size={17} /> {request ? 'Кого попросить' : 'Участники'}
             </div>
             <button type="button" className={[s.peopleRow, errors.assignees && s.invalid].filter(Boolean).join(' ')} onClick={() => setPicker('assignees')}>
-              <span className={s.peopleLabel}>Исполнители</span>
+              <span className={s.peopleLabel}>{request ? 'Коллеги' : 'Исполнители'}</span>
               <span className={s.peopleValue}>
                 {assignees.length ? (
                   <span className={s.stack}>
@@ -291,7 +372,10 @@ function Form({ task }: { task: Task | null }) {
                 ))}
               </div>
             )}
-            {selfOnly && <div className={s.hint}>Задача себе: проверка не нужна — завершите её сами кнопкой «Завершить».</div>}
+            {selfOnly && !request && <div className={s.hint}>Задача себе: проверка не нужна — завершите её сами кнопкой «Завершить».</div>}
+            {selfOnly && request && <div className={s.hint}>Просьба себе — как напоминание: отметите «Готово», когда сделаете.</div>}
+            {!request && (
+            <>
             <button type="button" className={s.peopleRow} onClick={() => setPicker('watchers')}>
               <span className={s.peopleLabel}>
                 <Eye size={14} /> Наблюдатели
@@ -314,6 +398,8 @@ function Form({ task }: { task: Task | null }) {
               </div>
             )}
             <div className={s.hint}>Наблюдатели видят задачу и принимают результат. Если не выбрать — проверяете вы.</div>
+            </>
+            )}
           </section>
 
           {!isEdit && (
@@ -386,11 +472,15 @@ function Form({ task }: { task: Task | null }) {
                   Срок
                 </Button>
               </div>
-              <div className={s.hint}>Промежуточные этапы со своими сроками — создатель и наблюдатели отмечают их выполнение.</div>
+              <div className={s.hint}>
+                {request
+                  ? 'Этапы со своими сроками — их отмечаете вы и тот, кого попросили.'
+                  : 'Промежуточные этапы со своими сроками — создатель и наблюдатели отмечают их выполнение.'}
+              </div>
             </section>
           )}
 
-          {isEdit && <div className={s.hint}>Контрольные точки и файлы меняются в карточке задачи.</div>}
+          {isEdit && <div className={s.hint}>Контрольные точки и файлы меняются в карточке {request ? 'просьбы' : 'задачи'}.</div>}
           <button type="submit" hidden />
         </form>
       </div>
@@ -398,28 +488,51 @@ function Form({ task }: { task: Task | null }) {
       <Modal
         open={!!picker}
         onClose={() => setPicker(null)}
-        title={picker === 'watchers' ? 'Наблюдатели' : 'Исполнители'}
+        title={picker === 'watchers' ? 'Наблюдатели' : request ? 'Кого попросить' : 'Исполнители'}
         size="md"
         flush
-        footer={<Button onClick={() => setPicker(null)}>Готово{selectedIds.length ? ` (${selectedIds.length})` : ''}</Button>}
+        footer={
+          <Button onClick={() => setPicker(null)} className={request && picker === 'assignees' ? s.requestBtn : undefined}>
+            Готово{selectedIds.length ? ` (${selectedIds.length})` : ''}
+          </Button>
+        }
       >
         <div className={s.pickerBox}>
-          {picker === 'assignees' && <p className={s.pickerHint}>Можно назначить себя, подчинённых и коллег своего уровня.</p>}
-          <UserPicker
-            users={(pickerUsers || []) as PickableUser[]}
-            loading={picker === 'assignees' ? assignable.isLoading : allUsers.isLoading}
-            meId={me.id}
-            multiple
-            selected={selectedIds}
-            onToggle={toggle}
-            autoFocus
-          />
+          {picker === 'assignees' ? (
+            <>
+              <p className={s.pickerHint}>
+                {request
+                  ? 'Сначала — коллеги вашей должности, дальше — по ролям.'
+                  : 'Задачу можно поставить себе и подчинённым.'}
+              </p>
+              <AssigneePicker
+                users={assignable.data as AssignableUser[] | undefined}
+                loading={assignable.isLoading}
+                kind={kind}
+                meId={me.id}
+                myRole={me.role_name}
+                selected={selectedIds}
+                onToggle={toggleAssignee}
+                onSwitchToRequest={isEdit ? undefined : () => setKind('request')}
+              />
+            </>
+          ) : (
+            <UserPicker
+              users={(pickerUsers || []) as PickableUser[]}
+              loading={allUsers.isLoading}
+              meId={me.id}
+              multiple
+              selected={selectedIds}
+              onToggle={toggle}
+              autoFocus
+            />
+          )}
         </div>
       </Modal>
 
       <DateTimeDialog
         open={!!dateFor}
-        title={dateFor === 'deadline' ? 'Дедлайн выполнения' : dateFor === 'review' ? 'Дедлайн проверки' : `Срок: ${cpTitle.trim()}`}
+        title={dateFor === 'deadline' ? (request ? 'Когда нужно' : 'Дедлайн выполнения') : dateFor === 'review' ? 'Дедлайн проверки' : `Срок: ${cpTitle.trim()}`}
         initial={(dateFor === 'deadline' ? deadline : dateFor === 'review' ? reviewDeadline : null) ?? undefined}
         min={isEdit ? undefined : new Date()}
         presets={DEADLINE_PRESETS}

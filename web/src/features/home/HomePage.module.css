@@ -384,6 +384,12 @@
   border-radius: 50%;
 }
 
+.reqIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--c-violet);
+}
+
 .chevron {
   flex-shrink: 0;
   color: var(--c-text-muted);

@@ -2,6 +2,8 @@
 
 export type TaskStatus = 'new' | 'in_progress' | 'on_review' | 'done' | 'overdue' | 'rejected' | 'archived';
 export type Importance = 'green' | 'yellow' | 'red';
+/** Задача или просьба (у просьбы нет важности, наблюдателей и проверки). */
+export type TaskKind = 'task' | 'request';
 
 export interface TaskPerson {
   id: number;
@@ -57,9 +59,14 @@ export interface TaskTransition {
 
 export interface Task {
   id: number;
+  /** Нет у старого сервера — значит задача. */
+  kind?: TaskKind;
   title: string;
   description: string | null;
-  importance: Importance;
+  /** У просьбы — null. */
+  importance: Importance | null;
+  /** Просивший сказал «спасибо» за выполненную просьбу. */
+  thanked_at?: string | null;
   hard_deadline: string | null;
   executor_deadline: string | null;
   reviewer_deadline: string | null;

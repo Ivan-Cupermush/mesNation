@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ArrowRight, CalendarClock, ChartColumn, ListTodo, Moon, Quote, Sun, Sunrise, Sunset, Target, TrendingUp, Trophy, UsersRound } from 'lucide-react';
+import { AlertCircle, ArrowRight, HandHeart, CalendarClock, ChartColumn, ListTodo, Moon, Quote, Sun, Sunrise, Sunset, Target, TrendingUp, Trophy, UsersRound } from 'lucide-react';
 import { api } from '../../lib/http';
 import { formatTime, plural } from '../../lib/format';
 import { storage } from '../../lib/storage';
@@ -20,6 +20,7 @@ import { firstNameOf } from '../../lib/names';
 
 interface HomeTask {
   id: number;
+  kind?: 'task' | 'request';
   title: string;
   status: string;
   importance: string;
@@ -239,7 +240,13 @@ export default function HomePage() {
                               (t.is_overdue ? ' · просрочена' : t.due_today ? ` · сегодня до ${formatTime(t.deadline)}` : '')}
                           </span>
                         </span>
-                        <span className={s.prio} style={{ background: priorityOf(t.importance).color }} title={priorityOf(t.importance).long} />
+                        {t.kind === 'request' ? (
+                          <span className={s.reqIcon} title="Просьба">
+                            <HandHeart size={15} />
+                          </span>
+                        ) : (
+                          <span className={s.prio} style={{ background: priorityOf(t.importance).color }} title={priorityOf(t.importance).long} />
+                        )}
                         <ArrowRight size={16} className={s.chevron} />
                       </button>
                     );

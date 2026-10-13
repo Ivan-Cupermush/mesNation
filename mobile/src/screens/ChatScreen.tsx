@@ -15,6 +15,7 @@ import {
   Linking,
   Pressable,
   BackHandler,
+  Keyboard,
   LayoutAnimation,
   Vibration,
   Animated,
@@ -47,6 +48,8 @@ import {
   ChevronUp,
   RefreshCw,
   List as ListIcon,
+  Smile,
+  Keyboard as KeyboardIcon,
 } from 'lucide-react-native';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
@@ -60,6 +63,8 @@ import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/Poll
 import NotePickerModal from '../components/chat/NotePickerModal';
 import { requestNoteVersion } from '../components/NoteShareBubble';
 import SearchResultsSheet from '../components/chat/SearchResultsSheet';
+import EmojiPanel from '../components/chat/EmojiPanel';
+import { deleteLastSymbol } from '../components/chat/emojiData';
 import MediaViewer, { ViewerItem } from '../components/chat/MediaViewer';
 import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
@@ -294,6 +299,59 @@ export default function ChatScreen({ navigation }: any) {
       const key = draftKey(chatId, topicId);
       (value.trim() ? AsyncStorage.setItem(key, value) : AsyncStorage.removeItem(key)).catch(() => undefined);
     }, 400);
+  };
+
+  // ===== Панель смайликов (вместо клавиатуры, как в Telegram) =====
+  const inputRef = useRef<TextInput>(null);
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const emojiSearch = useRef(false);
+  const kbHeight = useRef(290);
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', (e) => {
+      if (!emojiSearch.current) kbHeight.current = Math.max(240, Math.min(420, e.endCoordinates.height));
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setEmojiOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [emojiOpen]);
+
+  const toggleEmoji = () => {
+    if (emojiOpen) {
+      setEmojiOpen(false);
+      inputRef.current?.focus();
+    } else {
+      Keyboard.dismiss();
+      setEmojiOpen(true);
+    }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const sel = selectionRef.current;
+    const start = sel ? Math.min(sel.start, text.length) : text.length;
+    const end = sel ? Math.min(sel.end, text.length) : text.length;
+    const next = text.slice(0, start) + emoji + text.slice(end);
+    onChangeText(next);
+    selectionRef.current = { start: start + emoji.length, end: start + emoji.length };
+  };
+
+  const eraseBeforeCursor = () => {
+    const sel = selectionRef.current;
+    const pos = sel ? Math.min(sel.start, text.length) : text.length;
+    if (sel && sel.end > sel.start) {
+      onChangeText(text.slice(0, sel.start) + text.slice(sel.end));
+      selectionRef.current = { start: sel.start, end: sel.start };
+      return;
+    }
+    const head = deleteLastSymbol(text.slice(0, pos));
+    onChangeText(head + text.slice(pos));
+    selectionRef.current = { start: head.length, end: head.length };
   };
 
   const clearDraft = () => {
@@ -1604,10 +1662,20 @@ export default function ChatScreen({ navigation }: any) {
                   <Paperclip size={22} color={C.text} strokeWidth={2} />
                 </TouchableOpacity>
                 <View style={styles.inputCapsule}>
+                  <TouchableOpacity onPress={toggleEmoji} style={styles.emojiBtn} accessibilityLabel={emojiOpen ? 'Клавиатура' : 'Смайлики'}>
+                    {emojiOpen ? <KeyboardIcon size={22} color={C.textMuted} /> : <Smile size={23} color={C.textMuted} />}
+                  </TouchableOpacity>
                   <TextInput
+                    ref={inputRef}
                     style={styles.input}
                     value={text}
                     onChangeText={onChangeText}
+                    onSelectionChange={(e) => {
+                      selectionRef.current = e.nativeEvent.selection;
+                    }}
+                    onFocus={() => {
+                      if (emojiOpen && !emojiSearch.current) setEmojiOpen(false);
+                    }}
                     placeholder={editingMessage?.file_url || editingMessage?.note_share_id ? 'Подпись' : 'Сообщение'}
                     placeholderTextColor={T.textMuted}
                     multiline
@@ -1634,6 +1702,16 @@ export default function ChatScreen({ navigation }: any) {
                   </TouchableOpacity>
                 )}
               </View>
+              {emojiOpen && recorder.phase === 'idle' && (
+                <EmojiPanel
+                  height={kbHeight.current}
+                  onPick={insertEmoji}
+                  onBackspace={eraseBeforeCursor}
+                  onSearchFocus={(on) => {
+                    emojiSearch.current = on;
+                  }}
+                />
+              )}
               <RecordingLayer rec={recorder} />
             </>
           )}
@@ -2019,11 +2097,14 @@ const styles = themed(() => ({
   plateClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
-  inputCapsule: { flex: 1, minHeight: 44, borderRadius: 22, justifyContent: 'center', ...glass(0.92) },
+  inputCapsule: { flex: 1, minHeight: 44, borderRadius: 22, flexDirection: 'row', alignItems: 'flex-end', ...glass(0.92) },
+  emojiBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 2 },
   input: {
+    flex: 1,
     minHeight: 44,
     maxHeight: 140,
-    paddingHorizontal: 16,
+    paddingLeft: 2,
+    paddingRight: 16,
     paddingTop: Platform.OS === 'ios' ? 12 : 10,
     paddingBottom: Platform.OS === 'ios' ? 12 : 10,
     fontSize: 16,

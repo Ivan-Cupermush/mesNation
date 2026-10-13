@@ -10,7 +10,8 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { CalendarClock, Camera, Check, FileText, Image as ImageIcon, Mic, NotebookPen, Paperclip, SendHorizonal, BarChart3 } from 'lucide-react';
+import { CalendarClock, Camera, Check, FileText, Image as ImageIcon, Mic, NotebookPen, Paperclip, SendHorizonal, BarChart3, Smile } from 'lucide-react';
+import EmojiPicker from './EmojiPicker';
 import { storage } from '../../lib/storage';
 import { useMedia } from '../../lib/useMedia';
 import { useTheme } from '../../theme/ThemeProvider';
@@ -255,6 +256,23 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(prop
     el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.4))}px`;
   }, [text]);
 
+  // ===== Смайлики =====
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const start = el ? el.selectionStart : text.length;
+    const end = el ? el.selectionEnd : text.length;
+    const next = text.slice(0, start) + emoji + text.slice(end);
+    if (next.length > MAX_TEXT) return;
+    onChange(next);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const pos = start + emoji.length;
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
   const onChange = (value: string) => {
     setText(value);
     if (editing) return; // правка сообщения — не черновик
@@ -382,7 +400,19 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(prop
               aria-label="Сообщение"
             />
             {left < 300 && <span className={[s.counter, left < 50 && s.counterWarn].filter(Boolean).join(' ')}>{left}</span>}
+            <button
+              type="button"
+              data-emoji-toggle
+              className={[s.emojiBtn, emojiOpen && s.emojiBtnOn].filter(Boolean).join(' ')}
+              aria-label="Смайлики"
+              title="Смайлики"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setEmojiOpen((v) => !v)}
+            >
+              <Smile size={22} />
+            </button>
           </div>
+          {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
         </>
       )}
       <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => pickFiles(e.currentTarget, 'media')} />

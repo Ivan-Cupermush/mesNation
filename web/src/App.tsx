@@ -23,6 +23,7 @@ const SettingsPage = lazy(() => import('./features/account/SettingsPage'));
 const AppearancePage = lazy(() => import('./features/account/AppearancePage'));
 const NotificationsPage = lazy(() => import('./features/account/NotificationsPage'));
 const InboxPage = lazy(() => import('./features/inbox/InboxPage'));
+const SharePage = lazy(() => import('./features/qr/SharePage'));
 const NoteRequestPage = lazy(() => import('./features/inbox/NoteRequestPage'));
 const EmployeesPage = lazy(() => import('./features/users/EmployeesPage'));
 const CreateUserPage = lazy(() => import('./features/users/CreateUserPage'));
@@ -71,6 +72,7 @@ function AppRoutes() {
           <Route path="users/:id" element={<UserProfile />} />
           <Route path="u/:username" element={<UserByUsername />} />
           <Route path="qr/:token" element={<QrConfirmPage />} />
+          <Route path="share" element={<SharePage />} />
 
           <Route path="tasks/*" element={<TasksRoutes />} />
           <Route path="notes/*" element={<NotesRoutes />} />

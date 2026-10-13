@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import AuthPage from './features/auth/AuthPage';
 import OfflinePage from './features/auth/OfflinePage';
 import AppShell from './app/AppShell';
+import { QrConfirmPage, UserByUsername } from './features/qr/QrPages';
 
 // Новые разделы
 const HomePage = lazy(() => import('./features/home/HomePage'));
@@ -22,6 +23,7 @@ const SettingsPage = lazy(() => import('./features/account/SettingsPage'));
 const AppearancePage = lazy(() => import('./features/account/AppearancePage'));
 const NotificationsPage = lazy(() => import('./features/account/NotificationsPage'));
 const InboxPage = lazy(() => import('./features/inbox/InboxPage'));
+const SharePage = lazy(() => import('./features/qr/SharePage'));
 const NoteRequestPage = lazy(() => import('./features/inbox/NoteRequestPage'));
 const EmployeesPage = lazy(() => import('./features/users/EmployeesPage'));
 const CreateUserPage = lazy(() => import('./features/users/CreateUserPage'));
@@ -68,6 +70,9 @@ function AppRoutes() {
           <Route index element={<HomePage />} />
           <Route path="chats/*" element={<ChatsRoutes />} />
           <Route path="users/:id" element={<UserProfile />} />
+          <Route path="u/:username" element={<UserByUsername />} />
+          <Route path="qr/:token" element={<QrConfirmPage />} />
+          <Route path="share" element={<SharePage />} />
 
           <Route path="tasks/*" element={<TasksRoutes />} />
           <Route path="notes/*" element={<NotesRoutes />} />

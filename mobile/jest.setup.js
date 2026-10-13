@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /* Моки нативных модулей для тестов (в Jest нет Android/iOS). */
 jest.mock('@react-native-async-storage/async-storage', () => {
   const store = new Map();
@@ -66,7 +67,7 @@ jest.mock('@notifee/react-native', () => {
     default: api,
     EventType: { PRESS: 1, ACTION_PRESS: 2 },
     AndroidImportance: { HIGH: 4 },
-    AndroidStyle: { BIGTEXT: 0, MESSAGING: 2 },
+    AndroidStyle: { BIGPICTURE: 0, BIGTEXT: 1, MESSAGING: 3 },
     AndroidCategory: { MESSAGE: 'msg', REMINDER: 'reminder' },
     AndroidVisibility: { PRIVATE: 0 },
     AndroidGroupAlertBehavior: { CHILDREN: 2 },
@@ -108,3 +109,10 @@ jest.mock('react-native-nitro-sound', () => {
   });
   return { createSound: sound, AudioSourceAndroidType: {}, OutputFormatAndroidType: {}, AudioEncoderAndroidType: {} };
 });
+// QR: снимок постера, сканер кодов, загрузка картинки для сканера.
+jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn(async () => '/tmp/qr.png') }));
+jest.mock('react-native-vision-camera-barcode-scanner', () => ({
+  useBarcodeScannerOutput: jest.fn(() => ({})),
+  createBarcodeScanner: jest.fn(() => ({ scanCodesInImageAsync: jest.fn(async () => []), dispose: jest.fn() })),
+}));
+jest.mock('react-native-nitro-image', () => ({ loadImage: jest.fn(async () => ({ dispose: jest.fn() })) }));

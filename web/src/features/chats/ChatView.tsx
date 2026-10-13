@@ -29,6 +29,7 @@ import {
   X,
   RefreshCw,
   List as ListIcon,
+  ListTodo,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError, downloadFile, openFile } from '../../lib/http';
@@ -46,7 +47,7 @@ import { DateTimeDialog, SCHEDULE_PRESETS } from '../../ui/DateTimeDialog';
 import { useFeedback } from '../../ui/feedback';
 import { chatKeys, isMuted, useChatDetail, useTopics } from './queries';
 import { MUTE_OPTIONS, markChatRead, setChatMute } from './chatActions';
-import { buildFeed, isVisualMedia, isVoiceLike, messagePreview, rowMain, rowMessages, saveName, type Row } from './model';
+import { buildFeed, isVisualMedia, isVoiceLike, messagePreview, rowMain, rowMessages, saveName, type Row, taskPrefill } from './model';
 import { useChatMessages } from './useChatMessages';
 import { clearActiveChat, setActiveChat } from './activeChat';
 import MessageBubble, { ServiceLine } from './MessageBubble';
@@ -66,6 +67,8 @@ import { seekVoice, setVoiceHandlers, toggleVoice } from './voice/voicePlayer';
 import type { Recording } from './voice/useRecorder';
 import type { Message, Reaction, ScheduledMessage } from './types';
 import s from './ChatView.module.css';
+import { useChatWallpaper, wallpaperStyle } from '../../theme/wallpapers';
+import { useTheme } from '../../theme/ThemeProvider';
 import { useContactNames } from '../contacts/names';
 
 type Typing = Record<number, { name: string; at: number }>;
@@ -111,6 +114,9 @@ export default function ChatView() {
   const { data: topics } = useTopics(chatId, { enabled: inTopicRoute });
   const topic = topicId ? (topics?.find((t) => t.id === topicId) ?? null) : null;
   const feed = useChatMessages(chatId, topicId, me.id);
+  // Фон ленты: свой для чата или общий (как в приложении).
+  const { wallpaper } = useChatWallpaper(chatId);
+  const { isDark } = useTheme();
   const { messages, loadUntil, loadOlder, hasOlder, loadingOlder, update: updateMessage } = feed;
   // Свежий список для обработчиков, которые не должны меняться при каждом сообщении (пузыри не перерисовываются).
   const messagesRef = useRef(messages);
@@ -767,6 +773,9 @@ export default function ChatView() {
     if (!main.poll_id) {
       list.push({ key: 'forward', label: 'Переслать', icon: <Forward size={19} />, onSelect: () => setForward({ ids: all.map((m) => m.id), mode: 'forward' }) });
       list.push({ key: 'replyElsewhere', label: 'Ответить в другом чате', icon: <CornerUpRight size={19} />, onSelect: () => setForward({ ids: [main.id], mode: 'reply' }) });
+      if (main.text || main.file_name) {
+        list.push({ key: 'task', label: 'Создать задачу', icon: <ListTodo size={19} />, onSelect: () => navigate('/tasks/new', { state: { prefill: taskPrefill(main, chat?.name) } }) });
+      }
     }
     if (rights?.can_pin_messages !== false) {
       list.push({
@@ -1161,6 +1170,7 @@ export default function ChatView() {
 
       {/* ===== Лента ===== */}
       <div className={s.feedWrap}>
+        <div className={[s.wallpaper, wallpaper.type === 'image' && wallpaper.blur && s.wallpaperBlur].filter(Boolean).join(' ')} style={wallpaperStyle(wallpaper, isDark)} aria-hidden />
         <div ref={scrollRef} className={s.feed} onScroll={onScroll}>
           <div className={s.feedInner}>
             {feed.loadingOlder && (

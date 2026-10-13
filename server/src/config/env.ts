@@ -49,6 +49,14 @@ const schema = z.object({
   // Firebase: содержимое JSON целиком или путь к файлу. Пусто — push выключены,
   // уведомления приходят, только пока приложение запущено.
   FIREBASE_SERVICE_ACCOUNT: z.string().default(''),
+
+  // Отпечатки SHA-256 ключа подписи APK (через запятую) для /.well-known/assetlinks.json:
+  // по ним Android открывает ссылки https://…/u/логин сразу в приложении, а не в браузере.
+  // По умолчанию — ключ из репозитория; если APK подписан ключом из секретов CI, укажите его отпечаток.
+  ANDROID_CERT_SHA256: z
+    .string()
+    .default('BC:D4:45:39:1D:41:7E:42:9A:2A:54:52:73:E8:77:D5:1F:0F:61:EC:69:50:2D:76:31:CB:B5:61:69:3C:EA:38'),
+  ANDROID_PACKAGE: z.string().default('com.mesnation'),
 });
 
 const parsed = schema.safeParse(process.env);

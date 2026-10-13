@@ -19,8 +19,7 @@ import {
   Trash2,
   User,
   Users,
-  Wrench,
-} from 'lucide-react';
+  Wrench, Send } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, ApiError } from '../../lib/http';
 import { displayName, formatDate } from '../../lib/format';
@@ -30,6 +29,7 @@ import { EmptyState } from '../../ui/EmptyState';
 import { Modal } from '../../ui/Modal';
 import { PageLoader } from '../../ui/Spinner';
 import { ActionMenu, type MenuItem } from '../../ui/ActionMenu';
+import ChatPicker from '../chats/ChatPicker';
 import { anchorFrom, type MenuAnchor } from '../../ui/menuAnchor';
 import { DateTimeDialog } from '../../ui/DateTimeDialog';
 import { useFeedback } from '../../ui/feedback';
@@ -125,6 +125,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
     run(() => api.delete(`/api/tasks/${task.id}`, reason ? { reason } : undefined), 'Не удалось удалить задачу');
   };
 
+  const [sendToChat, setSendToChat] = useState(false);
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/tasks/${task.id}`);
@@ -141,6 +142,7 @@ function TaskView({ task }: { task: TaskDetailData }) {
           { key: 'deadline', label: 'Перенести срок', icon: <CalendarClock size={19} />, onSelect: () => setMoveDeadline(true) },
         ]
       : []),
+    { key: 'send', label: 'Отправить в чат', icon: <Send size={19} />, onSelect: () => setSendToChat(true) },
     { key: 'link', label: 'Скопировать ссылку', icon: <Link2 size={19} />, onSelect: copyLink },
     ...(isCreator && !archived ? [{ key: 'delete', label: 'Удалить (в архив)', danger: true, icon: <Trash2 size={19} />, onSelect: remove }] : []),
   ];
@@ -314,6 +316,23 @@ function TaskView({ task }: { task: TaskDetailData }) {
       {(isCreator || isAssignee || isWatcher) && <CommentComposer taskId={task.id} />}
 
       <ActionMenu open={!!menu} anchor={menu} items={menuItems} onClose={() => setMenu(null)} />
+      <ChatPicker
+        open={sendToChat}
+        title="Отправить задачу в чат"
+        commentPlaceholder="Комментарий (необязательно)"
+        onClose={() => setSendToChat(false)}
+        preview={
+          <span className={s.sharePreview}>
+            <b>📋 {task.title}</b>
+            <span>Участники чата откроют задачу по ссылке, если у них есть к ней доступ</span>
+          </span>
+        }
+        onSend={async (chatId, topicId, comment) => {
+          const text = [comment, `📋 Задача «${task.title}»`, `${window.location.origin}/tasks/${task.id}`].filter(Boolean).join('\n');
+          await api.post(`/api/chats/${chatId}/messages`, { text, topic_id: topicId ?? undefined });
+          toast.success('Задача отправлена в чат');
+        }}
+      />
 
       <Modal open={!!people} onClose={() => setPeople(null)} title={people === 'watchers' ? 'Наблюдатели' : 'Исполнители'} size="sm">
         {people === 'watchers' && !task.watchers.length && <p className={s.muted}>Отдельных наблюдателей нет — за задачей следит создатель.</p>}

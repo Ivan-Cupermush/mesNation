@@ -1,4 +1,5 @@
-import { useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -12,6 +13,9 @@ import {
   FileText,
   FileVideo,
   Flag,
+  Forward,
+  ListChecks,
+  Share2,
   History as HistoryIcon,
   Image as ImageIcon,
   MessageCircle,
@@ -24,8 +28,9 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { api, downloadFile, openFile, upload } from '../../lib/http';
-import { displayName, formatDate, formatSize } from '../../lib/format';
+import { api, downloadFile, openFile, signedFileUrl, upload } from '../../lib/http';
+import ChatPicker from '../chats/ChatPicker';
+import { displayName, formatDate, formatSize, plural } from '../../lib/format';
 import { Avatar } from '../../ui/Avatar';
 import { Button, IconButton } from '../../ui/Button';
 import { Spinner } from '../../ui/Spinner';
@@ -39,7 +44,7 @@ import s from './TaskSections.module.css';
 
 const MAX_TASK_FILE = 50 * 1024 * 1024;
 
-function Section({ icon, title, count, children, action }: { icon: ReactNode; title: string; count?: number; children: ReactNode; action?: ReactNode }) {
+function Section({ icon, title, count, children, action }: { icon: ReactNode; title: string; count?: number | string; children: ReactNode; action?: ReactNode }) {
   return (
     <section className={s.section}>
       <header className={s.head}>
@@ -269,13 +274,54 @@ function fileIcon(mime: string | null, name: string): { icon: typeof File; color
   return { icon: File, color: 'var(--c-text-secondary)', bg: 'var(--c-input-bg)' };
 }
 
+/** Миниатюра фото (по подписанной ссылке) или значок типа файла. */
+function FileThumb({ f }: { f: TaskDetail['files'][number] }) {
+  const isImage = (f.mime_type || '').startsWith('image/');
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isImage) return;
+    let alive = true;
+    signedFileUrl(f.file_url)
+      .then((u) => alive && setSrc(u))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [f.file_url, isImage]);
+  const ic = fileIcon(f.mime_type, f.file_name);
+  const Icon = ic.icon;
+  if (src) return <img className={s.fileThumb} src={src} alt="" loading="lazy" />;
+  return (
+    <span className={s.fileIcon} style={{ color: ic.color, background: ic.bg }}>
+      <Icon size={22} />
+    </span>
+  );
+}
+
 export function Files({ task, meId, isCreator, canUpload, onChanged }: { task: TaskDetail; meId: number; isCreator: boolean; canUpload: boolean; onChanged: () => void }) {
   const { toast, confirm } = useFeedback();
+  const navigate = useNavigate();
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<{ name: string; progress: number } | null>(null);
   const [drag, setDrag] = useState(false);
+  // Выделение, как в чате: null — обычный режим.
+  const [sel, setSel] = useState<number[] | null>(null);
+  const [forward, setForward] = useState(false);
+  const [busy, setBusy] = useState(false);
   const archived = task.status_new === 'archived';
   const allowUpload = canUpload && !archived;
+  const chosen = task.files.filter((f) => sel?.includes(f.id));
+  const deletable = chosen.filter((f) => (f.uploaded_by === meId || isCreator) && !archived);
+  const word = (n: number) => plural(n, ['файл', 'файла', 'файлов']);
+
+  useEffect(() => {
+    if (!sel) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSel(null);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [sel]);
+
+  const toggle = (id: number) => setSel((prev) => ((prev || []).includes(id) ? (prev || []).filter((x) => x !== id) : [...(prev || []), id]));
 
   const send = async (files: File[]) => {
     for (const f of files) {
@@ -300,16 +346,92 @@ export function Files({ task, meId, isCreator, canUpload, onChanged }: { task: T
     if (allowUpload) send(Array.from(e.dataTransfer.files));
   };
 
+  const removeSelected = async () => {
+    if (!deletable.length) return toast('Удалить файл может его автор или создатель задачи');
+    const partial = deletable.length < chosen.length;
+    const ok = await confirm({
+      title: `Удалить ${deletable.length} ${word(deletable.length)}?`,
+      text: partial
+        ? `Удалятся только ваши файлы (${deletable.length} из ${chosen.length}).`
+        : 'Файлы пропадут из задачи у всех участников. Копии, пересланные в чаты, останутся.',
+      confirmText: 'Удалить',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/tasks/${task.id}/files/bulk-delete`, { file_ids: deletable.map((f) => f.id) });
+      toast.success(deletable.length === 1 ? 'Файл удалён' : `Удалено: ${deletable.length}`);
+      setSel(null);
+      onChanged();
+    } catch (e) {
+      toast.error(e, 'Не удалось удалить');
+    }
+  };
+
+  const downloadSelected = async () => {
+    setBusy(true);
+    try {
+      for (const f of chosen) await downloadFile(f.file_url, f.file_name);
+    } catch (e) {
+      toast.error(e, 'Не удалось скачать');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // «Отправить» в другие приложения — системное «Поделиться» (телефон, Edge, Safari).
+  const canShare = typeof navigator.share === 'function';
+  const shareSelected = async () => {
+    setBusy(true);
+    try {
+      const files = await Promise.all(
+        chosen.map(async (f) => {
+          const blob = await (await fetch(await signedFileUrl(f.file_url))).blob();
+          return new window.File([blob], f.file_name || `file-${f.id}`, { type: f.mime_type || blob.type });
+        }),
+      );
+      const data: ShareData = { files, title: task.title };
+      if (navigator.canShare?.(data)) await navigator.share(data);
+      else {
+        toast('Этот браузер не умеет отправлять файлы — скачиваем их');
+        await downloadSelected();
+      }
+      setSel(null);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') toast.error(e, 'Не удалось отправить');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Section
       icon={<Paperclip size={17} />}
       title="Файлы"
-      count={task.files.length}
+      count={sel ? `${sel.length} из ${task.files.length}` : task.files.length}
       action={
-        allowUpload && (
-          <Button size="sm" variant="soft" icon={<Plus size={16} />} onClick={() => input.current?.click()} disabled={!!uploading}>
-            Добавить
-          </Button>
+        sel ? (
+          <span className={s.selActions}>
+            <Button size="sm" variant="ghost" onClick={() => setSel(sel.length === task.files.length ? [] : task.files.map((f) => f.id))}>
+              {sel.length === task.files.length ? 'Снять все' : 'Все'}
+            </Button>
+            <Button size="sm" variant="soft" onClick={() => setSel(null)}>
+              Готово
+            </Button>
+          </span>
+        ) : (
+          <span className={s.selActions}>
+            {task.files.length > 0 && (
+              <Button size="sm" variant="ghost" icon={<ListChecks size={16} />} onClick={() => setSel([])}>
+                Выбрать
+              </Button>
+            )}
+            {allowUpload && (
+              <Button size="sm" variant="soft" icon={<Plus size={16} />} onClick={() => input.current?.click()} disabled={!!uploading}>
+                Добавить
+              </Button>
+            )}
+          </span>
         )
       }
     >
@@ -341,14 +463,28 @@ export function Files({ task, meId, isCreator, canUpload, onChanged }: { task: T
           </div>
         ) : (
           task.files.map((f) => {
-            const ic = fileIcon(f.mime_type, f.file_name);
-            const Icon = ic.icon;
+            const checked = !!sel?.includes(f.id);
             return (
-              <div key={f.id} className={s.file}>
-                <button type="button" className={s.fileMain} onClick={() => openFile(f.file_url).catch((e) => toast.error(e, 'Не удалось открыть файл'))}>
-                  <span className={s.fileIcon} style={{ color: ic.color, background: ic.bg }}>
-                    <Icon size={22} />
-                  </span>
+              <div key={f.id} className={[s.file, checked && s.fileChecked].filter(Boolean).join(' ')}>
+                <button
+                  type="button"
+                  className={s.fileMain}
+                  onClick={(e) => {
+                    if (sel || e.ctrlKey || e.metaKey) return toggle(f.id);
+                    openFile(f.file_url).catch((err) => toast.error(err, 'Не удалось открыть файл'));
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    toggle(f.id);
+                  }}
+                  aria-pressed={sel ? checked : undefined}
+                >
+                  {sel && (
+                    <span className={[s.check, checked && s.checkOn].filter(Boolean).join(' ')} aria-hidden>
+                      {checked && <Check size={14} strokeWidth={3} />}
+                    </span>
+                  )}
+                  <FileThumb f={f} />
                   <span className={s.fileBody}>
                     <span className={s.fileName}>{f.file_name || 'Без имени'}</span>
                     <span className={s.fileMeta}>
@@ -356,25 +492,9 @@ export function Files({ task, meId, isCreator, canUpload, onChanged }: { task: T
                     </span>
                   </span>
                 </button>
-                <IconButton label="Скачать" size={34} onClick={() => downloadFile(f.file_url, f.file_name).catch((e) => toast.error(e))}>
-                  <Download size={17} />
-                </IconButton>
-                {(f.uploaded_by === meId || isCreator) && !archived && (
-                  <IconButton
-                    label="Удалить файл"
-                    size={34}
-                    tone="danger"
-                    onClick={async () => {
-                      if (!(await confirm({ title: 'Удалить файл?', text: f.file_name, confirmText: 'Удалить', danger: true }))) return;
-                      try {
-                        await api.delete(`/api/tasks/${task.id}/files/${f.id}`);
-                        onChanged();
-                      } catch (e) {
-                        toast.error(e, 'Не удалось удалить файл');
-                      }
-                    }}
-                  >
-                    <Trash2 size={16} />
+                {!sel && (
+                  <IconButton label="Скачать" size={34} onClick={() => downloadFile(f.file_url, f.file_name).catch((e) => toast.error(e))}>
+                    <Download size={17} />
                   </IconButton>
                 )}
               </div>
@@ -394,6 +514,52 @@ export function Files({ task, meId, isCreator, canUpload, onChanged }: { task: T
           </div>
         )}
       </div>
+      {sel && (
+        <div className={s.selBar} role="toolbar" aria-label="Действия с выбранными файлами">
+          <span className={s.selCount}>{sel.length ? `Выбрано: ${sel.length}` : 'Отметьте файлы'}</span>
+          <Button size="sm" variant="ghost" icon={<Download size={16} />} disabled={!sel.length || busy} onClick={downloadSelected}>
+            Скачать
+          </Button>
+          {canShare && (
+            <Button size="sm" variant="ghost" icon={<Share2 size={16} />} disabled={!sel.length || busy} onClick={shareSelected}>
+              Отправить
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" icon={<Forward size={16} />} disabled={!sel.length || busy} onClick={() => setForward(true)}>
+            Переслать
+          </Button>
+          <Button size="sm" variant="danger" icon={<Trash2 size={16} />} disabled={!sel.length || busy} onClick={removeSelected}>
+            Удалить
+          </Button>
+        </div>
+      )}
+      <ChatPicker
+        open={forward}
+        title={`Переслать ${chosen.length} ${word(chosen.length)}`}
+        commentPlaceholder="Подпись (необязательно)"
+        onClose={() => setForward(false)}
+        preview={
+          <span className={s.fwdPreview}>
+            {chosen.slice(0, 4).map((f) => (
+              <span key={f.id} className={s.fwdItem}>
+                <FileThumb f={f} />
+                <span className={s.fileName}>{f.file_name}</span>
+              </span>
+            ))}
+            {chosen.length > 4 && <span className={s.fileMeta}>и ещё {chosen.length - 4}</span>}
+          </span>
+        }
+        onSend={async (chatId, topicId, comment) => {
+          await api.post(`/api/tasks/${task.id}/files/forward`, {
+            file_ids: chosen.map((f) => f.id),
+            targets: [{ chat_id: chatId, topic_id: topicId ?? undefined }],
+            comment: comment || undefined,
+          });
+          setSel(null);
+          toast.success('Файлы пересланы');
+          navigate(topicId ? `/chats/${chatId}/topic/${topicId}` : `/chats/${chatId}`);
+        }}
+      />
     </Section>
   );
 }

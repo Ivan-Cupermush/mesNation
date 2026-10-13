@@ -131,6 +131,9 @@ export async function showMessageNotification(m: MessagePush): Promise<void> {
   const text = settings.preview ? m.text : 'Новое сообщение';
   const next = [...history, { id: m.messageId, text, ts: m.sentAt, sender: m.senderName, avatar: avatarUrl(m.senderAvatar) }].slice(-7);
   const conversation = m.isGroup ? (m.topicName ? `${m.chatName} › ${m.topicName}` : m.chatName) : m.chatName;
+  // Фото, видео, кружочек — с превью в развёрнутом уведомлении (как в Telegram),
+  // пока это единственное непрочитанное в чате; дальше — переписка списком.
+  const picture = settings.preview && m.image && history.length === 0 ? avatarUrl(m.image) : undefined;
 
   await notifee.displayNotification({
     id,
@@ -155,13 +158,15 @@ export async function showMessageNotification(m: MessagePush): Promise<void> {
       autoCancel: true,
       largeIcon: !m.isGroup ? avatarUrl(m.senderAvatar) : avatarUrl(m.chatAvatar),
       circularLargeIcon: true,
-      style: {
-        type: AndroidStyle.MESSAGING,
-        person: { name: 'Вы' },
-        title: m.isGroup ? conversation : undefined,
-        group: m.isGroup,
-        messages: next.map((h) => ({ text: h.text, timestamp: h.ts, person: { name: h.sender, icon: h.avatar } })),
-      },
+      style: picture
+        ? { type: AndroidStyle.BIGPICTURE, picture, largeIcon: null, summary: m.isGroup ? `${m.senderName}: ${text}` : text }
+        : {
+            type: AndroidStyle.MESSAGING,
+            person: { name: 'Вы' },
+            title: m.isGroup ? conversation : undefined,
+            group: m.isGroup,
+            messages: next.map((h) => ({ text: h.text, timestamp: h.ts, person: { name: h.sender, icon: h.avatar } })),
+          },
       pressAction: { id: 'default', launchActivity: 'default' },
       actions: [
         { title: 'Ответить', pressAction: { id: 'reply' }, input: { placeholder: 'Сообщение…', allowFreeFormInput: true } },

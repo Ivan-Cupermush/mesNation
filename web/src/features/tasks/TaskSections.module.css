@@ -497,3 +497,91 @@
   background: var(--c-accent);
   color: var(--c-on-accent);
 }
+
+/* ---------- Выделение файлов (как в чате) ---------- */
+
+.selActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fileChecked {
+  background: var(--c-accent-muted);
+  border-radius: 12px;
+}
+
+.fileThumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  object-fit: cover;
+  background: var(--c-input-bg);
+}
+
+.check {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--c-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-on-accent);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.checkOn {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+
+.selBar {
+  position: sticky;
+  bottom: calc(10px + var(--safe-bottom, 0px));
+  z-index: 3;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: var(--c-elevated);
+  border: 1px solid var(--c-border);
+  box-shadow: var(--shadow-lg);
+  animation: selRise 0.16s var(--ease);
+}
+
+.selCount {
+  flex: 1;
+  min-width: 110px;
+  font-weight: 700;
+  font-size: 14px;
+  padding-left: 4px;
+}
+
+.fwdPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--c-input-bg);
+}
+
+.fwdItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+@keyframes selRise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -51,8 +52,19 @@ export async function hasFfmpeg(): Promise<boolean> {
   return ffmpegAvailable;
 }
 
-const toAvatar = (src: string, out: string) =>
-  sharp(src).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(out);
+/**
+ * Пишем во временный файл и переименовываем: у снимка .jpg имя исходника
+ * совпадает с именем готового аватара, а sharp не пишет в читаемый файл.
+ */
+async function toAvatar(src: string, out: string) {
+  const tmp = `${out}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await sharp(src).rotate().resize(512, 512, { fit: 'cover' }).jpeg({ quality: 85 }).toFile(tmp);
+    await fs.promises.rename(tmp, out);
+  } finally {
+    removeFile(tmp);
+  }
+}
 
 /**
  * Аватар: квадрат 512 px в JPEG (быстро грузится, без EXIF с геометкой).
@@ -63,8 +75,9 @@ export async function saveAvatar(src: string, out: string): Promise<void> {
   try {
     await toAvatar(src, out);
     return;
-  } catch {
+  } catch (err: any) {
     // попробуем через ffmpeg
+    logger.debug({ err: err?.message }, 'Аватар: sharp не прочитал снимок');
   }
   if (await hasFfmpeg()) {
     const tmp = `${out}.src.jpg`;

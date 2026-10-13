@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { storage } from '../../lib/storage';
 import { isChatVisible } from './activeChat';
-import { messagePreview } from './model';
+import { notificationText } from './model';
 import { isMuted, useChats } from './queries';
 import { getNotifySettings } from '../account/notifySettings';
 
@@ -52,7 +52,7 @@ export function useChatNotifications(meId: number) {
       const title = c.type === 'group' ? `${c.name || 'Группа'}${lm.sender_name ? ` · ${lm.sender_name}` : ''}` : c.name || lm.sender_name || 'Новое сообщение';
       try {
         const n = new Notification(title, {
-          body: settings.preview ? messagePreview(lm) || 'Новое сообщение' : 'Новое сообщение',
+          body: settings.preview ? notificationText(lm) : 'Новое сообщение',
           icon: c.avatar_url || '/favicon.svg',
           tag: `chat-${c.id}`,
         });

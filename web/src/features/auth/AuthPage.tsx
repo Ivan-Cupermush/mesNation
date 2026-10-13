@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Building2, Lock, Mail, User, WifiOff, ChevronLeft } from 'lucide-react';
+import { Building2, Lock, Mail, User, WifiOff, ChevronLeft, QrCode } from 'lucide-react';
+import { OpenInAppHint, QrLoginPanel } from '../qr/QrPages';
 import { useAuth } from './AuthProvider';
 import { request } from '../../lib/http';
 import { errorText } from '../../lib/format';
@@ -9,7 +10,7 @@ import { TextField } from '../../ui/Field';
 import { Spinner } from '../../ui/Spinner';
 import s from './AuthPage.module.css';
 
-type Screen = 'loading' | 'offline' | 'welcome' | 'login' | 'setup';
+type Screen = 'loading' | 'offline' | 'welcome' | 'login' | 'setup' | 'qr';
 
 /**
  * Вход — как в приложении: проверяем, создана ли компания; если нет —
@@ -81,14 +82,15 @@ export default function AuthPage() {
             </div>
           </div>
         )}
-        {screen === 'login' && <LoginForm companyName={companyName} />}
+        {screen === 'login' && <LoginForm companyName={companyName} onQr={() => setScreen('qr')} />}
+        {screen === 'qr' && <QrLoginPanel onPassword={() => setScreen('login')} />}
         {screen === 'setup' && <SetupForm onBack={() => setScreen('welcome')} />}
       </div>
     </div>
   );
 }
 
-function LoginForm({ companyName }: { companyName: string | null }) {
+function LoginForm({ companyName, onQr }: { companyName: string | null; onQr: () => void }) {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -116,6 +118,7 @@ function LoginForm({ companyName }: { companyName: string | null }) {
       <BrandMark size={64} />
       <h1 className={s.heading}>Вход</h1>
       {companyName && <p className={s.company}>{companyName}</p>}
+      <OpenInAppHint />
       {error && (
         <div className={s.error} role="alert">
           {error}
@@ -142,6 +145,9 @@ function LoginForm({ companyName }: { companyName: string | null }) {
       />
       <Button type="submit" size="lg" block loading={loading}>
         Войти
+      </Button>
+      <Button size="lg" block variant="soft" icon={<QrCode size={19} />} onClick={onQr}>
+        Войти по QR-коду с телефона
       </Button>
       <p className={s.hint}>Учётную запись создаёт администратор компании. Забыли пароль — обратитесь к руководителю.</p>
     </form>

@@ -12,7 +12,8 @@ export type AuditAction =
   | 'user_created'
   | 'role_assigned'
   | 'company_renamed'
-  | 'permissions_changed';
+  | 'permissions_changed'
+  | 'qr_login_approved';
 
 /**
  * Журнал событий безопасности. Ошибка записи не должна ломать сам запрос,

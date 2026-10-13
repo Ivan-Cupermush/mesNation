@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { MessageCircle, UserRound, AtSign, Contact } from 'lucide-react-native';
+import { MessageCircle, UserRound, AtSign, Contact, QrCode } from 'lucide-react-native';
+import { openQrProfile } from '../../navigation/ref';
 import { T, themed } from '../../theme/runtime';
 import { withAlpha } from '../../theme/palettes';
 import { request } from '../../services/http';
@@ -133,10 +134,23 @@ export function ContactSheet({
               <Text style={[styles.actionText, { color: T.onAccent }]}>Написать</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.action} onPress={profile} activeOpacity={0.85}>
-            <UserRound size={20} color={T.accent} />
-            <Text style={styles.actionText}>Профиль сотрудника</Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.action, { flex: 1 }]} onPress={profile} activeOpacity={0.85}>
+              <UserRound size={20} color={T.accent} />
+              <Text style={styles.actionText}>Профиль сотрудника</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.action, styles.actionSquare]}
+              onPress={() => {
+                onClose();
+                openQrProfile(contact.id);
+              }}
+              activeOpacity={0.85}
+              accessibilityLabel="QR-код контакта"
+            >
+              <QrCode size={21} color={T.accent} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -166,5 +180,7 @@ const styles = themed(() => ({
   actions: { gap: 10 },
   action: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 52, borderRadius: 16, backgroundColor: withAlpha(T.accent, 0.12) },
   actionPrimary: { backgroundColor: T.accent },
+  actionRow: { flexDirection: 'row', gap: 10 },
+  actionSquare: { width: 52 },
   actionText: { fontSize: 16, fontWeight: '700', color: T.accent },
 }));

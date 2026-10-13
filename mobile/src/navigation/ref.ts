@@ -18,7 +18,7 @@ export function navigateWhenReady(go: () => void) {
  * Колокольчик и экран запроса открываются поверх вкладок — перед переходом
  * в чат, задачу или заметку их нужно закрыть, иначе переход случится «под» ними.
  */
-function toMain() {
+export function toMain() {
   const st = navigationRef.getRootState();
   if (st && st.routes.length > 1 && st.routes[st.index]?.name !== 'Main') navigationRef.dispatch(StackActions.popToTop());
 }
@@ -63,4 +63,39 @@ export function openNote(noteId: number) {
 
 export function openNotifications() {
   navigateWhenReady(() => navigationRef.navigate('Notifications'));
+}
+
+/** Профиль сотрудника (из QR-кода, ссылки /u/логин, уведомления). */
+export function openUserProfile(userId: number) {
+  navigateWhenReady(() => {
+    toMain();
+    navigationRef.navigate('ChatTab', { screen: 'UserProfile', initial: false, params: { userId } });
+  });
+}
+
+/** QR-код профиля: свой (без userId) или коллеги. */
+export function openQrProfile(userId?: number) {
+  navigateWhenReady(() => navigationRef.navigate('QrProfile', userId ? { userId } : {}));
+}
+
+export function openQrScanner() {
+  navigateWhenReady(() => navigationRef.navigate('QrScanner'));
+}
+
+/** Подтверждение входа на сайт по QR-коду. */
+export function openQrLogin(token: string) {
+  navigateWhenReady(() => navigationRef.navigate('QrLogin', { token }));
+}
+
+/** «Отправить в…» — с Offix поделились из другого приложения. */
+export function openShareTarget(share: unknown) {
+  navigateWhenReady(() => navigationRef.navigate('ShareTarget', { share }));
+}
+
+/** Новая задача с готовым названием и описанием (например, из сообщения чата). */
+export function openCreateTask(prefill?: { title?: string; description?: string }) {
+  navigateWhenReady(() => {
+    toMain();
+    navigationRef.navigate('TasksTab', { screen: 'CreateTask', initial: false, params: prefill ? { prefill } : undefined });
+  });
 }

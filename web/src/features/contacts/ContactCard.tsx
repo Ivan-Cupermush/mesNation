@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { AtSign, Contact, MessageCircle, UserRound } from 'lucide-react';
+import { AtSign, Contact, MessageCircle, QrCode, UserRound } from 'lucide-react';
+import { openQr } from '../qr/qrStore';
 import { api } from '../../lib/http';
 import { Avatar } from '../../ui/Avatar';
 import { Button } from '../../ui/Button';
@@ -118,6 +119,18 @@ export function ContactSheet({ contact, meId, onClose }: { contact: SharedContac
             }}
           >
             Профиль сотрудника
+          </Button>
+          <Button
+            block
+            size="lg"
+            variant="ghost"
+            icon={<QrCode size={18} />}
+            onClick={() => {
+              onClose();
+              openQr(contact.id);
+            }}
+          >
+            QR-код контакта
           </Button>
         </div>
       </div>

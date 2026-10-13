@@ -4,6 +4,8 @@ import { BUBBLE_RADIUS_RANGE, FONT_RANGE, PALETTES, type ThemePreference } from 
 import { Switch } from '../../ui/Field';
 import { Page, PageBody, PageHeader } from '../../ui/Page';
 import { SettingsRow, SettingsSection } from '../../ui/SettingsList';
+import { WallpaperPicker } from '../../ui/WallpaperPicker';
+import { setGlobalWallpaper, useChatWallpaper, wallpaperStyle } from '../../theme/wallpapers';
 import s from './account.module.css';
 
 const MODES: { key: ThemePreference; label: string; icon: typeof Sun }[] = [
@@ -14,15 +16,16 @@ const MODES: { key: ThemePreference; label: string; icon: typeof Sun }[] = [
 
 /**
  * Внешний вид — как в приложении: тема, цвет, размер текста и скругление
- * сообщений (с живым примером), отправка по Enter. Хранится в этом браузере.
+ * сообщений (с живым примером), фон чатов, отправка по Enter. Хранится в этом браузере.
  */
 export default function AppearancePage() {
   const theme = useTheme();
+  const { wallpaper } = useChatWallpaper(null);
   return (
     <Page>
       <PageHeader title="Внешний вид" back={true} />
       <PageBody narrow>
-        <div className={s.preview} aria-hidden>
+        <div className={s.preview} aria-hidden style={wallpaperStyle(wallpaper, theme.isDark)}>
           <div className={[s.bubble, s.bubbleIn].join(' ')} style={{ fontSize: theme.messageFontSize, borderRadius: theme.bubbleRadius }}>
             Добрый день! Отчёт за квартал готов?
             <span className={s.bubbleTime}>10:42</span>
@@ -76,6 +79,12 @@ export default function AppearancePage() {
             <input type="range" min={BUBBLE_RADIUS_RANGE.min} max={BUBBLE_RADIUS_RANGE.max} step={1} value={theme.bubbleRadius} onChange={(e) => theme.setBubbleRadius(Number(e.target.value))} aria-label="Скругление" />
             <span className={s.cornerRound} />
             <b>{theme.bubbleRadius}</b>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection title="Фон чатов" footer="Для отдельного чата фон можно поменять в его информации.">
+          <div className={s.wallpaperBox}>
+            <WallpaperPicker value={wallpaper} onChange={setGlobalWallpaper} />
           </div>
         </SettingsSection>
 

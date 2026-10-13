@@ -1,17 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from './src/services/api';
-import { View, ActivityIndicator, StyleSheet, StatusBar } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, StatusBar, Linking, AppState } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme, getFocusedRouteNameFromRoute, NavigationState } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ApiError, clearToken, getToken, onUnauthorized } from './src/services/http';
 import { connectSocket, disconnectSocket } from './src/services/socket';
-import { navigationRef, flushPendingNavigation } from './src/navigation/ref';
+import { navigationRef, flushPendingNavigation, openShareTarget } from './src/navigation/ref';
 import { startNotifications, stopNotifications } from './src/notifications';
 import { startInbox } from './src/notifications/inbox';
 import { loadContactNames, resetContactNames } from './src/services/contacts';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import NoteRequestScreen from './src/screens/NoteRequestScreen';
+import QrProfileScreen from './src/screens/QrProfileScreen';
+import QrScannerScreen from './src/screens/QrScannerScreen';
+import QrLoginScreen from './src/screens/QrLoginScreen';
+import ShareTargetScreen from './src/screens/ShareTargetScreen';
+import { openOffixLink } from './src/services/openLink';
+import { getPendingShare, onIncomingShare } from './src/native/share';
+import { resetShareTargets, syncShareTargets } from './src/services/shareTargets';
+import { showToast } from './src/components/ui/toast';
 import NotificationBanner from './src/components/NotificationBanner';
 import type { CurrentUser } from './src/services/api';
 import CreateTaskScreen from './src/screens/crm/CreateTaskScreen';
@@ -48,6 +56,7 @@ import KpiImportScreen from './src/screens/crm/KpiImportScreen';
 import KpiRuleScreen from './src/screens/crm/KpiRuleScreen';
 import KpiClientsScreen from './src/screens/crm/KpiClientsScreen';
 import KnowledgeScreen from './src/screens/knowledge/KnowledgeScreen';
+import KnowledgeDocumentsScreen from './src/screens/knowledge/KnowledgeDocumentsScreen';
 
 // ===== Экраны управления деревом прав =====
 import RoleTreeEditorScreen from './src/screens/crm/RoleTreeEditorScreen';
@@ -102,7 +111,7 @@ type KpiStackParamList = {
   KpiClients: undefined;
 };
 
-type KnowledgeStackParamList = { KnowledgeHome: undefined };
+type KnowledgeStackParamList = { KnowledgeHome: undefined; KnowledgeDocuments: undefined };
 type AuthStackParamList = { Auth: undefined };
 
 type HomeStackParamList = { HomeMain: undefined };
@@ -111,6 +120,10 @@ type RootStackParamList = {
   Main: undefined;
   Notifications: undefined;
   NoteRequest: { requestId: number };
+  QrProfile: { userId?: number } | undefined;
+  QrScanner: undefined;
+  QrLogin: { token: string };
+  ShareTarget: { share: unknown };
 };
 
 type MainTabsParamList = {
@@ -242,6 +255,7 @@ function KnowledgeStackNavigator() {
   return (
     <KnowledgeStack.Navigator screenOptions={headerStyle}>
       <KnowledgeStack.Screen name="KnowledgeHome" component={KnowledgeScreen} options={{ headerShown: false }} />
+      <KnowledgeStack.Screen name="KnowledgeDocuments" component={KnowledgeDocumentsScreen} options={{ headerShown: false }} />
     </KnowledgeStack.Navigator>
   );
 }
@@ -400,6 +414,8 @@ function AuthStackNavigator({ onLoginSuccess }: { onLoginSuccess: (token: string
   );
 }
 
+let initialUrlHandled = false;
+
 // ========== Корневой компонент ==========
 function RootNavigator() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
@@ -429,6 +445,7 @@ function RootNavigator() {
     () =>
       onUnauthorized(() => {
         disconnectSocket();
+        resetShareTargets();
         // Сессия уже недействительна — с сервера токен устройства не удалить, только локально.
         stopNotifications({ unregister: false });
         setIsLoggedIn(false);
@@ -449,10 +466,51 @@ function RootNavigator() {
     }
   }, [isLoggedIn]);
 
+  // Ссылки Offix (QR-код профиля обычной камерой, вход на сайт по QR, ярлыки чатов)
+  // и «Поделиться» из других приложений. До входа — ждут, после входа — открываются.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const open = (url: string | null) => {
+      if (!url) return;
+      openOffixLink(url)
+        .then((r) => {
+          if (r === 'not_found') showToast('Сотрудник не найден в вашей компании');
+          else if (r === 'external') Linking.openURL(url).catch(() => undefined);
+        })
+        .catch(() => showToast('Не удалось открыть ссылку'));
+    };
+    // Ссылка, с которой запустили приложение, — один раз (не после каждого входа).
+    if (!initialUrlHandled) {
+      initialUrlHandled = true;
+      Linking.getInitialURL().then(open).catch(() => undefined);
+    }
+    const linkSub = Linking.addEventListener('url', ({ url }) => open(url));
+
+    const takeShare = () =>
+      getPendingShare().then((share) => {
+        if (share) openShareTarget(share);
+      });
+    takeShare();
+    const stopShare = onIncomingShare(takeShare);
+
+    // Недавние чаты — в системное «Поделиться»; обновляем при возврате в приложение.
+    const syncTimer = setTimeout(() => syncShareTargets(true), 4000);
+    const appSub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') syncShareTargets();
+    });
+    return () => {
+      linkSub.remove();
+      stopShare();
+      clearTimeout(syncTimer);
+      appSub.remove();
+    };
+  }, [isLoggedIn]);
+
   const handleLoginSuccess = (_token: string, _user: any) => setIsLoggedIn(true);
   const handleLogout = async () => {
     // Пока токен действителен — отвязываем телефон от push этого пользователя.
     await stopNotifications().catch(() => undefined);
+    await resetShareTargets();
     disconnectSocket();
     await clearToken();
     setIsLoggedIn(false);
@@ -503,6 +561,10 @@ function RootNavigator() {
             <RootStack.Screen name="Main" children={() => <MainTabs onLogout={handleLogout} />} />
             <RootStack.Screen name="Notifications" component={NotificationsScreen} />
             <RootStack.Screen name="NoteRequest" component={NoteRequestScreen} options={{ animation: 'slide_from_bottom' }} />
+            <RootStack.Screen name="QrProfile" component={QrProfileScreen} options={{ animation: 'fade_from_bottom' }} />
+            <RootStack.Screen name="QrScanner" component={QrScannerScreen} options={{ animation: 'fade' }} />
+            <RootStack.Screen name="QrLogin" component={QrLoginScreen} options={{ animation: 'slide_from_bottom' }} />
+            <RootStack.Screen name="ShareTarget" component={ShareTargetScreen} options={{ animation: 'slide_from_bottom' }} />
           </RootStack.Navigator>
         ) : (
           <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />

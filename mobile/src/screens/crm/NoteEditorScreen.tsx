@@ -19,7 +19,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { pick, types, isErrorWithCode, errorCodes } from '@react-native-documents/picker';
 import { api, Note, NoteFile } from '../../services/api';
 import { signedFileUrl, UploadFile } from '../../services/http';
-import ShareToChatModal from '../../components/ShareToChatModal';
+import ShareToChatModal, { sentToLabel } from '../../components/ShareToChatModal';
 import { NoteCard } from '../../components/NoteShareBubble';
 import {
   ArrowLeft, Star, Check, PenLine, Calendar, MoreVertical, Copy, CopyPlus, FileDown, Send,
@@ -328,15 +328,9 @@ export default function NoteEditorScreen({ route, navigation }: any) {
       if (saved) setShareOpen(true);
     });
 
-  const shareToChat = async (chatId: number, comment: string) => {
+  const shareToChat = async (chatId: number, comment: string, topicId: number | null) => {
     if (!note) return;
-    try {
-      await api.shareNote(note.id, { chat_id: chatId, comment: comment || undefined });
-      setShareOpen(false);
-      Alert.alert('Отправлено', 'Ушла копия на этот момент. Получатель добавит её к себе, а если вы что-то поменяете — сможет запросить текущую версию.');
-    } catch (e: any) {
-      Alert.alert('Не удалось отправить', e?.message || '');
-    }
+    await api.shareNote(note.id, { chat_id: chatId, topic_id: topicId ?? undefined, comment: comment || undefined });
   };
 
   const deleteNote = () => {
@@ -563,6 +557,10 @@ export default function NoteEditorScreen({ route, navigation }: any) {
         title="Отправить заметку"
         onClose={() => setShareOpen(false)}
         onSend={shareToChat}
+        onDone={(n) => {
+          setShareOpen(false);
+          Alert.alert(sentToLabel(n), 'Ушла копия на этот момент. Получатель добавит её к себе, а если вы что-то поменяете — сможет запросить текущую версию.');
+        }}
         commentPlaceholder="Добавить подпись…"
         preview={
           note ? (

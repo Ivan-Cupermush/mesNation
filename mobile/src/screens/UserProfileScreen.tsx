@@ -23,8 +23,10 @@ import {
   KeyRound,
   SlidersHorizontal,
   MoreVertical,
-  UserPen
+  UserPen,
+  QrCode
 } from 'lucide-react-native';
+import { openQrProfile } from '../navigation/ref';
 import ContactMenu from '../components/contacts/ContactMenu';
 import { contactName, useContactNames } from '../services/contacts';
 import { showToast } from '../components/ui/toast';
@@ -199,17 +201,24 @@ export default function UserProfileScreen({ navigation }: any) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* ===== HEADER ===== */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
-          <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
-        {user && meId !== null && user.id !== meId ? (
-          <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerBackBtn} accessibilityLabel="Ещё">
-            <MoreVertical size={22} color={T.textPrimary} strokeWidth={2} />
+        <View style={styles.headerSide}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBackBtn}>
+            <ChevronLeft size={24} color={T.textPrimary} strokeWidth={2} />
           </TouchableOpacity>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+        </View>
+        <Text style={styles.headerTitle}>ПРОФИЛЬ</Text>
+        <View style={[styles.headerSide, styles.headerActions]}>
+          {user ? (
+            <TouchableOpacity onPress={() => openQrProfile(user.id)} style={styles.headerBackBtn} accessibilityLabel="QR-код">
+              <QrCode size={21} color={T.textPrimary} strokeWidth={2} />
+            </TouchableOpacity>
+          ) : null}
+          {user && meId !== null && user.id !== meId ? (
+            <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.headerBackBtn} accessibilityLabel="Ещё">
+              <MoreVertical size={22} color={T.textPrimary} strokeWidth={2} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       {loading ? (
@@ -445,6 +454,8 @@ const styles = themed(() => ({
     borderBottomWidth: 1,
     borderBottomColor: T.border,
   },
+  headerSide: { width: 84, flexDirection: 'row', alignItems: 'center' },
+  headerActions: { justifyContent: 'flex-end' },
   headerBackBtn: {
     width: 40,
     height: 40,

@@ -50,14 +50,18 @@ import {
   List as ListIcon,
   Smile,
   Keyboard as KeyboardIcon,
+  CheckCircle2,
+  CornerUpRight,
+  ListTodo,
 } from 'lucide-react-native';
+import { openCreateTask } from '../navigation/ref';
 import { TOPIC_ICONS, hexToRgba } from '../theme/topicIcons';
 import { SERVER_URL } from '../config';
 import { api } from '../services/api';
 import { ApiError, request, signedFileUrl, uploadWithProgress, UploadCancelled } from '../services/http';
 import { emitEvent, joinChat, makeClientId, sendMessage, subscribe } from '../services/socket';
 import DateTimePickerModal from '../components/DateTimePickerModal';
-import ShareToChatModal from '../components/ShareToChatModal';
+import { ChatTargetsModal, ChatTarget } from '../components/ChatTargetsPicker';
 import AttachSheet, { MediaSendOptions, PickedFile, PickedMedia } from '../components/chat/AttachSheet';
 import PollComposer, { PollDraft, PollMediaDraft } from '../components/chat/PollComposer';
 import NotePickerModal from '../components/chat/NotePickerModal';
@@ -71,7 +75,7 @@ import ActionSheet, { SheetAction } from '../components/chat/ActionSheet';
 import MessageRow, { DayDivider, Row, ServiceRow } from '../components/chat/MessageRow';
 import { WallpaperView } from '../components/chat/ChatWallpaper';
 import { useChatWallpaper } from '../theme/wallpapers';
-import { C, REACTIONS, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural } from '../components/chat/chatUtils';
+import { C, REACTIONS, dayLabel, hashColor, initials, isDocument, isVisualMedia, lastSeenLabel, messagePreview, plural, taskPrefill } from '../components/chat/chatUtils';
 
 import { T, themed } from '../theme/runtime';
 import { withAlpha } from '../theme/palettes';
@@ -951,19 +955,44 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
-  const forwardTo = async (toChatId: number, comment: string) => {
+  // Переслать (сразу в несколько чатов и тем) или «Ответить в другом чате», как на сайте.
+  const [forwardMode, setForwardMode] = useState<'forward' | 'reply'>('forward');
+  const [forwardComment, setForwardComment] = useState('');
+  const [forwardBusy, setForwardBusy] = useState<{ done: number; total: number } | null>(null);
+  const forwardTo = async (targets: ChatTarget[]) => {
     const ids = forwardIds || [];
+    const comment = forwardComment.trim();
+    setForwardBusy({ done: 0, total: targets.length });
     try {
-      for (let i = 0; i < ids.length; i++) {
-        await request('/api/messages/forward', {
-          method: 'POST',
-          body: { messageId: ids[i], toChatId, comment: i === 0 && comment ? comment : undefined },
-        });
+      for (const t of targets) {
+        if (forwardMode === 'reply') {
+          await request('/api/messages/reply-to-another-chat', {
+            method: 'POST',
+            body: { message_id: ids[0], target_chat_id: t.chatId, target_topic_id: t.topicId ?? undefined, text: comment || undefined },
+          });
+        } else {
+          for (let i = 0; i < ids.length; i++) {
+            await request('/api/messages/forward', {
+              method: 'POST',
+              body: { messageId: ids[i], toChatId: t.chatId, topicId: t.topicId ?? undefined, comment: i === 0 && comment ? comment : undefined },
+            });
+          }
+        }
+        setForwardBusy((p) => (p ? { ...p, done: p.done + 1 } : p));
       }
       setForwardIds(null);
-      Alert.alert('Готово', ids.length > 1 ? 'Сообщения пересланы' : 'Сообщение переслано');
+      setForwardComment('');
+      if (targets.length === 1 && String(targets[0].chatId) !== String(chatId)) {
+        const t = targets[0];
+        showToast(forwardMode === 'reply' ? 'Ответ отправлен' : ids.length > 1 ? 'Сообщения пересланы' : 'Сообщение переслано');
+        navigation.push('Chat', { chatId: String(t.chatId), chatName: t.name, ...(t.topicId ? { topicId: t.topicId } : {}) });
+      } else {
+        showToast(forwardMode === 'reply' ? 'Ответ отправлен' : `Переслано в ${targets.length} ${plural(targets.length, ['чат', 'чата', 'чатов'])}`);
+      }
     } catch (e: any) {
-      Alert.alert('Не удалось переслать', e?.message || 'Попробуйте ещё раз');
+      Alert.alert(forwardMode === 'reply' ? 'Не удалось ответить' : 'Не удалось переслать', e?.message || 'Попробуйте ещё раз');
+    } finally {
+      setForwardBusy(null);
     }
   };
 
@@ -993,12 +1022,39 @@ export default function ChatScreen({ navigation }: any) {
     if (isVisualMedia(main)) {
       list.push({ key: 'open', label: 'Открыть', icon: <ImageIcon size={20} color={C.text} />, onPress: () => openMedia(main) });
     }
+    if (main.file_url && !main.poll_id) {
+      list.push({
+        key: 'save',
+        label: isVisualMedia(main) ? 'Сохранить в галерею' : 'Сохранить',
+        icon: <Download size={20} color={C.text} />,
+        onPress: async () => {
+          try {
+            const r = await saveMessagesToDevice(rowMessages(row), senderNameOf);
+            if (r.gallery || r.files) showToast(r.gallery ? 'Сохранено в галерею' : 'Файл сохранён');
+          } catch (e: any) {
+            Alert.alert('Не удалось сохранить', e?.message || '');
+          }
+        },
+      });
+    }
     if (!main.poll_id) {
       list.push({
         key: 'forward',
         label: 'Переслать',
         icon: <Forward size={20} color={C.text} />,
-        onPress: () => setForwardIds(rowMessages(row).map((m) => m.id)),
+        onPress: () => {
+          setForwardMode('forward');
+          setForwardIds(rowMessages(row).map((m) => m.id));
+        },
+      });
+      list.push({
+        key: 'replyElsewhere',
+        label: 'Ответить в другом чате',
+        icon: <CornerUpRight size={20} color={C.text} />,
+        onPress: () => {
+          setForwardMode('reply');
+          setForwardIds([main.id]);
+        },
       });
     }
     if (rights.can_pin_messages !== false) {
@@ -1045,6 +1101,15 @@ export default function ChatScreen({ navigation }: any) {
           ]),
       });
     }
+    if (main.text || main.file_name) {
+      list.push({
+        key: 'task',
+        label: 'Создать задачу',
+        icon: <ListTodo size={20} color={C.text} />,
+        onPress: () => openCreateTask(taskPrefill(main, chatName)),
+      });
+    }
+    list.push({ key: 'select', label: 'Выбрать', icon: <CheckCircle2 size={20} color={C.text} />, onPress: () => startSelection(row) });
     list.push({ key: 'delete', label: 'Удалить', danger: true, icon: <Trash2 size={20} color={C.danger} />, onPress: () => confirmDelete(row) });
     return list;
   };
@@ -1339,6 +1404,7 @@ export default function ChatScreen({ navigation }: any) {
   };
 
   const selForward = () => {
+    setForwardMode('forward');
     setForwardIds(selMsgs.map((m) => m.id));
     clearSelection();
   };
@@ -1893,6 +1959,7 @@ export default function ChatScreen({ navigation }: any) {
         onClose={() => setViewer(null)}
         onForward={(it) => {
           setViewer(null);
+          setForwardMode('forward');
           setForwardIds([it.id]);
         }}
         onShowInChat={(it) => {
@@ -1926,7 +1993,22 @@ export default function ChatScreen({ navigation }: any) {
         }))}
         onClose={() => setMoreOpen(false)}
       />
-      <ShareToChatModal visible={!!forwardIds} title="Переслать" onClose={() => setForwardIds(null)} onSend={forwardTo} />
+      <ChatTargetsModal
+        visible={!!forwardIds}
+        title={forwardMode === 'reply' ? 'Ответить в другом чате' : 'Переслать'}
+        subtitle={
+          forwardMode === 'reply'
+            ? 'Ответ с цитатой и ссылкой на это сообщение'
+            : `${(forwardIds || []).length} ${plural((forwardIds || []).length, ['сообщение', 'сообщения', 'сообщений'])} — можно в несколько чатов`
+        }
+        onClose={() => setForwardIds(null)}
+        caption={forwardComment}
+        onCaption={setForwardComment}
+        captionPlaceholder={forwardMode === 'reply' ? 'Ваш ответ…' : 'Добавить комментарий…'}
+        hasContent={forwardMode === 'forward'}
+        progress={forwardBusy}
+        onSend={forwardTo}
+      />
 
       <DateTimePickerModal
         visible={showSchedulePicker}

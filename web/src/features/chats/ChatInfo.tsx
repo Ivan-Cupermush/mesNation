@@ -24,6 +24,7 @@ import {
   UserPlus,
   UserRound,
   MoreVertical,
+  Palette,
 } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
 import { api, uploadFile } from '../../lib/http';
@@ -45,6 +46,8 @@ import { TopicIcon } from './topicIcons';
 import TopicEditor from './TopicEditor';
 import type { AdminPermission, Chat, ChatMember, Topic } from './types';
 import s from './ChatInfo.module.css';
+import { WallpaperPicker } from '../../ui/WallpaperPicker';
+import { setChatWallpaper, useChatWallpaper } from '../../theme/wallpapers';
 import ContactMenu from '../contacts/ContactMenu';
 import { useContactNames } from '../contacts/names';
 
@@ -102,6 +105,8 @@ function GroupOrPrivateInfo() {
   const [muteAnchor, setMuteAnchor] = useState<MenuAnchor | null>(null);
   const [adminEditor, setAdminEditor] = useState<{ user: ChatMember; perms: AdminPermission[]; existing: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
+  const [wallpaperOpen, setWallpaperOpen] = useState(false);
+  const chatWallpaper = useChatWallpaper(chatId);
   const [topicsOff, setTopicsOff] = useState(false);
   const [uploading, setUploading] = useState(false);
   const photoInput = useRef<HTMLInputElement>(null);
@@ -333,6 +338,27 @@ function GroupOrPrivateInfo() {
               right={muted ? <span className={s.accent}>Включить</span> : <ChevronRight size={18} />}
               onClick={(e) => (muted ? changeMute(0) : setMuteAnchor(anchorFrom(e.currentTarget)))}
             />
+          </section>
+
+          <section className={s.card}>
+            <Row
+              icon={<Palette size={19} />}
+              tone="accent"
+              title="Фон чата"
+              hint={chatWallpaper.custom ? 'Свой фон для этого чата' : 'Как во всех чатах'}
+              right={<ChevronRight size={18} style={{ transform: wallpaperOpen ? 'rotate(90deg)' : undefined, transition: 'transform .15s' }} />}
+              onClick={() => setWallpaperOpen((v) => !v)}
+            />
+            {wallpaperOpen && (
+              <div className={s.wallpaperBox}>
+                <WallpaperPicker value={chatWallpaper.wallpaper} onChange={(wp) => setChatWallpaper(chatId, wp)} />
+                {chatWallpaper.custom && (
+                  <Button variant="soft" block onClick={() => setChatWallpaper(chatId, null)}>
+                    Как во всех чатах
+                  </Button>
+                )}
+              </div>
+            )}
           </section>
 
           {isGroup && rights.can_change_info && (

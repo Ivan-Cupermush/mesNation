@@ -122,33 +122,48 @@ export async function pushToUsers(userIds: number[], data: PushData, collapseKey
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 /** Короткий текст сообщения для уведомления (как превью в Telegram). */
+/** «0:12», «1:05:30» — длительность голосового и видео в уведомлении. */
+function duration(sec: unknown): string {
+  const t = Math.round(Number(sec) || 0);
+  if (!t) return '';
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s2 = String(t % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s2}` : `${m}:${s2}`;
+}
+
+/**
+ * Текст уведомления, как в Telegram: значок типа, длительность голосового
+ * и видео, подпись. Те же правила — в приложении для уведомлений без push
+ * (mobile/src/notifications/preview.ts) и на сайте.
+ */
 export function pushPreview(m: any): string {
-  if (m.poll_id) return `Опрос: ${m.poll_question || ''}`.trim();
-  if (m.contact_user_id) {
-    const who = m.contact?.display_name || m.contact?.username || '';
-    return clip(`Контакт: ${who}${m.text ? `, ${m.text}` : ''}`.trim(), 300);
-  }
-  if (m.note_share_id) {
-    const caption = (m.text || '').trim();
-    const title = m.note_share?.title || 'Без названия';
-    return clip(caption ? `Заметка «${title}», ${caption}` : `Заметка «${title}»`, 300);
-  }
-  const text = (m.text || '').trim();
+  const caption = (m.text || '').trim();
+  const withCaption = (label: string) => clip(caption ? `${label}, ${caption}` : label, 300);
+  if (m.poll_id) return clip(`📊 Опрос: ${m.poll_question || ''}`.trim(), 300);
+  if (m.contact_user_id) return withCaption(`👤 Контакт: ${m.contact?.display_name || m.contact?.username || ''}`.trim());
+  if (m.note_share_id) return withCaption(`📝 Заметка «${m.note_share?.title || 'Без названия'}»`);
   const kind = m.media_kind || (m.thumb_url ? 'photo' : m.file_url ? 'file' : null);
-  const label =
-    kind === 'photo'
-      ? 'Фото'
-      : kind === 'video'
-        ? 'Видео'
-        : kind === 'voice'
-          ? 'Голосовое сообщение'
-          : kind === 'video_note'
-            ? 'Видеосообщение'
-            : kind === 'file'
-              ? m.file_name || 'Файл'
-              : '';
-  if (label && text) return clip(`${label}, ${text}`, 300);
-  return clip(text || label || 'Сообщение', 300);
+  const d = duration(m.media_duration);
+  switch (kind) {
+    case 'photo':
+      return withCaption('🖼 Фото');
+    case 'video':
+      return withCaption(d ? `🎬 Видео (${d})` : '🎬 Видео');
+    case 'voice':
+      return withCaption(d ? `🎤 Голосовое сообщение (${d})` : '🎤 Голосовое сообщение');
+    case 'video_note':
+      return withCaption(d ? `📹 Видеосообщение (${d})` : '📹 Видеосообщение');
+    case 'file':
+      return withCaption(`📎 ${m.file_name || 'Файл'}`);
+  }
+  return clip(caption || 'Сообщение', 300);
+}
+
+/** Картинка для уведомления (превью фото, видео, кружочка) — публичная миниатюра. */
+export function pushImage(list: any[]): string {
+  const m = list.find((x) => x.thumb_url && ['photo', 'video', 'video_note'].includes(x.media_kind));
+  return m?.thumb_url || '';
 }
 
 const plural = (n: number, forms: [string, string, string]) => {
@@ -169,7 +184,7 @@ export function groupPreview(list: any[]): string {
     .filter(Boolean)
     .join(', ');
   const caption = (list.find((m) => m.text)?.text || '').trim();
-  const label = photos || videos ? `Альбом: ${parts}` : parts;
+  const label = photos || videos ? `🖼 Альбом: ${parts}` : `📎 ${parts}`;
   return clip(caption ? `${label}, ${caption}` : label, 300);
 }
 
@@ -227,6 +242,9 @@ async function sendMessagePush(list: any[]): Promise<void> {
       sender_name: senderName,
       sender_avatar: m.sender_avatar_url || '',
       text: list.length > 1 ? groupPreview(list) : pushPreview(m),
+      // Превью фото и видео — в развёрнутом уведомлении, как в Telegram.
+      image: pushImage(list),
+      media_kind: list.length > 1 ? 'album' : m.media_kind || '',
       sent_at: new Date(m.created_at || Date.now()).toISOString(),
     },
   );

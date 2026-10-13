@@ -130,7 +130,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               WHERE cm2.chat_id = c.id), '[]') AS members,
             (SELECT row_to_json(lm) FROM (
                SELECT m.id, m.text, m.sender_id, m.created_at, m.file_name, m.content_type,
-                      m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id,
+                      m.media_kind, m.thumb_url, m.file_url, m.poll_id, m.note_share_id, m.media_duration,
                       (SELECT p.question FROM polls p WHERE p.id = m.poll_id) AS poll_question,
                       (SELECT ns.title FROM note_shares ns WHERE ns.id = m.note_share_id) AS note_title,
                       m.contact_user_id,
@@ -543,8 +543,10 @@ router.post('/:id/avatar', chatAvatarUpload.single('avatar'), async (req: AuthRe
     const rights = await assertChatPermission(chatId, req.userId!, 'change_info', 'Нет прав на изменение группы');
     if (rights.type !== 'group') throw badRequest('Аватар можно задать только группе');
     const outName = path.basename(file.filename, path.extname(file.filename)) + '.jpg';
-    await saveAvatar(file.path, path.join(UPLOAD_DIRS.avatars, outName));
-    removeFile(file.path);
+    const outPath = path.join(UPLOAD_DIRS.avatars, outName);
+    await saveAvatar(file.path, outPath);
+    // У снимка .jpg исходник и готовый аватар — один файл: его не удаляем.
+    if (path.resolve(outPath) !== path.resolve(file.path)) removeFile(file.path);
     const url = `/uploads/avatars/${outName}`;
     const prev = await pool.query('SELECT avatar_url FROM chats WHERE id = $1', [chatId]);
     await pool.query('UPDATE chats SET avatar_url = $1 WHERE id = $2', [url, chatId]);

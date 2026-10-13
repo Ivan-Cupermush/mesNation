@@ -6,6 +6,8 @@ import PollBubble from '../PollBubble';
 import NoteShareBubble from '../NoteShareBubble';
 import ContactBubble from '../contacts/ContactCard';
 import { highlightParts } from '../ui/HighlightText';
+import { linkify } from '../../utils/linkify';
+import { openAnyLink } from '../../services/openLink';
 import MediaAlbum from './MediaAlbum';
 import { useTheme } from '../../theme/ThemeContext';
 import { C, fileBadge, formatSize, formatTime, hashColor, initials, isUnlistened, messagePreview } from './chatUtils';
@@ -346,7 +348,16 @@ function MessageRow(props: Props) {
                       p.s
                     ),
                   )
-                : caption}
+                : linkify(caption).map((p, i) =>
+                    typeof p === 'string' ? (
+                      p
+                    ) : (
+                      // Ссылки кликабельны; профиль, чат и задача Offix открываются прямо в приложении.
+                      <Text key={i} style={[styles.link, { color: mine ? T.myMessageText : T.accent }]} onPress={() => openAnyLink(p.url)}>
+                        {p.url}
+                      </Text>
+                    ),
+                  )}
               <Text style={styles.metaSpacer}>{' '.repeat(mine ? 16 : 11)}</Text>
             </Text>
           ) : null}
@@ -516,6 +527,7 @@ const styles = themed(() => ({
   text: { fontSize: 16, lineHeight: 21 },
   captionInMedia: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 4 },
   metaSpacer: { fontSize: 11 },
+  link: { textDecorationLine: 'underline' },
   metaAbs: { position: 'absolute', right: 9, bottom: 5 },
   meta: { flexDirection: 'row', alignItems: 'center' },
   metaOnMedia: { backgroundColor: T.overlay, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },

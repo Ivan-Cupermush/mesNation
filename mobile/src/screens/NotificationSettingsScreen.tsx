@@ -49,6 +49,26 @@ export default function NotificationSettingsScreen({ navigation }: any) {
           senderAvatar: '',
           text: 'Отчёт за квартал готов, посмотрите, пожалуйста',
           sentAt: Date.now(),
+          image: '',
+          mediaKind: '',
+        });
+        // Второе — голосовое: видно, как выглядят сообщения других типов.
+        await showMessageNotification({
+          type: 'message',
+          chatId: 'preview',
+          chatName: 'Отдел продаж',
+          chatAvatar: '',
+          isGroup: true,
+          topicId: null,
+          topicName: '',
+          messageId: Date.now() + 1,
+          senderId: 0,
+          senderName: 'Олег',
+          senderAvatar: '',
+          text: '🎤 Голосовое сообщение (0:12)',
+          sentAt: Date.now(),
+          image: '',
+          mediaKind: 'voice',
         });
       } else if (kind === 'note') {
         await showNoteRequestNotification({

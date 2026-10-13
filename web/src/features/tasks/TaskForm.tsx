@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock, Eye, Flag, Paperclip, Plus, Users, X } from 'lucide-react';
 import { useMe } from '../auth/AuthProvider';
@@ -65,8 +65,10 @@ function Form({ task }: { task: Task | null }) {
   const assignable = useAssignableUsers();
   const allUsers = useUsers();
 
-  const [title, setTitle] = useState(task?.title ?? '');
-  const [description, setDescription] = useState(task?.description ?? '');
+  // «Создать задачу» из сообщения чата: название и описание уже заполнены.
+  const prefill = (useLocation().state as { prefill?: { title?: string; description?: string } } | null)?.prefill;
+  const [title, setTitle] = useState(task?.title ?? prefill?.title ?? '');
+  const [description, setDescription] = useState(task?.description ?? prefill?.description ?? '');
   const [importance, setImportance] = useState<Importance>(task?.importance ?? 'yellow');
   const initialDeadline = task?.executor_deadline || task?.hard_deadline;
   const [deadline, setDeadline] = useState<Date | null>(initialDeadline ? new Date(initialDeadline) : null);
